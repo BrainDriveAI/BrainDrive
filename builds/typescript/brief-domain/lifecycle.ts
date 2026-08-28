@@ -2,13 +2,19 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
-import type { AppDataBackupIdentity, AppDataLifecycleAdapter, OwnerDataActivationRequest, RetainedDataDeleteRequest } from "../app-platform/lifecycle/owner-data.js";
+import type {
+  AppDataBackupIdentity,
+  AppDataLifecycleAdapter,
+  OwnerDataActivationRequest,
+  RetainedDataDeleteRequest,
+  RetainedDataOwnerActionRequest,
+} from "../app-platform/lifecycle/owner-data.js";
 import { validateAppDataBackupIdentity } from "../app-platform/lifecycle/owner-data.js";
 import { BriefDomainError } from "./errors.js";
 import { BriefDataStore } from "./store.js";
 
 export class BriefDataLifecycleAdapter implements AppDataLifecycleAdapter {
-  readonly retainedClasses = ["app_owner_data", "approved_revision_history", "lifecycle_tombstone"] as const;
+  readonly retainedClasses = ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"] as const;
   readonly identity = {
     adapter_contract_version: 1,
     app_id: "ai.braindrive.brief-builder",
@@ -51,11 +57,44 @@ export class BriefDataLifecycleAdapter implements AppDataLifecycleAdapter {
   }
 
   async deleteRetainedData(request: RetainedDataDeleteRequest): Promise<{ deleted: true; deleted_namespace_digest: `sha256:${string}` }> {
-    if (request.app_id !== this.identity.app_id || request.trusted_owner_confirmation !== true || path.resolve(this.namespaceRoot) !== path.resolve(this.memoryRoot, "apps", "brief-builder")) {
-      throw new BriefDomainError("denied", "Retained Brief Builder data deletion authority is invalid", 403);
-    }
+    this.assertRetainedDataAuthority(request, "delete");
     const deleted_namespace_digest = canonicalInputDigest({ app_id: request.app_id, owner_id: request.owner_id, operation_id: request.operation_id, namespace: "host_derived" });
     await rm(this.namespaceRoot, { recursive: true, force: true });
     return { deleted: true, deleted_namespace_digest };
+  }
+
+  async exportRetainedData(request: RetainedDataOwnerActionRequest): Promise<{ exported: true; export_digest: `sha256:${string}`; retained: true }> {
+    this.assertRetainedDataAuthority(request, "export");
+    return {
+      exported: true,
+      export_digest: this.retainedDataActionDigest(request, "export"),
+      retained: true,
+    };
+  }
+
+  async archiveRetainedData(request: RetainedDataOwnerActionRequest): Promise<{ archived: true; archive_digest: `sha256:${string}`; retained: true }> {
+    this.assertRetainedDataAuthority(request, "archive");
+    return {
+      archived: true,
+      archive_digest: this.retainedDataActionDigest(request, "archive"),
+      retained: true,
+    };
+  }
+
+  private assertRetainedDataAuthority(request: RetainedDataDeleteRequest, action: "delete" | "export" | "archive"): void {
+    if (request.app_id !== this.identity.app_id || request.trusted_owner_confirmation !== true || path.resolve(this.namespaceRoot) !== path.resolve(this.memoryRoot, "apps", "brief-builder")) {
+      throw new BriefDomainError("denied", `Retained Brief Builder data ${action} authority is invalid`, 403);
+    }
+  }
+
+  private retainedDataActionDigest(request: RetainedDataOwnerActionRequest, action: "export" | "archive"): `sha256:${string}` {
+    return canonicalInputDigest({
+      action,
+      app_id: this.identity.app_id,
+      owner_id: request.owner_id,
+      operation_id: request.operation_id,
+      namespace: "host_derived",
+      retained: true,
+    });
   }
 }

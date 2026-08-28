@@ -1,4 +1,6 @@
-import type { z } from "zod";
+import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
+import { z } from "zod";
 
 import { BridgeMessageSchema, McpAppResourceSchema, parseBridgeMessage } from "../contracts/mcp-app.js";
 import { assertContentFreeResumeRecoveryReconciliationAudit } from "../contracts/audit.js";
@@ -22,25 +24,53 @@ import type { CapabilityExecutionContext, ResumeCapabilityRouter } from "../../r
 import {
   requireHostOwnerCapabilityAuthorization,
   issueHostOwnerCapabilityAuthorization,
+  RestrictedCapabilityAuthoritySchema,
   restrictedAuthorityFromTokenClaims,
 } from "../../resume-domain/capability-policy.js";
 import { FactDecisionInputSchema, issueHostOwnerDecisionEvidence } from "../../resume-domain/career-data.js";
 import { ResumeDomainError } from "../../resume-domain/errors.js";
 import { CapabilityNameSchema } from "../contracts/package.js";
 import type { CareerReturnSummary } from "../../resume-domain/career.js";
-import type { ResumeExportBroker } from "../../resume-renderer/export-broker.js";
+import type { PreparedResumeExport, ResumeExportBroker } from "../../resume-renderer/export-broker.js";
 import { CapabilityOperationCoordinator, type CapabilityOperationDisposition } from "../../app-capabilities/operations.js";
+import { CapabilityDispatcher } from "../../app-capabilities/dispatcher.js";
+import { CapabilityRegistry, type HostCapabilityContext, type HostCapabilityRegistration } from "../../app-capabilities/registry.js";
 import {
   ResumeRecoveryOperationLifecycleProjectionSchema,
   ResumeRecoveryReconciliationQuerySchema,
   type ResumeRecoveryOperationLifecycleProjection,
 } from "../../app-capabilities/recovery-reconciliation.js";
-import { resolveAppCapability, type ResumeAppCapabilityName as AppCapabilityName, type AppDataCapability } from "../../app-capabilities/resume-registry.js";
+import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
+import { AppArtifactExportService } from "../../app-capabilities/artifact-export.js";
 import { InstalledAppInferenceExecutor, InstalledAppInferenceInvocationSchema } from "../../app-inference/installed-program.js";
 import { createInstalledAppInferenceProgramClient } from "../../app-inference/installed-program-mcp.js";
 import { AppViewRegistry, type AppViewResumeRequest } from "./app-view-registry.js";
-import type { AppLaunch } from "./app-host-types.js";
+import {
+  AppChatSessionRegistry,
+  planAppChatContextGrants,
+  projectAppChatContext,
+  projectAppChatSession,
+  selectAppChatWorkspace,
+  type AppChatSessionAuthority,
+  type AppChatSessionRecord,
+} from "./app-chat-session.js";
+import {
+  AppDocumentRecordSchema,
+  type AppDocumentRecord,
+  type AppDocumentRole,
+  type AppDocumentStorageAuthority,
+  type AppStorageRetentionClass,
+} from "../contracts/app-storage.js";
+import { AppArtifactStore } from "../storage/app-artifact-store.js";
+import { AppDocumentStorageService } from "../storage/app-document-store.js";
+import {
+  assertAppChatMetadataMatchesSession,
+  buildAppChatModelContext,
+  type AppChatActionExecutionRequest,
+} from "./app-chat-model.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch } from "./app-host-types.js";
 import { CurrentProcessRecoveryBindingRegistry } from "./recovery-binding-registry.js";
+import type { ResumeDataCapability as AppDataCapability } from "../../resume-domain/capability-policy.js";
 
 type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 type AppResource = z.infer<typeof McpAppResourceSchema>;
@@ -60,6 +90,14 @@ const APP_BRIDGE_CAPABILITIES = new Set([
 ]);
 
 type AppsClient = Pick<ModernMcpAppsClient, "negotiate" | "readAppResource" | "callTool" | "cancel">;
+type ResumeCapabilityRegistrationSpec = {
+  name: string;
+  audience: HostCapabilityRegistration["audience"];
+  effect: HostCapabilityRegistration["effect"];
+  confirmation: HostCapabilityRegistration["confirmation"];
+  idempotencyPolicy: HostCapabilityRegistration["idempotencyPolicy"];
+  ownerComponentId: string;
+};
 type RecoveryOperationBinding = {
   expectedRevision: number | null;
   semanticDigest: `sha256:${string}` | null;
@@ -73,6 +111,49 @@ type RecoveryOperationBinding = {
   recordScopeIds: readonly string[];
 };
 const CURRENT_PROCESS_RECOVERY_BINDINGS = new CurrentProcessRecoveryBindingRegistry<RecoveryOperationBinding>();
+const RESUME_GENERIC_CAPABILITY_SPECS: readonly ResumeCapabilityRegistrationSpec[] = Object.freeze([
+  { name: "career.context.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
+  { name: "career.facts.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
+  { name: "career.facts.propose", audience: "app_data", effect: "mutation", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-domain" },
+  { name: "career.facts.confirm", audience: "app_data", effect: "mutation", confirmation: "owner_confirmation", idempotencyPolicy: "required", ownerComponentId: "resume-domain" },
+  { name: "resume.definitions.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
+  { name: "resume.definitions.write", audience: "app_data", effect: "mutation", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-domain" },
+  { name: "resume.jobs.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
+  { name: "resume.jobs.write", audience: "app_data", effect: "mutation", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-domain" },
+  { name: "resume.artifacts.register", audience: "app_data", effect: "mutation", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-domain" },
+  { name: "resume.export.request", audience: "app_export", effect: "export", confirmation: "trusted_owner_confirmation", idempotencyPolicy: "required", ownerComponentId: "resume-export" },
+  { name: "resume.operations.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
+  { name: "app.inference.request", audience: "app_inference", effect: "inference", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-inference" },
+]);
+
+const ResumeProfileUpdateChatInputSchema = z.object({
+  profile_markdown: z.string().min(1).max(131_072),
+  completed_topics: z.array(z.string().min(1).max(64)).max(32).optional(),
+  skipped_topics: z.array(z.string().min(1).max(64)).max(32).optional(),
+  current_topic: z.string().max(64).nullable().optional(),
+}).strict();
+
+const ResumeCreateChatSectionInputSchema = z.object({
+  section_id: z.string().min(1).max(128).optional(),
+  title: z.string().min(1).max(128).optional(),
+  statements: z.array(z.string().min(1).max(8192)).min(1).max(64),
+}).strict();
+
+const ResumeCreateChatInputSchema = z.object({
+  title: z.string().min(1).max(256).optional(),
+  resume_markdown: z.string().min(1).max(262_144).optional(),
+  sections: z.array(ResumeCreateChatSectionInputSchema).min(1).max(64).optional(),
+  locale: z.string().min(2).max(35).optional(),
+  page_intent: z.enum(["one_page", "two_pages", "concise", "detailed"]).optional(),
+}).strict().refine((value) => Boolean(value.resume_markdown || value.sections), "Resume create requires resume_markdown or sections");
+
+const ResumeExportPdfChatInputSchema = z.object({
+  format: z.literal("pdf"),
+  definition_revision_id: z.string().uuid().optional(),
+  safe_filename: z.string().min(1).max(128).optional(),
+  destination_intent: z.enum(["new_download", "replace_existing"]).optional(),
+  overwrite_confirmed: z.boolean().optional(),
+}).strict();
 type SessionRecord = {
   sessionId: string;
   viewId: string;
@@ -111,6 +192,7 @@ export class ResumeAppHostAdapter {
   private readonly recoveryDiagnosticBindings = new Map<string, RecoveryOperationBinding>();
   private readonly recoveryProcessInstanceId: string | null;
   private readonly startupTransactionRecoveryComplete: boolean;
+  private readonly activeChatActions = new Map<string, Array<{ installationId: string; capability: string; idempotencyKey: string }>>();
 
   constructor(
     private readonly lifecycle: AppLifecycleService,
@@ -123,6 +205,11 @@ export class ResumeAppHostAdapter {
       exportBroker?: ResumeExportBroker;
       capabilityOperations?: CapabilityOperationCoordinator;
       viewRegistry?: AppViewRegistry;
+      chatSessionRegistry?: AppChatSessionRegistry;
+      documentStorage?: AppDocumentStorageService;
+      artifactExports?: AppArtifactExportService;
+      capabilityDispatcher?: CapabilityDispatcher;
+      capabilityRegistrations?: readonly HostCapabilityRegistration[];
       routeKey?: string;
     } = {},
   ) {
@@ -153,13 +240,29 @@ export class ResumeAppHostAdapter {
       onDisposition: (event) => this.emitRecoveryReconciliationAudit(event),
     });
     this.viewRegistry = options.viewRegistry ?? new AppViewRegistry({ now: this.now });
+    this.chatSessions = options.chatSessionRegistry ?? new AppChatSessionRegistry({ now: this.now });
+    const genericStorageRoot = path.join(this.lifecycle.dependencies.ownerDataRoot, "generic");
+    this.documentStorage = options.documentStorage ?? new AppDocumentStorageService(genericStorageRoot);
+    this.artifactExports = options.artifactExports ?? new AppArtifactExportService({
+      store: new AppArtifactStore(genericStorageRoot),
+      now: () => new Date(this.now()),
+      audit: this.audit,
+    });
     this.installedAppInference = options.installedAppInference;
+    this.capabilityRegistry = new CapabilityRegistry(options.capabilityRegistrations ?? this.createDefaultCapabilityRegistrations());
+    this.capabilityDispatcher = options.capabilityDispatcher
+      ?? new CapabilityDispatcher(this.capabilityRegistry, this.now, this.audit);
   }
 
   private readonly capabilityRouter?: ResumeCapabilityRouter;
   private readonly exportBroker?: ResumeExportBroker;
   private readonly capabilityOperations: CapabilityOperationCoordinator;
   private readonly installedAppInference?: InstalledAppInferenceExecutor;
+  private readonly chatSessions: AppChatSessionRegistry;
+  private readonly documentStorage: AppDocumentStorageService;
+  private readonly artifactExports: AppArtifactExportService;
+  private readonly capabilityRegistry: CapabilityRegistry;
+  private readonly capabilityDispatcher: CapabilityDispatcher;
 
   async launch(entryPoint: "direct" | "career" = "direct", resume?: AppViewResumeRequest): Promise<AppLaunch> {
     const descriptor = await this.lifecycle.ownerDescriptor();
@@ -244,6 +347,285 @@ export class ResumeAppHostAdapter {
       protocol: { core: mcp.protocolVersion, apps_extension: mcp.extensionVersion, server_name: mcp.serverName, server_version: mcp.serverVersion },
       resource, allowed_tools: allowedTools, allowed_capabilities: allowedCapabilities,
       entry_point: entryPoint,
+    };
+  }
+
+  async launchChatWorkspace(input: AppChatWorkspaceLaunchInput = {}): Promise<AppChatWorkspaceLaunch> {
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    const record = descriptor.record;
+    if (record.state !== "active" || !record.installation_id || !record.active_package_digest || !descriptor.grant || !descriptor.storedPackage) {
+      throw new AppPlatformError("invalid_state_transition", "App must be active before opening an app-chat workspace");
+    }
+    const packageDigest = record.active_package_digest as `sha256:${string}`;
+    if (descriptor.grant.package_digest !== packageDigest || descriptor.grant.app_id !== record.app_id || descriptor.grant.publisher_id !== this.lifecycle.publisherId || descriptor.grant.installation_id !== record.installation_id) {
+      throw new AppPlatformError("denied", "App-chat grant does not match the active installation", 403);
+    }
+    const selection = selectAppChatWorkspace(descriptor.storedPackage.manifest, {
+      presentationId: input.presentationId,
+      workspaceId: input.workspaceId,
+    });
+    const contextGrantPlan = planAppChatContextGrants(selection.workspace, descriptor.grant);
+    const sessionPlan = this.chatSessions.plan(this.chatAuthority({
+      grant: descriptor.grant,
+      installationId: record.installation_id,
+      packageDigest,
+      lifecycleGeneration: record.generation,
+      presentationId: selection.presentation.presentation_id,
+      workspaceId: selection.workspace.workspace_id,
+      contextGrantSetDigest: contextGrantPlan.digest,
+    }), input.resume);
+    const context = await projectAppChatContext(selection.workspace, contextGrantPlan, this.capabilityRouter ? {
+      career_context: async () => this.projectCareerContextForChat(sessionPlan.viewId, descriptor.grant!, record.installation_id!),
+    } : {});
+    const committed = this.chatSessions.commit(sessionPlan);
+    this.audit("app.chat_workspace.session_opened", {
+      app_id: this.appId,
+      installation_id: committed.installationId,
+      package_digest: committed.packageDigest,
+      view_id: committed.viewId,
+      operation_id: committed.operationId,
+      presentation_id: committed.presentationId,
+      workspace_id: committed.workspaceId,
+      lifecycle_generation: committed.lifecycleGeneration,
+      grant_revision: committed.grantRevision,
+      revocation_generation: committed.revocationGeneration,
+      context_grant_set_digest: committed.contextGrantSetDigest,
+      context_count: context.items.length,
+      reconnect_outcome: committed.resumed ? "resumed" : "created",
+      outcome: "allowed",
+    });
+    return {
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: projectAppChatSession(committed),
+      resumed: committed.resumed,
+      presentation: selection.presentation,
+      workspace: {
+        workspace_version: selection.workspace.workspace_version,
+        workspace_id: selection.workspace.workspace_id,
+        title: selection.workspace.title,
+        description: selection.workspace.description,
+        default_document_id: selection.workspace.default_document_id,
+        documents: selection.workspace.documents,
+        resources: selection.workspace.resources,
+        actions: selection.workspace.actions,
+      },
+      context,
+    };
+  }
+
+  async readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> {
+    const session = this.chatSessions.read(this.appId, sessionId);
+    const current = await this.lifecycle.status();
+    if (current.state !== "active" || current.installation_id !== session.installationId || current.active_package_digest !== session.packageDigest || current.generation !== session.lifecycleGeneration) {
+      this.close(sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because lifecycle authority changed", 410);
+    }
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (
+      !descriptor.grant ||
+      descriptor.grant.grant_id !== session.grantId ||
+      descriptor.grant.grant_revision !== session.grantRevision ||
+      descriptor.grant.revocation_generation !== session.revocationGeneration ||
+      descriptor.grant.revoked_at !== null
+    ) {
+      this.close(sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
+    }
+    return projectAppChatSession(session);
+  }
+
+  async readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
+    const { session, descriptor, document } = await this.requireChatSessionForDocument(sessionId, documentId);
+    const bindingId = document.data_binding_id ?? document.document_id;
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.documentStorage.bindActiveAuthority(authority);
+    const record = await this.documentStorage.readDocument(authority, document.document_id)
+      ?? await this.projectBoundResumeDocument(session, descriptor.grant!, document, authority);
+    return {
+      result_version: 1,
+      state: record ? "current" : "missing",
+      document_id: document.document_id,
+      document_binding_id: bindingId,
+      record,
+    };
+  }
+
+  private async projectBoundResumeDocument(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+    document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number],
+    storageAuthority: AppDocumentStorageAuthority,
+  ): Promise<AppDocumentRecord | null> {
+    if (!this.capabilityRouter || !document.data_binding_id || !grant.capabilities.includes("resume.definitions.read")) return null;
+    if (document.data_binding_id !== "resume.profile.current" && document.data_binding_id !== "resume.definition.current.general") return null;
+
+    const operationId = randomUUID();
+    let workspace: unknown;
+    try {
+      workspace = await this.capabilityRouter.execute("resume.definitions.read", { view: "workspace" }, {
+        authority: this.restrictedAuthorityForDocumentProjection(session, grant, operationId),
+        operationId,
+        correlationId: operationId,
+        idempotencyKey: `document-projection-${operationId}`,
+        connectionId: session.viewId,
+        viewId: session.viewId,
+      });
+    } catch (error) {
+      throw this.asHostError(error);
+    }
+
+    const source = document.data_binding_id === "resume.definition.current.general"
+      ? latestResumeRecord(workspace, "definitions", (record) => record.record_type === "resume_definition" && record.definition_kind === "general" && record.lifecycle_state !== "retired")
+      : latestResumeRecord(workspace, "interview", (record) => record.record_type === "interview_progress" && record.lifecycle_state !== "retired");
+    if (!source) return null;
+
+    const content = document.data_binding_id === "resume.definition.current.general"
+      ? formatResumeDefinitionMarkdown(source)
+      : formatResumeProfileMarkdown(source);
+    return projectAppDocumentRecord({
+      authority: storageAuthority,
+      document,
+      bindingId: document.data_binding_id,
+      source,
+      mediaType: "text/markdown",
+      content,
+    });
+  }
+
+  private restrictedAuthorityForDocumentProjection(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+    operationId: string,
+  ): CapabilityExecutionContext["authority"] {
+    return RestrictedCapabilityAuthoritySchema.parse({
+      authority_version: 1,
+      context: {
+        context_version: 1,
+        owner_id: grant.owner_id,
+        actor_id: grant.actor_id,
+        app_id: session.appId,
+        publisher_id: grant.publisher_id,
+        package_digest: session.packageDigest,
+        installation_id: session.installationId,
+        grant_id: grant.grant_id,
+        audience: "resume_data",
+        granted_capabilities: ["resume.definitions.read"],
+        record_scope_ids: grant.record_scopes,
+        issued_at: new Date(this.now()).toISOString(),
+        expires_at: grant.expires_at,
+      },
+      grant_revision: grant.grant_revision,
+      revocation_generation: grant.revocation_generation,
+      token_audience: "app_data",
+      connection_id: session.viewId,
+      view_id: session.viewId,
+      operation_id: operationId,
+    });
+  }
+
+  async listAppDocuments(sessionId: string): Promise<AppDocumentListResult> {
+    const { session, descriptor } = await this.requireChatSessionForStorage(sessionId);
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.documentStorage.bindActiveAuthority(authority);
+    return this.documentStorage.listDocuments(authority);
+  }
+
+  async writeAppDocument(sessionId: string, documentId: string, input: AppDocumentWriteInput): Promise<AppDocumentReadResult> {
+    const { session, descriptor, document } = await this.requireChatSessionForDocument(sessionId, documentId);
+    if (!document.editable) throw new AppPlatformError("denied", "App document is read-only in this workspace", 403);
+    const bindingId = document.data_binding_id ?? document.document_id;
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.documentStorage.bindActiveAuthority(authority);
+    const result = await this.documentStorage.writeDocument({
+      request_version: 1,
+      authority,
+      document_id: document.document_id,
+      document_binding_id: bindingId,
+      record_kind: document.role === "advanced_resource" ? "state" : "document",
+      role: documentStorageRole(document),
+      retention_class: input.retention_class ?? defaultRetentionClassForDocument(document),
+      media_type: input.media_type ?? (typeof input.content === "string" ? "text/markdown" : "application/json"),
+      expected_revision: input.expected_revision,
+      operation_id: input.operation_id,
+      idempotency_key: input.idempotency_key,
+      content: input.content,
+    });
+    this.audit(result.audit.event, result.audit);
+    return {
+      result_version: 1,
+      state: "current",
+      document_id: document.document_id,
+      document_binding_id: bindingId,
+      record: result.record,
+    };
+  }
+
+  async deleteAppDocument(sessionId: string, documentId: string, input: AppDocumentDeleteInput): Promise<AppDocumentDeleteResult> {
+    const { session, descriptor, document } = await this.requireChatSessionForDocument(sessionId, documentId);
+    if (!document.editable) throw new AppPlatformError("denied", "App document is read-only in this workspace", 403);
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.documentStorage.bindActiveAuthority(authority);
+    const result = await this.documentStorage.deleteDocument({
+      request_version: 1,
+      authority,
+      document_id: document.document_id,
+      expected_revision: input.expected_revision,
+      operation_id: input.operation_id,
+      idempotency_key: input.idempotency_key,
+      delete_mode: input.delete_mode ?? "tombstone",
+    });
+    this.audit(result.audit.event, result.audit);
+    return result;
+  }
+
+  async registerAppArtifact(input: AppArtifactRegistrationInput): Promise<AppArtifactRegistrationResult> {
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.record.active_package_digest || !descriptor.grant) {
+      throw new AppPlatformError("invalid_state_transition", "App must be active before registering artifacts");
+    }
+    const result = await this.artifactExports.registerArtifact({
+      ...input,
+      authority: this.artifactAuthority(descriptor.grant, descriptor.record.installation_id, descriptor.record.active_package_digest as `sha256:${string}`, descriptor.record.generation),
+    });
+    return { result_version: 1, artifact: result.record, replayed: result.replayed };
+  }
+
+  async requestAppExport(input: AppExportPrepareInput, ownerActorId: string): Promise<AppExportPrepared> {
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.record.active_package_digest || !descriptor.grant) {
+      throw new AppPlatformError("invalid_state_transition", "App must be active before requesting exports");
+    }
+    if (ownerActorId !== descriptor.grant.actor_id && ownerActorId !== "owner") {
+      throw new AppPlatformError("denied", "Owner actor is not bound to this app installation", 403);
+    }
+    return this.artifactExports.prepareExport({
+      ...input,
+      owner_confirmed: input.owner_confirmed === true,
+      authority: this.artifactAuthority(descriptor.grant, descriptor.record.installation_id, descriptor.record.active_package_digest as `sha256:${string}`, descriptor.record.generation),
+    });
+  }
+
+  async buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext> {
+    const { session, descriptor, workspace } = await this.requireChatSessionForModel(request);
+    const context = await buildAppChatModelContext({
+      metadata: request,
+      session,
+      workspace,
+      storedPackage: descriptor.storedPackage!,
+      executeAction: (actionRequest) => this.executeChatWorkspaceAction(actionRequest),
+    });
+    return {
+      prompt_context: context.promptContext,
+      tools: context.tools,
+      evidence: {
+        action_exposure: context.evidence.actionExposure,
+        resources: context.evidence.resources,
+      },
     };
   }
 
@@ -359,12 +741,20 @@ export class ResumeAppHostAdapter {
           connectionId: session.mcp.connectionId, viewId: session.viewId, operationId: message.message_id, idempotencyKey,
         });
         const exportInput = { action: "export" as const, format: message.payload.format, definition_revision_id: message.payload.definition_revision_id, safe_filename: message.payload.safe_filename, destination_intent: message.payload.destination_intent, overwrite_confirmed: message.payload.overwrite_confirmed };
-        const result = await this.capabilityOperations.execute({
+        const resumePrepared = await this.capabilityOperations.execute({
           appId: session.grant.app_id,
           installationId: session.installationId, connectionId: session.mcp.connectionId, viewId: session.viewId,
           capability: "resume.export.request", capabilityVersion: 1, operationId: message.message_id,
           idempotencyKey, input: exportInput, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
         }, ({ isCancelled }) => this.exportBroker!.export(exportInput, { grant: session.grant, capability: "resume.export.request", operationId: message.message_id, idempotencyKey, isCancelled }));
+        const result = await this.adoptResumePreparedExport(resumePrepared, session.grant, session.installationId, session.packageDigest, session.lifecycleGeneration, {
+          operationId: message.message_id,
+          idempotencyKey,
+          sourceId: exportInput.definition_revision_id,
+          ownerConfirmed: true,
+          destinationIntent: exportInput.destination_intent,
+          overwriteConfirmed: exportInput.overwrite_confirmed,
+        });
         return { status: "capability_completed", result };
       } catch (error) { throw this.asHostError(error); }
     }
@@ -438,10 +828,6 @@ export class ResumeAppHostAdapter {
   async handleOwnerCapability(capability: unknown, input: unknown, operationId: string, hostOwnerConfirmed: boolean, ownerActorId: string): Promise<unknown> {
     const parsedCapability = CapabilityNameSchema.safeParse(capability);
     if (!parsedCapability.success) throw new AppPlatformError("invalid_input", "Capability name is invalid", 400);
-    const confirmation = resumeOwnerConfirmationProjection(parsedCapability.data, input);
-    if (confirmation && !hostOwnerConfirmed) {
-      throw new AppPlatformError("denied", "This action requires host owner confirmation", 403, { confirmation });
-    }
     const ownerAuthorization = issueHostOwnerCapabilityAuthorization(ownerActorId);
     requireHostOwnerCapabilityAuthorization(ownerAuthorization);
     const descriptor = await this.lifecycle.ownerDescriptor();
@@ -497,6 +883,10 @@ export class ResumeAppHostAdapter {
           })));
         }
         throw new AppPlatformError("invalid_input", "Installed app inference requires contract version 2", 400);
+      }
+      const confirmation = resumeOwnerConfirmationProjection(parsedCapability.data, input);
+      if (confirmation && !hostOwnerConfirmed) {
+        throw new AppPlatformError("denied", "This action requires host owner confirmation", 403, { confirmation });
       }
       if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available", 403);
       const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
@@ -554,22 +944,25 @@ export class ResumeAppHostAdapter {
     if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.grant) throw new AppPlatformError("invalid_state_transition", "Resume Builder must be active before export completion");
     try {
       const idempotencyKey = `owner-export-${operationId}`;
+      const generic = await this.finalizeGenericExportReceipt(input, operationId, idempotencyKey, descriptor.grant, descriptor.record.installation_id, descriptor.record.active_package_digest as `sha256:${string}` | null, descriptor.record.generation);
+      if (isRecordValue(input) && input.request_version === 1) return generic;
       const issued = await this.lifecycle.issueSession({ audience: "app_export", capabilities: ["resume.export.request"], operationId, idempotencyKey });
       const claims = this.consumeIssuedAuthority(issued, descriptor.grant, "resume.export.request", {
         connectionId: issued.claims.connection_id, viewId: null, operationId, idempotencyKey,
       });
-      return await this.capabilityOperations.execute({
+      const legacy = await this.capabilityOperations.execute({
         appId: descriptor.grant.app_id,
         installationId: descriptor.record.installation_id, connectionId: claims.connection_id, viewId: null,
         capability: "resume.export.request", capabilityVersion: 1, operationId, idempotencyKey, input,
         deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
       }, ({ isCancelled }) => this.exportBroker!.finalize(input, { grant: descriptor.grant!, capability: "resume.export.request", operationId, idempotencyKey, isCancelled }));
+      return generic ?? legacy;
     } catch (error) { throw this.asHostError(error); }
   }
 
   async issueServerCapabilityAuthority(sessionId: string, capability: unknown, operationId: string, idempotencyKey: string): Promise<{ token: string; expiresAt: string }> {
     const session = await this.requireSession(sessionId);
-    const entry = resolveAppCapability(capability, 1);
+    const entry = this.capabilityRegistry.resolve(this.appId, capability, 1);
     if (entry.name === "career.facts.confirm" || !session.allowedCapabilities.has(entry.name)) {
       throw new AppPlatformError("denied", "Capability is unavailable", 403);
     }
@@ -581,7 +974,7 @@ export class ResumeAppHostAdapter {
   }
 
   async handleServerCapability(token: string, capability: unknown, capabilityVersion: number, input: unknown, operationId: string, idempotencyKey: string): Promise<unknown> {
-    const entry = resolveAppCapability(capability, capabilityVersion);
+    const entry = this.capabilityRegistry.resolve(this.appId, capability, capabilityVersion);
     if (entry.name === "career.facts.confirm") throw new AppPlatformError("denied", "Capability is unavailable", 403);
     const descriptor = await this.lifecycle.ownerDescriptor();
     if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.grant) {
@@ -607,22 +1000,29 @@ export class ResumeAppHostAdapter {
       return this.capabilityOperations.execute({
         appId: grant.app_id, installationId: claims.installation_id, connectionId: claims.connection_id, viewId: matchingSession.viewId,
         capability: "app.inference.request", capabilityVersion: 1, operationId, idempotencyKey, input: invocation.data,
-        deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.maxDurationMs),
+        deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.limits.maxDurationMs),
       }, ({ signal }) => this.lifecycle.dependencies.store.runIdempotent(idempotencyKey, { capability: entry.name, input: invocation.data }, () => this.installedAppInference!.execute(invocation.data, {
         appId: grant.app_id, installationId: claims.installation_id, packageDigest: matchingSession.packageDigest,
         programClient: createInstalledAppInferenceProgramClient(matchingSession.client, matchingSession.mcp), signal,
       })));
     }
-    return this.executeDataCapability(entry.name, input, {
+    return this.executeDataCapability(entry.name as AppDataCapability, input, {
       authority: restrictedAuthorityFromTokenClaims(claims), installationId: claims.installation_id,
       connectionId: claims.connection_id, viewId: null, operationId, correlationId: operationId,
-      idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.maxDurationMs),
+      idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.limits.maxDurationMs),
     });
   }
 
   close(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session) {
+      const closedChat = this.chatSessions.close(this.appId, sessionId);
+      if (closedChat.closed && closedChat.viewId) {
+        this.cancelChatActions(sessionId);
+        this.lifecycle.dependencies.tokenBroker.revokeView(closedChat.viewId);
+      }
+      return closedChat.closed;
+    }
     const closedView = this.viewRegistry.close(this.appId, sessionId);
     if (!closedView.closed) return false;
     for (const operationId of session.inferenceOperations) this.capabilityOperations.cancel(session.grant.app_id, session.installationId, "app.inference.request", inferenceIdempotencyKey(operationId));
@@ -632,10 +1032,16 @@ export class ResumeAppHostAdapter {
   async closeAll(): Promise<void> {
     const connectionIds = new Set([...this.sessions.values()].map((session) => session.mcp.connectionId));
     for (const sessionId of [...this.sessions.keys()]) this.close(sessionId);
+    for (const session of this.chatSessions.activeSessions()) {
+      this.cancelChatActions(session.sessionId);
+      this.lifecycle.dependencies.tokenBroker.revokeView(session.viewId);
+    }
     for (const connectionId of connectionIds) this.lifecycle.dependencies.tokenBroker.revokeConnection(connectionId);
     await this.connectionManager.closeAll();
     this.runtimeConnections.clear();
     this.viewRegistry.clear();
+    this.chatSessions.clear();
+    this.activeChatActions.clear();
   }
   sessionCountForTest(): number { return this.sessions.size; }
 
@@ -668,6 +1074,701 @@ export class ResumeAppHostAdapter {
       throw new AppPlatformError("session_closed", "App UI session closed because grant authority changed", 410);
     }
     return session;
+  }
+
+  private async requireChatSessionForDocument(sessionId: string, documentId: string): Promise<{
+    session: AppChatSessionRecord;
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>;
+    document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number];
+  }> {
+    const session = this.chatSessions.read(this.appId, sessionId);
+    const current = await this.lifecycle.status();
+    if (current.state !== "active" || current.installation_id !== session.installationId || current.active_package_digest !== session.packageDigest || current.generation !== session.lifecycleGeneration) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because lifecycle authority changed", 410);
+    }
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (
+      !descriptor.grant ||
+      !descriptor.storedPackage ||
+      descriptor.grant.grant_id !== session.grantId ||
+      descriptor.grant.grant_revision !== session.grantRevision ||
+      descriptor.grant.revocation_generation !== session.revocationGeneration ||
+      descriptor.grant.revoked_at !== null ||
+      descriptor.grant.package_digest !== session.packageDigest ||
+      descriptor.grant.installation_id !== session.installationId
+    ) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
+    }
+    const selection = selectAppChatWorkspace(descriptor.storedPackage.manifest, {
+      presentationId: session.presentationId,
+      workspaceId: session.workspaceId,
+    });
+    const document = selection.workspace.documents.find((candidate) => candidate.document_id === documentId);
+    if (!document) throw new AppPlatformError("not_found_within_scope", "App document is not declared for this workspace", 404);
+    if (document.role === "conversation" || document.role === "advanced_resource" || !document.data_binding_id) {
+      throw new AppPlatformError("denied", "Workspace item is not bound to app document storage", 403);
+    }
+    return { session, descriptor, document };
+  }
+
+  private async requireChatSessionForStorage(sessionId: string): Promise<{
+    session: AppChatSessionRecord;
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>;
+  }> {
+    const session = this.chatSessions.read(this.appId, sessionId);
+    const current = await this.lifecycle.status();
+    if (current.state !== "active" || current.installation_id !== session.installationId || current.active_package_digest !== session.packageDigest || current.generation !== session.lifecycleGeneration) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because lifecycle authority changed", 410);
+    }
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (
+      !descriptor.grant ||
+      !descriptor.storedPackage ||
+      descriptor.grant.grant_id !== session.grantId ||
+      descriptor.grant.grant_revision !== session.grantRevision ||
+      descriptor.grant.revocation_generation !== session.revocationGeneration ||
+      descriptor.grant.revoked_at !== null ||
+      descriptor.grant.package_digest !== session.packageDigest ||
+      descriptor.grant.installation_id !== session.installationId
+    ) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
+    }
+    return { session, descriptor };
+  }
+
+  private storageAuthority(session: AppChatSessionRecord, grant: CapabilityGrant): AppDocumentStorageAuthority {
+    return {
+      authority_version: 1,
+      owner_id: session.ownerId,
+      actor_id: session.actorId,
+      app_id: session.appId,
+      publisher_id: session.publisherId,
+      installation_id: session.installationId,
+      package_digest: session.packageDigest,
+      lifecycle_generation: session.lifecycleGeneration,
+      grant_id: grant.grant_id,
+      grant_revision: grant.grant_revision,
+      revocation_generation: grant.revocation_generation,
+    };
+  }
+
+  private artifactAuthority(
+    grant: CapabilityGrant,
+    installationId: string,
+    packageDigest: `sha256:${string}`,
+    lifecycleGeneration: number,
+  ): AppDocumentStorageAuthority {
+    return {
+      authority_version: 1,
+      owner_id: grant.owner_id,
+      actor_id: grant.actor_id,
+      app_id: grant.app_id,
+      publisher_id: grant.publisher_id,
+      installation_id: installationId,
+      package_digest: packageDigest,
+      lifecycle_generation: lifecycleGeneration,
+      grant_id: grant.grant_id,
+      grant_revision: grant.grant_revision,
+      revocation_generation: grant.revocation_generation,
+    };
+  }
+
+  private async adoptResumePreparedExport(
+    prepared: PreparedResumeExport,
+    grant: CapabilityGrant,
+    installationId: string,
+    packageDigest: `sha256:${string}`,
+    lifecycleGeneration: number,
+    input: {
+      operationId: string;
+      idempotencyKey: string;
+      sourceId: string;
+      ownerConfirmed: boolean;
+      destinationIntent: "new_download" | "replace_existing";
+      overwriteConfirmed: boolean;
+    },
+  ): Promise<PreparedResumeExport & { generic_artifact: unknown; replayed: boolean }> {
+    const bytes = Buffer.from(prepared.bytes_base64, "base64");
+    const generic = await this.artifactExports.prepareExport({
+      request_version: 1,
+      authority: this.artifactAuthority(grant, installationId, packageDigest, lifecycleGeneration),
+      operation_id: input.operationId,
+      idempotency_key: `${input.idempotencyKey}:generic-export`,
+      source: { kind: "app_document", source_id: input.sourceId },
+      content_digest: prepared.artifact_digest,
+      content_size_bytes: bytes.length,
+      retention_class: "durable_owner_data",
+      media_type: prepared.mime_type,
+      filename: prepared.filename,
+      destination_intent: input.destinationIntent,
+      overwrite_confirmed: input.overwriteConfirmed,
+      owner_confirmed: input.ownerConfirmed,
+      bytes_base64: prepared.bytes_base64,
+      artifact_id: prepared.artifact_revision_id,
+      artifact_revision_id: prepared.artifact_revision_id,
+    });
+    return {
+      ...prepared,
+      artifact_revision_id: generic.artifact.artifact_revision_id,
+      generic_artifact: generic.artifact,
+      replayed: generic.replayed,
+    };
+  }
+
+  private async finalizeGenericExportReceipt(
+    input: unknown,
+    operationId: string,
+    idempotencyKey: string,
+    grant: CapabilityGrant,
+    installationId: string,
+    packageDigest: `sha256:${string}` | null,
+    lifecycleGeneration: number,
+  ): Promise<unknown | null> {
+    if (!packageDigest || !isRecordValue(input)) return null;
+    if (input.request_version === 1 && typeof input.content_digest === "string" && typeof input.media_type === "string") {
+      return await this.artifactExports.finalizeExport({
+        ...input,
+        operation_id: operationId,
+        idempotency_key: typeof input.idempotency_key === "string" ? input.idempotency_key : `${idempotencyKey}:generic-receipt`,
+        authority: this.artifactAuthority(grant, installationId, packageDigest, lifecycleGeneration),
+      });
+    }
+    if (typeof input.artifact_revision_id !== "string" || typeof input.artifact_digest !== "string" || typeof input.safe_destination_label !== "string" || typeof input.outcome !== "string") {
+      return null;
+    }
+    const artifact = await this.artifactExports.readArtifact(
+      this.artifactAuthority(grant, installationId, packageDigest, lifecycleGeneration),
+      input.artifact_revision_id,
+    );
+    if (!artifact || artifact.content_digest !== input.artifact_digest) return null;
+    const outcome = input.outcome === "completed" || input.outcome === "cancelled" || input.outcome === "failed"
+      ? input.outcome
+      : null;
+    if (!outcome) return null;
+    return await this.artifactExports.finalizeExport({
+      request_version: 1,
+      authority: this.artifactAuthority(grant, installationId, packageDigest, lifecycleGeneration),
+      operation_id: operationId,
+      idempotency_key: `${idempotencyKey}:generic-receipt`,
+      artifact_revision_id: input.artifact_revision_id,
+      content_digest: artifact.content_digest,
+      media_type: artifact.media_type,
+      outcome,
+      safe_destination_label: input.safe_destination_label,
+    });
+  }
+
+  private chatAuthority(input: {
+    grant: CapabilityGrant;
+    installationId: string;
+    packageDigest: `sha256:${string}`;
+    lifecycleGeneration: number;
+    presentationId: string;
+    workspaceId: string;
+    contextGrantSetDigest: `sha256:${string}`;
+  }): AppChatSessionAuthority {
+    return {
+      ownerId: input.grant.owner_id,
+      accountId: input.grant.owner_id,
+      actorId: input.grant.actor_id,
+      appId: input.grant.app_id,
+      publisherId: input.grant.publisher_id,
+      installationId: input.installationId,
+      packageDigest: input.packageDigest,
+      lifecycleGeneration: input.lifecycleGeneration,
+      grantId: input.grant.grant_id,
+      grantRevision: input.grant.grant_revision,
+      revocationGeneration: input.grant.revocation_generation,
+      presentationId: input.presentationId,
+      workspaceId: input.workspaceId,
+      contextGrantSetDigest: input.contextGrantSetDigest,
+    };
+  }
+
+  private async projectCareerContextForChat(viewId: string, grant: CapabilityGrant, installationId: string): Promise<unknown> {
+    const operationId = randomUUID();
+    const idempotencyKey = `app-chat-context-${operationId}`;
+    const issued = await this.lifecycle.issueSession({
+      audience: "app_data",
+      capabilities: ["career.context.read"],
+      operationId,
+      idempotencyKey,
+      viewId,
+    });
+    const claims = this.consumeIssuedAuthority(issued, grant, "career.context.read", {
+      connectionId: issued.claims.connection_id,
+      viewId,
+      operationId,
+      idempotencyKey,
+    });
+    return this.executeDataCapability("career.context.read", { entry_point: "direct" }, {
+      authority: restrictedAuthorityFromTokenClaims(claims),
+      installationId,
+      connectionId: claims.connection_id,
+      viewId,
+      operationId,
+      correlationId: operationId,
+      idempotencyKey,
+      deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
+    });
+  }
+
+  private async requireChatSessionForModel(metadata: AppChatModelContextRequest): Promise<{
+    session: AppChatSessionRecord;
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>;
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"];
+  }> {
+    if (metadata.app_id !== this.appId) {
+      throw new AppPlatformError("denied", "App-chat model session targets a different app", 403);
+    }
+    const session = this.chatSessions.read(this.appId, metadata.session_id);
+    assertAppChatMetadataMatchesSession(metadata, session);
+    const current = await this.lifecycle.status();
+    if (current.state !== "active" || current.installation_id !== session.installationId || current.active_package_digest !== session.packageDigest || current.generation !== session.lifecycleGeneration) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because lifecycle authority changed", 410);
+    }
+    const descriptor = await this.lifecycle.ownerDescriptor();
+    if (
+      !descriptor.grant ||
+      !descriptor.storedPackage ||
+      descriptor.grant.grant_id !== session.grantId ||
+      descriptor.grant.grant_revision !== session.grantRevision ||
+      descriptor.grant.revocation_generation !== session.revocationGeneration ||
+      descriptor.grant.revoked_at !== null ||
+      descriptor.grant.package_digest !== session.packageDigest ||
+      descriptor.grant.installation_id !== session.installationId
+    ) {
+      this.close(session.sessionId);
+      throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
+    }
+    const selection = selectAppChatWorkspace(descriptor.storedPackage.manifest, {
+      presentationId: session.presentationId,
+      workspaceId: session.workspaceId,
+    });
+    return { session, descriptor, workspace: selection.workspace };
+  }
+
+  private createDefaultCapabilityRegistrations(): readonly HostCapabilityRegistration[] {
+    return RESUME_GENERIC_CAPABILITY_SPECS.map((spec) => ({
+      appId: this.appId,
+      name: spec.name,
+      version: 1,
+      audience: spec.audience,
+      effect: spec.effect,
+      inputSchema: z.unknown(),
+      resultSchema: z.unknown(),
+      limits: { maxInputBytes: 262_144, maxDurationMs: 120_000, maxCallsPerMinute: 60 },
+      confirmation: spec.confirmation,
+      confirmationProjection: spec.confirmation === "none"
+        ? null
+        : {
+            title: spec.confirmation === "trusted_owner_confirmation" ? "Approve trusted owner action" : "Approve owner action",
+            actionLabel: spec.confirmation === "trusted_owner_confirmation" ? "Approve trusted action" : "Approve action",
+          },
+      auditProjectionId: `${spec.name}.audit.v1`,
+      retryPolicy: "idempotent_only",
+      idempotencyPolicy: spec.idempotencyPolicy,
+      ownerComponentId: spec.ownerComponentId,
+      handler: (input, context) => this.executeRegisteredCapability(spec, input, context),
+    }));
+  }
+
+  private async executeRegisteredCapability(
+    spec: ResumeCapabilityRegistrationSpec,
+    input: unknown,
+    context: HostCapabilityContext,
+  ): Promise<unknown> {
+    if (spec.name === "app.inference.request") {
+      return this.executeRegisteredInferenceCapability(input, context);
+    }
+    return this.executeRegisteredDataCapability(spec.name as AppDataCapability, input, context);
+  }
+
+  private async executeRegisteredDataCapability(
+    capability: AppDataCapability,
+    input: unknown,
+    context: HostCapabilityContext,
+  ): Promise<unknown> {
+    const connectionId = context.connectionId ?? context.viewId ?? context.operationId;
+    return this.executeDataCapability(capability, input, {
+      authority: this.restrictedAuthorityForRegisteredCapability(capability, context, connectionId),
+      installationId: context.installationId,
+      connectionId,
+      viewId: context.viewId,
+      operationId: context.operationId,
+      correlationId: context.operationId,
+      idempotencyKey: context.idempotencyKey,
+      deadlineAt: context.deadlineAt,
+      hostOwnerConfirmed: context.ownerConfirmation.confirmed,
+      isCancelled: context.isCancelled,
+    });
+  }
+
+  private async executeRegisteredInferenceCapability(input: unknown, context: HostCapabilityContext): Promise<unknown> {
+    if (!this.installedAppInference) throw new AppPlatformError("denied", "Installed app inference is not configured", 403);
+    if (!context.sessionId || !context.viewId) throw new AppPlatformError("denied", "Installed app inference requires an active app-chat session", 403);
+    const session = this.chatSessions.read(this.appId, context.sessionId);
+    if (
+      session.installationId !== context.installationId ||
+      session.packageDigest !== context.packageDigest ||
+      session.viewId !== context.viewId ||
+      session.lifecycleGeneration !== context.lifecycleGeneration
+    ) {
+      throw new AppPlatformError("denied", "Installed app inference session binding is invalid", 403);
+    }
+    const invocation = InstalledAppInferenceInvocationSchema.safeParse(input);
+    if (!invocation.success || invocation.data.operation_id !== context.operationId) {
+      throw new AppPlatformError("invalid_input", "Installed app inference action input is invalid", 400);
+    }
+    const connection = this.lifecycle.dependencies.supervisor.connectionFor(session.installationId);
+    if (connection.runtime.package_digest !== session.packageDigest) {
+      throw new AppPlatformError("runtime_conflict", "Active app runtime does not match the chat workspace package", 409);
+    }
+    const client = this.clientFactory(connection);
+    const mcp = await client.negotiate();
+    return this.lifecycle.dependencies.store.runIdempotent(
+      context.idempotencyKey,
+      { capability: "app.inference.request", input: invocation.data },
+      () => this.installedAppInference!.execute(invocation.data, {
+        appId: context.appId,
+        installationId: context.installationId,
+        packageDigest: context.packageDigest,
+        programClient: createInstalledAppInferenceProgramClient(client, mcp),
+        signal: context.signal,
+      }),
+    );
+  }
+
+  private restrictedAuthorityForRegisteredCapability(
+    capability: AppDataCapability,
+    context: HostCapabilityContext,
+    connectionId: string,
+  ): CapabilityExecutionContext["authority"] {
+    const grant = context.grant as CapabilityGrant;
+    return RestrictedCapabilityAuthoritySchema.parse({
+      authority_version: 1,
+      context: {
+        context_version: 1,
+        owner_id: grant.owner_id,
+        actor_id: grant.actor_id,
+        app_id: context.appId,
+        publisher_id: grant.publisher_id,
+        package_digest: context.packageDigest,
+        installation_id: context.installationId,
+        grant_id: grant.grant_id,
+        audience: "resume_data",
+        granted_capabilities: [capability],
+        record_scope_ids: grant.record_scopes,
+        issued_at: new Date(this.now()).toISOString(),
+        expires_at: new Date(Math.min(Date.parse(grant.expires_at), context.deadlineAt)).toISOString(),
+      },
+      grant_revision: grant.grant_revision,
+      revocation_generation: grant.revocation_generation,
+      token_audience: capability === "resume.export.request" ? "app_export" : "app_data",
+      connection_id: connectionId,
+      view_id: context.viewId,
+      operation_id: context.operationId,
+    });
+  }
+
+  private async executeChatWorkspaceAction(request: AppChatActionExecutionRequest): Promise<unknown> {
+    const { session, descriptor, workspace } = await this.requireChatSessionForModel(request.metadata);
+    const action = workspace.actions.find((candidate) => candidate.action_id === request.action.action_id);
+    if (!action || action.model_exposure !== "available") {
+      throw new AppPlatformError("denied", "App action is not declared for model use", 403);
+    }
+    if (action.required_capabilities.length !== 1) {
+      throw new AppPlatformError("incompatible_schema", "App action must declare exactly one host capability for model execution", 409);
+    }
+    const manifest = descriptor.storedPackage!.manifest;
+    const manifestRequests = manifest.manifest_version === 2 ? manifest.requested_capabilities : [];
+    const requestedPurposes = manifest.manifest_version === 2 ? manifest.requested_inference_purposes : [];
+    const requiredCapability = action.required_capabilities[0]!;
+    if (action.idempotency_policy === "required" && request.idempotencyKey.length < 16) {
+      throw new AppPlatformError("invalid_input", "App action requires a stable idempotency key", 400);
+    }
+    this.rememberChatAction(session.sessionId, session.installationId, requiredCapability.name, request.idempotencyKey);
+    try {
+      const appOwnedResumeResult = await this.executeAppOwnedResumeChatAction({
+        request,
+        session,
+        workspace,
+        grant: descriptor.grant!,
+        capability: requiredCapability.name,
+        manifestRequests,
+        requestedPurposes,
+      });
+      if (appOwnedResumeResult.handled) return appOwnedResumeResult.result;
+      return await this.capabilityDispatcher.execute(requiredCapability.name, requiredCapability.version, request.actionInput, {
+        appId: session.appId,
+        installationId: session.installationId,
+        packageDigest: session.packageDigest,
+        sessionId: session.sessionId,
+        viewId: session.viewId,
+        lifecycleGeneration: session.lifecycleGeneration,
+        grantId: session.grantId,
+        grantRevision: session.grantRevision,
+        revocationGeneration: session.revocationGeneration,
+        manifestRequests,
+        requestedPurposes,
+        grant: descriptor.grant!,
+        operationId: request.operationId,
+        idempotencyKey: request.idempotencyKey,
+        deadlineAt: this.now() + 120_000,
+        ownerConfirmation: {
+          confirmed: request.ownerConfirmed,
+          proofId: request.ownerConfirmed ? randomUUID() : undefined,
+        },
+      });
+    } finally {
+      this.forgetChatAction(session.sessionId, requiredCapability.name, request.idempotencyKey);
+    }
+  }
+
+  private async executeAppOwnedResumeChatAction(input: {
+    request: AppChatActionExecutionRequest;
+    session: AppChatSessionRecord;
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"];
+    grant: CapabilityGrant;
+    capability: string;
+    manifestRequests: readonly { name: string; version: number }[];
+    requestedPurposes: readonly { purpose_id: string; version: number }[];
+  }): Promise<{ handled: false } | { handled: true; result: unknown }> {
+    if (input.session.appId !== "ai.braindrive.resume-builder") return { handled: false };
+    const actionId = input.request.action.action_id;
+    if (actionId === "resume.profile.update" && input.capability === "resume.definitions.write") {
+      const parsed = ResumeProfileUpdateChatInputSchema.safeParse(input.request.actionInput);
+      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume Profile update input does not match the app-owned schema", 400);
+      const capabilityInput = buildResumeProfileUpdateInput(parsed.data, input.session, input.request.operationId);
+      const result = await this.dispatchResumeChatCapability(input, capabilityInput);
+      await this.writeAppOwnedDocumentProjection(input.session, input.grant, input.workspace, "resume.profile.current", parsed.data.profile_markdown, "text/markdown", input.request.operationId, input.request.idempotencyKey);
+      return { handled: true, result };
+    }
+    if (actionId === "resume.create" && input.capability === "resume.definitions.write") {
+      const parsed = ResumeCreateChatInputSchema.safeParse(input.request.actionInput);
+      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume create input does not match the app-owned schema", 400);
+      const capabilityInput = buildResumeDefinitionWriteInput(parsed.data);
+      const result = await this.dispatchResumeChatCapability(input, capabilityInput);
+      await this.writeAppOwnedDocumentProjection(input.session, input.grant, input.workspace, "resume.definition.current.general", parsed.data.resume_markdown ?? formatResumeDefinitionInputMarkdown(capabilityInput), "text/markdown", input.request.operationId, input.request.idempotencyKey);
+      return { handled: true, result };
+    }
+    if (actionId === "resume.export.pdf.request" && input.capability === "resume.export.request") {
+      const parsed = ResumeExportPdfChatInputSchema.safeParse(input.request.actionInput);
+      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume PDF export input does not match the app-owned schema", 400);
+      return { handled: true, result: await this.executeAppOwnedResumePdfExport(input.session, input.grant, input.workspace, input.request, parsed.data) };
+    }
+    return { handled: false };
+  }
+
+  private async dispatchResumeChatCapability(input: {
+    request: AppChatActionExecutionRequest;
+    session: AppChatSessionRecord;
+    grant: CapabilityGrant;
+    capability: string;
+    manifestRequests: readonly { name: string; version: number }[];
+    requestedPurposes: readonly { purpose_id: string; version: number }[];
+  }, capabilityInput: unknown): Promise<unknown> {
+    return this.capabilityDispatcher.execute(input.capability, 1, capabilityInput, {
+      appId: input.session.appId,
+      installationId: input.session.installationId,
+      packageDigest: input.session.packageDigest,
+      sessionId: input.session.sessionId,
+      viewId: input.session.viewId,
+      lifecycleGeneration: input.session.lifecycleGeneration,
+      grantId: input.session.grantId,
+      grantRevision: input.session.grantRevision,
+      revocationGeneration: input.session.revocationGeneration,
+      manifestRequests: input.manifestRequests,
+      requestedPurposes: input.requestedPurposes,
+      grant: input.grant,
+      operationId: input.request.operationId,
+      idempotencyKey: input.request.idempotencyKey,
+      deadlineAt: this.now() + 120_000,
+      ownerConfirmation: {
+        confirmed: input.request.ownerConfirmed,
+        proofId: input.request.ownerConfirmed ? randomUUID() : undefined,
+      },
+    });
+  }
+
+  private async executeAppOwnedResumePdfExport(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+    request: AppChatActionExecutionRequest,
+    rawInput: z.infer<typeof ResumeExportPdfChatInputSchema>,
+  ): Promise<unknown> {
+    if (!request.ownerConfirmed) throw new AppPlatformError("denied", "PDF export requires owner confirmation", 403);
+    if (!rawInput.definition_revision_id) {
+      return this.exportCurrentAppOwnedResumeDocument(session, grant, workspace, request, rawInput);
+    }
+    if (!this.exportBroker) throw new AppPlatformError("denied", "PDF export is unavailable", 403);
+    const exportInput = {
+      action: "export" as const,
+      format: "pdf" as const,
+      definition_revision_id: rawInput.definition_revision_id,
+      safe_filename: rawInput.safe_filename ?? "resume.pdf",
+      destination_intent: rawInput.destination_intent ?? "new_download",
+      overwrite_confirmed: rawInput.overwrite_confirmed ?? false,
+    };
+    const issued = await this.lifecycle.issueSession({
+      audience: "app_export",
+      capabilities: ["resume.export.request"],
+      operationId: request.operationId,
+      idempotencyKey: request.idempotencyKey,
+      viewId: session.viewId,
+    });
+    const claims = this.consumeIssuedAuthority(issued, grant, "resume.export.request", {
+      connectionId: issued.claims.connection_id,
+      viewId: session.viewId,
+      operationId: request.operationId,
+      idempotencyKey: request.idempotencyKey,
+    });
+    const resumePrepared = await this.capabilityOperations.execute({
+      appId: grant.app_id,
+      installationId: session.installationId,
+      connectionId: claims.connection_id,
+      viewId: session.viewId,
+      capability: "resume.export.request",
+      capabilityVersion: 1,
+      operationId: request.operationId,
+      idempotencyKey: request.idempotencyKey,
+      input: exportInput,
+      deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
+    }, ({ isCancelled }) => this.exportBroker!.export(exportInput, { grant, capability: "resume.export.request", operationId: request.operationId, idempotencyKey: request.idempotencyKey, isCancelled }));
+    const prepared = await this.adoptResumePreparedExport(resumePrepared, grant, session.installationId, session.packageDigest, session.lifecycleGeneration, {
+      operationId: request.operationId,
+      idempotencyKey: request.idempotencyKey,
+      sourceId: exportInput.definition_revision_id,
+      ownerConfirmed: true,
+      destinationIntent: exportInput.destination_intent,
+      overwriteConfirmed: exportInput.overwrite_confirmed,
+    });
+    return { status: "completed", result: prepared };
+  }
+
+  private async exportCurrentAppOwnedResumeDocument(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+    request: AppChatActionExecutionRequest,
+    rawInput: z.infer<typeof ResumeExportPdfChatInputSchema>,
+  ): Promise<unknown> {
+    const document = workspace.documents.find((candidate) => candidate.data_binding_id === "resume.definition.current.general");
+    if (!document) throw new AppPlatformError("invalid_input", "The current resume document is not declared for this workspace", 400);
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, grant);
+    const record = await this.documentStorage.readDocument(authority, document.document_id);
+    if (!record || record.document_binding_id !== "resume.definition.current.general") {
+      throw new AppPlatformError("invalid_input", "There is no current app-owned resume document to export", 400);
+    }
+    if (typeof record.content !== "string") throw new AppPlatformError("validation_failed", "Current resume document content is not exportable text", 409);
+    const bytes = renderAppOwnedResumeMarkdownPdf(record.content);
+    const filename = normalizeAppOwnedResumePdfFilename(rawInput.safe_filename);
+    const contentDigest = digestBuffer(bytes);
+    const prepared = await this.artifactExports.prepareExport({
+      request_version: 1,
+      authority: this.artifactAuthority(grant, session.installationId, session.packageDigest, session.lifecycleGeneration),
+      operation_id: request.operationId,
+      idempotency_key: `${request.idempotencyKey}:app-owned-pdf`,
+      source: { kind: "app_document", source_id: record.revision_id },
+      content_digest: contentDigest,
+      content_size_bytes: bytes.length,
+      retention_class: record.retention_class,
+      media_type: "application/pdf",
+      filename,
+      destination_intent: rawInput.destination_intent ?? "new_download",
+      overwrite_confirmed: rawInput.overwrite_confirmed ?? false,
+      owner_confirmed: true,
+      bytes_base64: bytes.toString("base64"),
+    });
+    return {
+      status: "completed",
+      result: {
+        format: "pdf",
+        filename: prepared.filename,
+        mime_type: prepared.media_type,
+        bytes_base64: prepared.bytes_base64,
+        artifact_revision_id: prepared.artifact.artifact_revision_id,
+        artifact_digest: prepared.artifact.content_digest,
+        safe_destination_label: prepared.safe_destination_label,
+        source_document_revision_id: record.revision_id,
+        generic_artifact: prepared.artifact,
+        replayed: prepared.replayed,
+      },
+    };
+  }
+
+  private async currentGeneralResumeRevisionId(session: AppChatSessionRecord, grant: CapabilityGrant, operationId: string): Promise<string | null> {
+    if (!this.capabilityRouter) return null;
+    const workspace = await this.capabilityRouter.execute("resume.definitions.read", { view: "workspace" }, {
+      authority: this.restrictedAuthorityForDocumentProjection(session, grant, operationId),
+      operationId,
+      correlationId: operationId,
+      idempotencyKey: `resume-export-current-${operationId}`,
+      connectionId: session.viewId,
+      viewId: session.viewId,
+    });
+    const source = latestResumeRecord(workspace, "definitions", (record) => record.record_type === "resume_definition" && record.definition_kind === "general" && record.lifecycle_state !== "retired");
+    return source?.metadata.revision_id ?? null;
+  }
+
+  private async writeAppOwnedDocumentProjection(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+    bindingId: string,
+    content: string,
+    mediaType: AppDocumentRecord["media_type"],
+    operationId: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    const document = workspace.documents.find((candidate) => candidate.data_binding_id === bindingId);
+    if (!document) return;
+    await this.documentStorage.initialize();
+    const authority = this.storageAuthority(session, grant);
+    await this.documentStorage.bindActiveAuthority(authority);
+    const current = await this.documentStorage.readDocument(authority, document.document_id);
+    const result = await this.documentStorage.writeDocument({
+      request_version: 1,
+      authority,
+      document_id: document.document_id,
+      document_binding_id: bindingId,
+      record_kind: "document",
+      role: documentStorageRole(document),
+      retention_class: defaultRetentionClassForDocument(document),
+      media_type: mediaType,
+      expected_revision: current?.revision ?? null,
+      operation_id: operationId,
+      idempotency_key: `app-chat-action-doc-${idempotencyKey}`,
+      content,
+    });
+    this.audit(result.audit.event, result.audit);
+  }
+
+  private rememberChatAction(sessionId: string, installationId: string, capability: string, idempotencyKey: string): void {
+    const current = this.activeChatActions.get(sessionId) ?? [];
+    current.push({ installationId, capability, idempotencyKey });
+    this.activeChatActions.set(sessionId, current);
+  }
+
+  private forgetChatAction(sessionId: string, capability: string, idempotencyKey: string): void {
+    const next = (this.activeChatActions.get(sessionId) ?? []).filter((item) => item.capability !== capability || item.idempotencyKey !== idempotencyKey);
+    if (next.length === 0) this.activeChatActions.delete(sessionId);
+    else this.activeChatActions.set(sessionId, next);
+  }
+
+  private cancelChatActions(sessionId: string): void {
+    const actions = this.activeChatActions.get(sessionId) ?? [];
+    for (const action of actions) {
+      this.capabilityDispatcher.cancel(this.appId, action.installationId, action.capability, action.idempotencyKey);
+    }
+    this.activeChatActions.delete(sessionId);
   }
 
   private async executeDataCapability(
@@ -926,7 +2027,7 @@ export class ResumeAppHostAdapter {
   private consumeIssuedAuthority(
     issued: Awaited<ReturnType<AppLifecycleService["issueSession"]>>,
     grant: CapabilityGrant,
-    capability: AppCapabilityName,
+    capability: string,
     binding: { connectionId: string; viewId: string | null; operationId: string; idempotencyKey: string },
   ) {
     return this.lifecycle.dependencies.tokenBroker.consume(issued.token, {
@@ -974,11 +2075,456 @@ export class ResumeAppHostAdapter {
 
 function inferenceIdempotencyKey(operationId: string): string { return `m5-inference-${operationId}`; }
 
+type ResumeChatStatement = {
+  statement_id: string;
+  section_id: string;
+  kind: "presentation";
+  display_role: "heading" | "bullet" | "line";
+  text: string;
+  supporting_confirmed_fact_revision_ids: [];
+};
+
+function buildResumeProfileUpdateInput(
+  input: z.infer<typeof ResumeProfileUpdateChatInputSchema>,
+  session: AppChatSessionRecord,
+  operationId: string,
+) {
+  return {
+    kind: "interview_progress",
+    progress: {
+      expected_revision: null,
+      status: "review_needed",
+      current_topic: input.current_topic ?? null,
+      completed_topics: [...(input.completed_topics ?? ["direction", "experience", "education", "credentials", "skills"])],
+      skipped_topics: [...(input.skipped_topics ?? [])],
+      draft_state: "owner_reviewed",
+      session_id: session.sessionId,
+      audit_turn: {
+        transcript_version: 1,
+        turn_id: operationId,
+        session_id: session.sessionId,
+        prompt_version: "resume-builder-chat-profile-v1",
+        topic: "resume_profile",
+        question: "Capture the owner-reviewed Resume Profile from the app chat.",
+        answer: input.profile_markdown,
+        follow_up: null,
+        action: "answered",
+        occurred_at: new Date().toISOString(),
+      },
+    },
+  } as const;
+}
+
+function buildResumeDefinitionWriteInput(input: z.infer<typeof ResumeCreateChatInputSchema>) {
+  const parsed = parseResumeMarkdownInput(input);
+  if (parsed.statements.length === 0) throw new AppPlatformError("invalid_input", "Resume create requires at least one statement", 400);
+  return {
+    definition_kind: "general",
+    status: "proposed",
+    title: parsed.title,
+    statements: parsed.statements,
+    section_order: parsed.sectionOrder,
+    presentation_preferences: {},
+    locale: input.locale ?? "en-US",
+    page_intent: input.page_intent ?? "one_page",
+    template_id: "resume.single-column",
+    template_version: "1",
+    parent_definition_revision_id: null,
+    job_revision_id: null,
+    policy_version: "owner-authored-v1",
+    prompt_policy_version: null,
+    variant: null,
+  } as const;
+}
+
+function parseResumeMarkdownInput(input: z.infer<typeof ResumeCreateChatInputSchema>): { title: string; statements: ResumeChatStatement[]; sectionOrder: string[] } {
+  const sectionOrder: string[] = [];
+  const statements: ResumeChatStatement[] = [];
+  let title = normalizeResumeText(input.title ?? "") || null;
+
+  const addSection = (sectionId: string) => {
+    if (!sectionOrder.includes(sectionId)) sectionOrder.push(sectionId);
+  };
+  const addStatement = (sectionId: string, text: string, displayRole: ResumeChatStatement["display_role"]) => {
+    const normalized = normalizeResumeText(text);
+    if (!normalized) return;
+    addSection(sectionId);
+    statements.push({
+      statement_id: randomUUID(),
+      section_id: sectionId,
+      kind: "presentation",
+      display_role: displayRole,
+      text: normalized,
+      supporting_confirmed_fact_revision_ids: [],
+    });
+  };
+
+  for (const section of input.sections ?? []) {
+    const sectionTitle = normalizeResumeText(section.title ?? section.section_id ?? "resume");
+    const sectionId = sectionIdForResume(section.section_id ?? sectionTitle);
+    if (section.title) addStatement(sectionId, sectionTitle, "heading");
+    for (const statement of section.statements) addStatement(sectionId, statement, "bullet");
+  }
+
+  if (input.resume_markdown) {
+    let currentSection = "summary";
+    for (const rawLine of input.resume_markdown.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const h1 = /^#\s+(.+)$/.exec(line);
+      if (h1?.[1]) {
+        title ??= normalizeResumeText(h1[1]);
+        continue;
+      }
+      const h2 = /^#{2,6}\s+(.+)$/.exec(line);
+      if (h2?.[1]) {
+        const heading = normalizeResumeText(h2[1]);
+        currentSection = sectionIdForResume(heading);
+        addStatement(currentSection, heading, "heading");
+        continue;
+      }
+      const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+      if (bullet?.[1]) {
+        addStatement(currentSection, bullet[1], "bullet");
+        continue;
+      }
+      addStatement(currentSection, line, "line");
+    }
+  }
+
+  return {
+    title: title ?? "General Resume",
+    statements,
+    sectionOrder: sectionOrder.length > 0 ? sectionOrder : ["summary"],
+  };
+}
+
+function formatResumeDefinitionInputMarkdown(input: ReturnType<typeof buildResumeDefinitionWriteInput>): string {
+  const timestamp = new Date().toISOString();
+  return formatResumeDefinitionMarkdown({
+    record_type: "resume_definition",
+    definition_kind: "general",
+    lifecycle_state: "active",
+    status: "proposed",
+    title: input.title,
+    statements: [...input.statements],
+    section_order: [...input.section_order],
+    updated_at: timestamp,
+    metadata: {
+      revision: 1,
+      revision_id: randomUUID(),
+      prior_revision_id: null,
+      created_at: timestamp,
+    },
+  });
+}
+
+function normalizeResumeText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function sectionIdForResume(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  return normalized || `section-${randomUUID()}`;
+}
+
+type ResumeRecordProjection = Record<string, unknown> & {
+  record_type: string;
+  lifecycle_state?: string;
+  updated_at?: string;
+  title?: string;
+  definition_kind?: string;
+  statements?: unknown[];
+  section_order?: unknown[];
+  metadata: {
+    revision: number;
+    revision_id: string;
+    prior_revision_id: string | null;
+    created_at: string;
+  };
+};
+
+function latestResumeRecord(
+  workspace: unknown,
+  key: "definitions" | "interview",
+  predicate: (record: ResumeRecordProjection) => boolean,
+): ResumeRecordProjection | null {
+  if (!isRecordValue(workspace) || !Array.isArray(workspace[key])) return null;
+  const records = workspace[key].filter(isResumeRecordProjection).filter(predicate);
+  records.sort((left, right) => {
+    const leftTime = Date.parse(left.updated_at ?? left.metadata.created_at);
+    const rightTime = Date.parse(right.updated_at ?? right.metadata.created_at);
+    if (rightTime !== leftTime) return rightTime - leftTime;
+    return right.metadata.revision - left.metadata.revision;
+  });
+  return records[0] ?? null;
+}
+
+function isResumeRecordProjection(value: unknown): value is ResumeRecordProjection {
+  return isRecordValue(value)
+    && typeof value.record_type === "string"
+    && isRecordValue(value.metadata)
+    && typeof value.metadata.revision === "number"
+    && typeof value.metadata.revision_id === "string"
+    && typeof value.metadata.created_at === "string"
+    && (value.metadata.prior_revision_id === null || typeof value.metadata.prior_revision_id === "string");
+}
+
+function projectAppDocumentRecord(input: {
+  authority: AppDocumentStorageAuthority;
+  document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number];
+  bindingId: string;
+  source: ResumeRecordProjection;
+  mediaType: AppDocumentRecord["media_type"];
+  content: unknown;
+}): AppDocumentRecord {
+  return AppDocumentRecordSchema.parse({
+    record_version: 1,
+    record_kind: documentStorageRole(input.document) === "app_state" ? "state" : "document",
+    owner_id: input.authority.owner_id,
+    actor_id: input.authority.actor_id,
+    app_id: input.authority.app_id,
+    publisher_id: input.authority.publisher_id,
+    installation_id: input.authority.installation_id,
+    package_digest: input.authority.package_digest,
+    lifecycle_generation: input.authority.lifecycle_generation,
+    grant_id: input.authority.grant_id,
+    grant_revision: input.authority.grant_revision,
+    revocation_generation: input.authority.revocation_generation,
+    document_id: input.document.document_id,
+    document_binding_id: input.bindingId,
+    role: documentStorageRole(input.document),
+    retention_class: "durable_owner_data",
+    media_type: input.mediaType,
+    revision: input.source.metadata.revision,
+    revision_id: input.source.metadata.revision_id,
+    prior_revision_id: input.source.metadata.prior_revision_id,
+    operation_id: input.source.metadata.revision_id,
+    idempotency_key: `projection-${input.source.metadata.revision_id}`,
+    content_digest: canonicalInputDigest(input.content),
+    content_size_bytes: Buffer.byteLength(canonicalJson(input.content), "utf8"),
+    content: input.content,
+    created_at: input.source.metadata.created_at,
+    created_by: input.authority,
+    updated_at: input.source.updated_at ?? input.source.metadata.created_at,
+    updated_by: input.authority,
+  });
+}
+
+function formatResumeDefinitionMarkdown(record: ResumeRecordProjection): string {
+  const title = typeof record.title === "string" && record.title.trim() ? record.title.trim() : "Resume";
+  const statements = Array.isArray(record.statements) ? record.statements.filter(isResumeStatementProjection) : [];
+  const sectionOrder = Array.isArray(record.section_order)
+    ? record.section_order.filter((section): section is string => typeof section === "string")
+    : [...new Set(statements.map((statement) => statement.section_id))];
+  const lines = [`# ${title}`];
+  for (const sectionId of sectionOrder) {
+    const sectionStatements = statements.filter((statement) => statement.section_id === sectionId);
+    if (sectionStatements.length === 0) continue;
+    if (sectionId !== "header") {
+      lines.push("", `## ${formatResumeSectionTitle(sectionId)}`);
+    } else {
+      lines.push("");
+    }
+    for (const statement of sectionStatements) {
+      const text = statement.text.trim();
+      if (!text) continue;
+      if (statement.display_role === "bullet") lines.push(`- ${text}`);
+      else if (statement.display_role === "heading" && sectionId !== "header") lines.push(`### ${text}`);
+      else lines.push(text);
+    }
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function formatResumeProfileMarkdown(record: ResumeRecordProjection): string {
+  const answer = readProfileAuditAnswer(record);
+  if (answer) return answer;
+  const completed = Array.isArray(record.completed_topics)
+    ? record.completed_topics.filter((item): item is string => typeof item === "string")
+    : [];
+  const skipped = Array.isArray(record.skipped_topics)
+    ? record.skipped_topics.filter((item): item is string => typeof item === "string")
+    : [];
+  const currentTopic = typeof record.current_topic === "string" && record.current_topic.trim()
+    ? record.current_topic.trim()
+    : null;
+  const status = typeof record.status === "string" && record.status.trim() ? record.status.trim() : "review needed";
+  const lines = [
+    "# Resume Profile",
+    "",
+    `Status: ${roleLabelForMarkdown(status)}`,
+  ];
+  if (currentTopic) lines.push(`Current topic: ${roleLabelForMarkdown(currentTopic)}`);
+  if (completed.length > 0) {
+    lines.push("", "## Completed Topics", ...completed.map((topic) => `- ${roleLabelForMarkdown(topic)}`));
+  }
+  if (skipped.length > 0) {
+    lines.push("", "## Skipped Topics", ...skipped.map((topic) => `- ${roleLabelForMarkdown(topic)}`));
+  }
+  lines.push("", "## Notes", "Resume Builder has captured interview progress. Add or regenerate a richer profile from chat when ready.");
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function readProfileAuditAnswer(record: ResumeRecordProjection): string | null {
+  const auditTurn = isRecordValue(record.audit_turn) ? record.audit_turn : null;
+  const answer = typeof auditTurn?.answer === "string" ? auditTurn.answer.trim() : "";
+  return answer.length > 0 ? answer : null;
+}
+
+function roleLabelForMarkdown(value: string): string {
+  return value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeAppOwnedResumePdfFilename(value?: string): string {
+  const base = (value?.trim() || "resume.pdf")
+    .replace(/[\/\\\u0000-\u001f\u007f]+/g, "-")
+    .replace(/\.\.+/g, ".")
+    .replace(/^\.+$/, "")
+    .slice(0, 128)
+    .trim();
+  const withExtension = base.toLowerCase().endsWith(".pdf") ? base : `${base || "resume"}.pdf`;
+  return withExtension || "resume.pdf";
+}
+
+function renderAppOwnedResumeMarkdownPdf(markdown: string): Buffer {
+  const lines = markdownToPdfLines(markdown);
+  const pages = chunkValues(lines, 48);
+  const objects: string[] = [];
+  const pageObjectIds = pages.map((_, index) => 3 + index * 2);
+  const contentObjectIds = pages.map((_, index) => 4 + index * 2);
+  const regularFontObjectId = 3 + pages.length * 2;
+  const boldFontObjectId = regularFontObjectId + 1;
+  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objects[2] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
+  pages.forEach((pageLines, index) => {
+    const stream = ["BT", "72 760 Td", ...pageLines.flatMap((entry) => {
+      const font = entry.weight === "bold" ? "F2" : "F1";
+      return [`/${font} ${entry.size} Tf`, `(${escapeAppOwnedPdfText(entry.text)}) Tj`, `0 -${entry.leading} Td`];
+    }), "ET"].join("\n");
+    objects[pageObjectIds[index]!] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
+    objects[contentObjectIds[index]!] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
+  });
+  objects[regularFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  objects[boldFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
+  let output = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const offsets = [0];
+  for (let id = 1; id < objects.length; id += 1) {
+    offsets[id] = Buffer.byteLength(output, "latin1");
+    output += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(output, "latin1");
+  output += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let id = 1; id < objects.length; id += 1) output += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  output += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(output, "latin1");
+}
+
+function markdownToPdfLines(markdown: string): Array<{ text: string; weight: "regular" | "bold"; size: number; leading: number }> {
+  const entries: Array<{ text: string; weight: "regular" | "bold"; size: number; leading: number }> = [];
+  const sourceLines = markdown.split(/\r?\n/);
+  for (const sourceLine of sourceLines) {
+    const parsed = parseAppOwnedMarkdownLine(sourceLine);
+    if (!parsed) continue;
+    for (const text of wrapAppOwnedPdfLine(parsed.text, parsed.maxLength)) {
+      entries.push({ text, weight: parsed.weight, size: parsed.size, leading: parsed.leading });
+    }
+  }
+  if (entries.length === 0) throw new AppPlatformError("validation_failed", "Resume document is empty and cannot be exported", 409);
+  return entries.slice(0, 96);
+}
+
+function parseAppOwnedMarkdownLine(line: string): { text: string; weight: "regular" | "bold"; size: number; leading: number; maxLength: number } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("# ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(2)), weight: "bold", size: 18, leading: 24, maxLength: 58 };
+  if (trimmed.startsWith("## ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(3).toUpperCase()), weight: "bold", size: 11, leading: 18, maxLength: 76 };
+  if (trimmed.startsWith("### ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(4)), weight: "bold", size: 10.5, leading: 14, maxLength: 82 };
+  if (trimmed.startsWith("- ")) return { text: sanitizeAppOwnedPdfText(`- ${trimmed.slice(2)}`), weight: "regular", size: 10.5, leading: 14, maxLength: 86 };
+  return { text: sanitizeAppOwnedPdfText(trimmed.replace(/^\*\*(.+)\*\*$/, "$1")), weight: trimmed.startsWith("**") ? "bold" : "regular", size: 10.5, leading: 14, maxLength: 86 };
+}
+
+function sanitizeAppOwnedPdfText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wrapAppOwnedPdfLine(text: string, maxLength: number): string[] {
+  if (text.length <= maxLength) return [text];
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxLength && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function escapeAppOwnedPdfText(value: string): string {
+  return [...Buffer.from(value, "utf8")].map((byte) => {
+    const character = String.fromCharCode(byte);
+    if (character === "\\" || character === "(" || character === ")") return `\\${character}`;
+    if (byte >= 0x20 && byte <= 0x7e) return character;
+    return `\\${byte.toString(8).padStart(3, "0")}`;
+  }).join("");
+}
+
+function chunkValues<T>(values: readonly T[], size: number): T[][] {
+  return Array.from({ length: Math.max(1, Math.ceil(values.length / size)) }, (_, index) => values.slice(index * size, (index + 1) * size));
+}
+
+function digestBuffer(value: Buffer): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function isResumeStatementProjection(value: unknown): value is { section_id: string; text: string; display_role?: string } {
+  return isRecordValue(value)
+    && typeof value.section_id === "string"
+    && typeof value.text === "string"
+    && (value.display_role === undefined || typeof value.display_role === "string");
+}
+
+function formatResumeSectionTitle(sectionId: string): string {
+  return sectionId
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function documentStorageRole(document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number]): AppDocumentRole {
+  if (document.role === "source_document") return "source_document";
+  if (document.role === "derived_document") return "derived_document";
+  if (document.role === "recovery" || document.role === "recovery_document") return "recovery_document";
+  if (document.role === "action_result_document" || document.model_access === "action_result") return "action_result_document";
+  return "app_state";
+}
+
+function defaultRetentionClassForDocument(document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number]): AppStorageRetentionClass {
+  const role = documentStorageRole(document);
+  if (role === "recovery_document") return "rollback_recovery_window";
+  if (role === "action_result_document") return "durable_operation_lookup";
+  return "durable_owner_data";
+}
+
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function resumeOwnerConfirmationProjection(capability: AppCapabilityName, input: unknown): { title: string; actionLabel: string } | null {
+function resumeOwnerConfirmationProjection(capability: AppDataCapability, input: unknown): { title: string; actionLabel: string } | null {
   if (capability === "career.facts.confirm") {
     if (isRecordValue(input) && Array.isArray(input.decisions)) return { title: "Review factual units from one answer", actionLabel: "Confirm" };
     if (isRecordValue(input) && input.decision === "edit_and_accept") return { title: "Confirm corrected career information", actionLabel: "Confirm" };

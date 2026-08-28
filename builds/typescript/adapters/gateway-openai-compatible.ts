@@ -3,12 +3,31 @@ import { z } from "zod";
 import type { GatewayEngineRequestInput, GatewayAdapter, GatewayMessageNormalizationResult } from "./gateway-base.js";
 import type { StreamEvent } from "../contracts.js";
 
+const sha256DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+
+const appChatMetadataSchema = z
+  .object({
+    metadata_version: z.literal(1),
+    app_id: z.string().min(3).max(128),
+    installation_id: z.string().uuid(),
+    package_digest: sha256DigestSchema,
+    session_id: z.string().uuid(),
+    view_id: z.string().uuid(),
+    operation_id: z.string().uuid(),
+    session_generation: z.number().int().positive(),
+    presentation_id: z.string().min(3).max(128),
+    workspace_id: z.string().min(3).max(128),
+    context_grant_set_digest: sha256DigestSchema,
+  })
+  .strict();
+
 const messageRequestSchema = z.object({
   content: z.string().min(1),
   metadata: z
     .object({
       client: z.string().min(1).optional(),
       project: z.string().min(1).optional(),
+      app_chat: appChatMetadataSchema.optional(),
     })
     .strict()
     .optional(),

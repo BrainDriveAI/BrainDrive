@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { FirstPartyAppRegistration } from "../contracts/app-registry.js";
+import type { AppRetentionClass } from "../contracts/app-registry.js";
 import { AppPlatformError } from "./errors.js";
 import type { AppLifecycleStore } from "./store.js";
 
@@ -19,7 +20,7 @@ export type OwnerDataActivationRequest = {
 };
 
 export interface OwnerDataLifecycle {
-  readonly retainedClasses?: readonly ("career_data" | "resume_history" | "job_history" | "artifact_metadata" | "owner_exports" | "app_owner_data" | "approved_revision_history" | "lifecycle_tombstone")[];
+  readonly retainedClasses?: readonly AppRetentionClass[];
   prepareActivation(request: OwnerDataActivationRequest): Promise<unknown>;
   cleanupDefaultUninstall(): Promise<unknown>;
   repairState?(compatibility: OwnerDataSchemaCompatibility): Promise<{
@@ -56,10 +57,22 @@ export type RetainedDataDeleteRequest = {
   trusted_owner_confirmation: true;
 };
 
+export type RetainedDataOwnerActionRequest = RetainedDataDeleteRequest;
+
 export interface AppDataLifecycleAdapter extends OwnerDataLifecycle {
   readonly identity: AppDataAdapterIdentity;
   readonly namespaceRoot: string;
   validateBackupIdentity(backup: AppDataBackupIdentity): Promise<AppDataBackupIdentity>;
+  exportRetainedData?(request: RetainedDataOwnerActionRequest): Promise<{
+    exported: true;
+    export_digest: `sha256:${string}`;
+    retained: true;
+  }>;
+  archiveRetainedData?(request: RetainedDataOwnerActionRequest): Promise<{
+    archived: true;
+    archive_digest: `sha256:${string}`;
+    retained: true;
+  }>;
   deleteRetainedData(request: RetainedDataDeleteRequest): Promise<{
     deleted: true;
     deleted_namespace_digest: `sha256:${string}`;
@@ -205,4 +218,114 @@ export async function deleteRetainedAppData(input: DeleteRetainedDataInput): Pro
     });
     return { operation_id: request.operationId, app_id: input.appId, ...deleted };
   }));
+}
+
+export type RetainedDataOwnerActionInput = Omit<DeleteRetainedDataInput, "request"> & {
+  action: "export" | "archive";
+  request: DeleteRetainedDataInput["request"];
+};
+
+export async function runRetainedAppDataOwnerAction(input: RetainedDataOwnerActionInput): Promise<{
+  operation_id: string;
+  app_id: string;
+  action: "export" | "archive";
+  retained: true;
+  result_digest: `sha256:${string}`;
+}> {
+  assertTrustedRetainedAction(input);
+  const adapterAction = input.action === "export" ? input.adapter.exportRetainedData : input.adapter.archiveRetainedData;
+  if (!adapterAction) {
+    throw new AppPlatformError("invalid_state_transition", `The selected app has no reviewed retained-data ${input.action} adapter`);
+  }
+  return input.store.runIdempotent(input.request.idempotencyKey, {
+    kind: `${input.action}_retained_data`,
+    app_id: input.appId,
+    owner_id: input.ownerId,
+    operation_id: input.request.operationId,
+    trusted_owner_confirmation: true,
+  }, () => input.store.runDataDeletionMutation(input.request.operationId, async () => {
+    const lifecycle = await input.store.readLifecycle();
+    if (lifecycle.app_id !== input.appId || lifecycle.state !== "not_installed") {
+      throw new AppPlatformError("invalid_state_transition", "Retained app data can be exported or archived only when the selected app is uninstalled");
+    }
+    const existing = await input.store.readDataRetentionActionTombstone(input.action, input.request.operationId);
+    if (existing && (
+      existing.app_id !== input.appId ||
+      existing.owner_id !== input.ownerId ||
+      existing.adapter_binding_id !== input.adapter.identity.binding_id ||
+      existing.data_contract_version !== input.adapter.identity.data_contract_version
+    )) {
+      throw new AppPlatformError("conflict", "Retained-data owner action identity conflicts with durable evidence");
+    }
+    if (existing?.status === "committed") {
+      return {
+        operation_id: existing.operation_id,
+        app_id: existing.app_id,
+        action: existing.action,
+        retained: existing.retained,
+        result_digest: existing.result_digest as `sha256:${string}`,
+      };
+    }
+    const startedAt = existing?.started_at ?? new Date().toISOString();
+    if (!existing) {
+      await input.store.saveDataRetentionActionTombstone({
+        tombstone_version: 1,
+        operation_id: input.request.operationId,
+        app_id: input.appId,
+        owner_id: input.ownerId,
+        adapter_binding_id: input.adapter.identity.binding_id,
+        data_contract_version: input.adapter.identity.data_contract_version,
+        action: input.action,
+        status: "prepared",
+        retained: true,
+        result_digest: null,
+        completed_at: null,
+        started_at: startedAt,
+        updated_at: startedAt,
+      });
+    }
+    const request = {
+      operation_id: input.request.operationId,
+      owner_id: input.ownerId,
+      app_id: input.appId,
+      trusted_owner_confirmation: true,
+    } as const;
+    const resultDigest = input.action === "export"
+      ? (await input.adapter.exportRetainedData!(request)).export_digest
+      : (await input.adapter.archiveRetainedData!(request)).archive_digest;
+    const completedAt = new Date().toISOString();
+    await input.store.saveDataRetentionActionTombstone({
+      tombstone_version: 1,
+      operation_id: input.request.operationId,
+      app_id: input.appId,
+      owner_id: input.ownerId,
+      adapter_binding_id: input.adapter.identity.binding_id,
+      data_contract_version: input.adapter.identity.data_contract_version,
+      action: input.action,
+      status: "committed",
+      retained: true,
+      result_digest: resultDigest,
+      completed_at: completedAt,
+      started_at: startedAt,
+      updated_at: completedAt,
+    });
+    return { operation_id: input.request.operationId, app_id: input.appId, action: input.action, retained: true, result_digest: resultDigest };
+  }));
+}
+
+function assertTrustedRetainedAction(input: DeleteRetainedDataInput): void {
+  const request = input.request;
+  if (
+    request.ownerActorId !== input.ownerActorId ||
+    request.confirmAppId !== input.appId ||
+    request.trustedOwnerConfirmation !== true ||
+    input.adapter.identity.app_id !== input.appId ||
+    input.store.appId !== input.appId ||
+    path.resolve(input.adapter.namespaceRoot) !== path.resolve(input.expectedDataRoot)
+  ) {
+    throw new AppPlatformError("denied", "Trusted owner confirmation does not match the selected app", 403);
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(request.operationId)) {
+    throw new AppPlatformError("invalid_input", "Data retention operation identity is invalid", 400);
+  }
 }

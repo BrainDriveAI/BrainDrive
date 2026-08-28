@@ -1,4 +1,4 @@
-import { AppCapabilityError, type AppLaunch, type AppSafeErrorEnvelope } from "@/api/apps-adapter";
+import { AppCapabilityError, type AppSafeErrorEnvelope, type AppSurfaceLaunch } from "@/api/apps-adapter";
 
 import {
   BRIDGE_CHANNEL,
@@ -32,7 +32,7 @@ type JsonRpcRequest = { jsonrpc: "2.0"; id: JsonRpcId; method: string; params?: 
 type LegacyMessageDraft = { bridge_version: 1; message_id: string; type: string; payload: Record<string, unknown> };
 
 export type McpAppBridgeOptions = {
-  launch: AppLaunch;
+  launch: AppSurfaceLaunch;
   proxyNonce: string;
   sendToProxy: (message: HostToProxyMessage) => void;
   onToolCall?: (name: string, args: Record<string, unknown>, context: { serverConnectionId: string; viewId: string }, signal: AbortSignal) => Promise<unknown>;

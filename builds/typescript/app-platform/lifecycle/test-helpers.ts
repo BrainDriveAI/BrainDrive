@@ -71,8 +71,8 @@ export async function createLifecycleHarness(root: string, app?: { appId: string
     ownerDataRoot,
     ownerDataLifecycle: {
       retainedClasses: app
-        ? ["app_owner_data", "lifecycle_tombstone"]
-        : ["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"],
+        ? ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"]
+        : ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"],
       prepareActivation: async () => undefined,
       cleanupDefaultUninstall: async () => undefined,
     },

@@ -13,13 +13,15 @@ An app owns everything that makes that app useful. BrainDrive owns only the reus
 | Runtime | Signed app process and its public/private MCP tools | Starting only installed active app runtimes, health/readiness, restart limits, connection identity, teardown and revocation |
 | UI | Opaque-origin app view and owner-facing workflow | Verified resource loading, double sandbox, CSP, bridge limits, focus/close state, browser actions and confirmations |
 | Data | App-defined inputs and domain transitions through reviewed capabilities | Owner/app-scoped authority, exact data adapter, CAS/idempotency, durable store boundary, audit projection and retention enforcement |
+| Artifacts and exports | App-owned artifact source, renderer, bytes, label, media type, digest, and retention declaration | Generic artifact registration, owner destination confirmation, overwrite policy, safe-label validation, cancellation, app-scoped idempotency, audit, and content-safe receipts |
 | Inference | Program identity, prompt, strict JSON Schema, candidate adjudication, content-free issue IDs, one correction instruction, eligible fallback | Owner-active provider resolution, credential isolation, structured no-tools execution, cancellation, two-call ceiling and generic terminal envelope |
 
-Resume Builder is a reference implementation of this model, not a BrainDrive product module. A future app must carry its own policy and behavior in its signed package rather than adding that app's semantics to the BrainDrive runtime.
+Resume Builder and Brief Builder are reference implementations of this model, not BrainDrive product modules. A future app must carry its own policy and behavior in its signed package rather than adding that app's semantics to the BrainDrive runtime.
 
 ## Installation and launch flow
 
-1. A generic manifest revision 2 declares immutable package files, supported platform artifacts, its primary `ui://` resource, requested capabilities and inference purposes, provenance, SBOM, and the retention policy.
+1. A generic manifest revision 2 declares immutable package files, supported platform artifacts, its primary `ui://` resource, requested capabilities and inference purposes, provenance, SBOM, and the retention policy matrix.
+   It may also declare generic presentation metadata for future app workspaces. Existing surface-only packages remain valid because `primary_resource` stays required. Optional chat-workspace descriptors are declarative only: they list presentation profiles, workspace documents, digest-bound package resources, purpose-limited context requests, and app action descriptors without granting runtime authority or naming host handlers. App action descriptors must include digest-bound, resolved input and result JSON Schema bodies; opaque schema IDs alone are rejected for app-chat manifests.
 2. BrainDrive verifies the descriptor, archive digest, signature, trust root, revocation state, compatibility, and selected platform artifact.
 3. `FirstPartyAppRegistry` joins the verified package to an exact reviewed app/publisher/route registration. A manifest cannot select a host handler, import a module, or grant itself authority.
 4. Installation persists lifecycle and grant state. The supervisor starts a packaged runtime only for an installed active app and binds it to the exact installation, package digest, runtime identity, and lifecycle generation.
@@ -28,6 +30,32 @@ Resume Builder is a reference implementation of this model, not a BrainDrive pro
 7. Every capability call re-resolves the selected app and checks its current install, package, connection, view, operation, grant, revocation, scope, deadline, and idempotency binding before invoking one reviewed adapter.
 
 Disable, update, uninstall, lifecycle-generation change, failed health, session close, and gateway shutdown revoke or replace the corresponding runtime, connection, bridge, and token authority.
+
+## Retention, uninstall, update, and reinstall
+
+Generic app manifests declare a retention policy matrix with these classes: runtime authority, verified package code, disposable cache, app storage, artifact records, export receipts, owner exports, and lifecycle tombstones. BrainDrive validates the matrix at package verification time. Runtime authority, app code references, unshared package bytes, and disposable cache must be removed on uninstall. App storage, artifact records, export receipts, owner exports, and lifecycle evidence are projected from the manifest, not from app-specific host branches.
+
+Uninstall always revokes runtime, connection, bridge, grant, session, and token authority before clearing executable references. Durable owner data can remain present after uninstall, but removed app code cannot read it. Retained app storage, artifact records, and export receipts expose only trusted owner-confirmed post-uninstall controls: delete, export, and archive. These controls require the selected app to be in `not_installed`; active, disabled, quarantined, or recovering apps cannot use retained-data deletion or retained-data export/archive paths.
+
+Reinstall is a fresh lifecycle transition. It creates a new installation and grant, revalidates the selected package and data compatibility, and can reconnect retained data only through that new authority path. A package update follows the same compatibility gate before switching the active package pointer; incompatible retained owner data is preserved and the lifecycle fails closed rather than silently rewriting or deleting it.
+
+Generic app document storage is owner/app/installation scoped. Document records retain the package digest, lifecycle generation, grant id, grant revision, and revocation generation that created or last updated them for audit, but read and list access do not require those historical fields to equal the current package or grant. The host rebinds the namespace to the current active authority before active-session storage access. Writes and deletes require that current binding, so a stale package, lifecycle generation, grant revision, or revoked grant cannot mutate documents after the host has advanced authority.
+
+The generic document store supports create, read, update, list, and delete. Create uses `expected_revision: null`; update and delete use revision compare-and-swap; all mutations are idempotency-keyed and reject changed canonical input under the same key. Listing is a full current-document projection for the selected owner/app/installation namespace, separate from the content-free audit projection. Delete defaults to a tombstone: document content is removed from the current read/list surface, the next revision is recorded as a tombstone, and audit projection contains only identifiers, revision metadata, retention class, prior content digest/size, delete mode, and timestamps. Physical content deletion is allowed only for disposable/transient retention classes; durable owner data, provenance, operation lookup, and recovery-window records require tombstones.
+
+For example, a notes app could declare `notes.source`, `notes.summary`, and `notes.preview` workspace documents, plus `notes.summary.generate` and `notes.summary.approve` action ids. BrainDrive would validate the manifest, bind those documents to the owner/app/installation namespace, expose only declared model-session tools, enforce confirmation and idempotency, mediate any export, and apply the declared retention policy. The meaning of "source", "summary", "preview", "generate", or "approve" would remain in the signed notes package and reviewed app adapter, not in BrainDrive core.
+
+## App-chat workspace sessions
+
+Packages that declare a `chat_workspace` presentation can be opened through an additive app-chat session path. The host selects the requested presentation or package default, requires an active installation and current grant, and binds the session to owner, account, actor, app, publisher, installation, package digest, presentation id, workspace id, view id, grant id/revision, revocation generation, lifecycle generation, and a digest of the granted context set. Current local-owner installations do not expose a distinct account object, so the account binding is the owner id until a separate account authority exists.
+
+The app-chat session launch API does not execute model actions by itself. Native chat messages that carry a current `app_chat` metadata envelope now receive an app-generic model context: the gateway re-resolves the selected app host, rechecks session/lifecycle/grant/package/presentation/workspace/context-digest authority, appends digest-bound package resources selected by descriptor prompt-inclusion policy, and exposes only that workspace's `model_exposure: available` actions as session-scoped tools. V1 model-session actions must declare exactly one host capability. Those tools treat action ids as opaque app-owned semantics and dispatch the exact app-provided input through the generic app capability dispatcher keyed by app id, capability name, and version. The dispatcher enforces reviewed host registration, manifest request, current grant, confirmation, idempotency, cancellation, timeout, input/result validation, and audit projection, and returns recoverable safe failures for malformed, stale, hidden, undeclared, wrong-scope, ungranted, expired, or digest-mismatched calls. Existing sandboxed Apps launches continue to use the primary resource and app bridge path.
+
+The web Apps surface routes visible primary `chat_workspace` presentation metadata to a native BrainDrive workspace shell. That shell is generic: it renders Conversation through the existing native chat panel, lists descriptor-backed workspace documents, groups advanced package resources under Advanced, keeps Back to Apps and Close controls host-owned, and keeps the native composer available from document/resource views for follow-up chat. It displays resource metadata such as title, media type, prompt-inclusion policy, and digest, but it does not read package resource contents, host filesystem paths, app HTML, bridge tokens, provider credentials, or raw grants into the UI or chat metadata. Surface presentations and packages without a visible primary chat workspace continue through the sandboxed app frame.
+
+Owner catalog projection includes only safe presentation summaries: version, default presentation id, labels, descriptions, profile ids, profile type, owner visibility, and either workspace id or primary resource URI. It omits workspace documents, actions, resource package paths, prompt-inclusion policy, resource contents, and digests. Resume Builder uses this path to make `Just Chat With It` the primary launch while retaining its structured surface as an internal presentation.
+
+Context projection and model prompt assembly are descriptor-limited. The host evaluates only the selected workspace's declared `context_requests`, requires each request's capabilities to be present in the current grant, and projects supported sources through existing host capability boundaries. The current implemented source is bounded Career context via `career.context.read`; unsupported optional context appears as unavailable metadata, while required unsupported or ungranted context fails closed. App-chat projections and prompt resources do not include bearer tokens, provider credentials, owner permission objects, host filesystem paths, destination paths, or arbitrary memory traversal authority.
 
 ## App-owned inference flow
 
@@ -45,10 +73,13 @@ Failure transport follows the same ownership boundary. BrainDrive validates and 
 
 Provider output is not durable merely because inference completed. Persistence is a distinct host-authorized transition. Equal retries may coalesce or replay through the operation coordinator; changed canonical input under the same semantic identity conflicts. Cancellation propagates to provider work, and late responses cannot commit.
 
-Resume Builder demonstrates two useful patterns:
+Artifact/export output follows the same reusable split. An app may produce a PDF or text payload, owner-visible label, source identity, digest, media type, and retention class, but BrainDrive registers the artifact under current app/install/package authority and owns destination confirmation, overwrite confirmation, safe-label enforcement, cancellation, audit, and receipt projection. The app never receives raw filesystem paths, owner destination handles, provider credentials, or host authorization tokens; replay returns the same safe receipt projection by app-scoped operation and idempotency identity.
+
+Reference apps demonstrate the reusable boundary:
 
 - Strategy inference exposes only bounded high-level choices to the model; the app derives all job/fact identities, topology, evidence priority, and persisted bindings.
 - General Resume inference gives the model exact text slots; the app owns statement IDs, support identities, section/role topology, the six-bullet maximum, fact-grounding checks, issue IDs, and deterministic fallback.
+- Brief Builder declares different document ids, action ids, data capabilities, and inference purpose while using the same chat, document, tool, artifact, export, retention, and lifecycle paths.
 
 These patterns keep app semantics out of BrainDrive while still allowing the host to enforce generic safety and resource limits.
 
@@ -81,10 +112,12 @@ Current reviewed registrations are compiled same-release integration points. A f
 - Generic inference executor: [`app-inference`](../../../builds/typescript/app-inference/README.md)
 - Capability routing: [`app-capabilities`](../../../builds/typescript/app-capabilities/README.md)
 - Reference apps: [Resume Builder](../../../builds/resume_builder/README.md) and [Brief Builder](../../../builds/brief_builder/README.md)
+- Final self-contained proof: [`app-platform/mcp-host/self-contained-app-proof.test.ts`](../../../builds/typescript/app-platform/mcp-host/self-contained-app-proof.test.ts) guards production host source against app-specific app-chat action schema/translation and smokes Resume Builder plus Brief Builder through generic installed-app paths.
 
 Focused checks from `builds/typescript`:
 
 ```bash
+npx vitest run app-platform/mcp-host/self-contained-app-proof.test.ts
 npx vitest run app-inference/installed-program.test.ts app-inference/capability.test.ts app-platform/mcp-host/live-fixture.integration.test.ts app-platform/mcp-host/data-capability-bridge.test.ts
 npm run web:test -- --run src/components/apps/SandboxedAppFrame.test.tsx
 npm run web:typecheck

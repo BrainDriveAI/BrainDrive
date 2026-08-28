@@ -7,7 +7,7 @@ import {
   finalizeResumeBuilderExport,
   sendAppAppsBridgeMessage,
   sendAppBridgeMessage,
-  type AppLaunch,
+  type AppSurfaceLaunch,
   type HostConfirmationPresentation,
 } from "@/api/apps-adapter";
 import { isTauriRuntime } from "@/api/runtime-api-base";
@@ -131,7 +131,7 @@ export default function SandboxedAppFrame({
   appKey: string;
   appId: string;
   appName: string;
-  launch: AppLaunch;
+  launch: AppSurfaceLaunch;
   onSessionClosed: () => void;
   onReload?: () => Promise<void>;
   onOpenSettings?: () => void;

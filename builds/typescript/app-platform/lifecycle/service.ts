@@ -2,16 +2,17 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
-import type { z } from "zod";
+import { ZodError, type z } from "zod";
 import { canonicalInputDigest } from "../contracts/common.js";
 import { LifecycleOperationSchema, LifecycleRecordSchema, type LifecycleState } from "../contracts/lifecycle.js";
+import type { AppRetentionClass } from "../contracts/app-registry.js";
 import { CapabilityDiffSchema, CapabilityGrantSchema } from "../contracts/package.js";
 import { RuntimeDescriptorSchema } from "../contracts/supervisor.js";
 import { CapabilityTokenBroker } from "./capability-token.js";
 import { AppPlatformError, asAppPlatformError } from "./errors.js";
 import type { FixtureRepository } from "./fixture-repository.js";
-import { deleteRetainedAppData, type AppDataLifecycleAdapter, type OwnerDataLifecycle } from "./owner-data.js";
-import { manifestCapabilities, manifestDataCompatibility, PackageVerifier, type VerifiedPackage } from "./package-verifier.js";
+import { deleteRetainedAppData, runRetainedAppDataOwnerAction, type AppDataLifecycleAdapter, type OwnerDataLifecycle } from "./owner-data.js";
+import { manifestCapabilities, manifestDataCompatibility, PackageVerifier, type RuntimePackageManifest, type VerifiedPackage } from "./package-verifier.js";
 import type { AppSupervisor, RuntimeIdentity, RuntimeLaunchDescriptor, StopReason } from "./process-supervisor.js";
 import { AppLifecycleStore, type CapabilityGrant, type LifecycleOperation, type LifecycleRecord, type StoredPackage, type UninstallJournal } from "./store.js";
 import { ImmutablePackageStore, type PromotableVerifiedPackage } from "./verified-package-store.js";
@@ -71,8 +72,13 @@ export class AppLifecycleService {
   async initialize(): Promise<void> {
     await this.dependencies.store.initialize();
     await this.dependencies.immutablePackages?.initialize();
-    await this.migrateReferencedPackagesToImmutableStore();
-    await this.reconcile();
+    try {
+      await this.migrateReferencedPackagesToImmutableStore();
+      await this.reconcile();
+    } catch (error) {
+      if (!(await this.failClosedUnavailableStoredPackage(error))) throw error;
+      await this.reconcile();
+    }
   }
 
   status = (): Promise<LifecycleRecord> => this.dependencies.store.readLifecycle();
@@ -341,6 +347,47 @@ export class AppLifecycleService {
     });
   }
 
+  async exportRetainedData(input: {
+    operationId: string;
+    idempotencyKey: string;
+    ownerActorId: string;
+    confirmAppId: string;
+    trustedOwnerConfirmation: boolean;
+  }) {
+    return this.retainedDataOwnerAction("export", input);
+  }
+
+  async archiveRetainedData(input: {
+    operationId: string;
+    idempotencyKey: string;
+    ownerActorId: string;
+    confirmAppId: string;
+    trustedOwnerConfirmation: boolean;
+  }) {
+    return this.retainedDataOwnerAction("archive", input);
+  }
+
+  private async retainedDataOwnerAction(action: "export" | "archive", input: {
+    operationId: string;
+    idempotencyKey: string;
+    ownerActorId: string;
+    confirmAppId: string;
+    trustedOwnerConfirmation: boolean;
+  }) {
+    const adapter = this.dependencies.dataAdapter;
+    if (!adapter) throw new AppPlatformError("invalid_state_transition", `The selected app has no reviewed retained-data ${action} adapter`);
+    return runRetainedAppDataOwnerAction({
+      store: this.dependencies.store,
+      adapter,
+      appId: this.appId,
+      ownerId: this.ownerId,
+      ownerActorId: this.ownerActorId,
+      expectedDataRoot: this.dependencies.ownerDataRoot,
+      action,
+      request: input,
+    });
+  }
+
   async recover(input: SimpleInput): Promise<LifecycleResponse> {
     return this.runLifecycleMutation(input.idempotencyKey, { kind: "recover", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
@@ -409,10 +456,63 @@ export class AppLifecycleService {
   }
 
   async ownerDescriptor(): Promise<{ record: LifecycleRecord; grant: CapabilityGrant | null; packageVersion: string | null; storedPackage: StoredPackage | null }> {
-    const record = await this.dependencies.store.readLifecycle();
-    const grant = record.grant_id ? await this.dependencies.store.readGrant(record.grant_id) : null;
-    const stored = record.active_package_digest ? await this.dependencies.store.readPackage(record.active_package_digest) : null;
+    let record = await this.dependencies.store.readLifecycle();
+    let grant = record.grant_id ? await this.dependencies.store.readGrant(record.grant_id) : null;
+    let stored: StoredPackage | null = null;
+    if (record.active_package_digest) {
+      try {
+        stored = await this.dependencies.store.readPackage(record.active_package_digest);
+      } catch (error) {
+        const errorCode = storedPackageAvailabilityErrorCode(error);
+        if (!errorCode) throw error;
+        if (await this.failClosedUnavailableStoredPackage(error, record)) {
+          record = await this.dependencies.store.readLifecycle();
+          grant = record.grant_id ? await this.dependencies.store.readGrant(record.grant_id) : null;
+        }
+        this.audit("app.lifecycle.stored_package_descriptor_unavailable", {
+          app_id: this.appId,
+          installation_id: record.installation_id,
+          package_digest: record.active_package_digest,
+          lifecycle_state: record.state,
+          error_code: errorCode,
+        });
+      }
+    }
     return { record, grant, packageVersion: stored?.package_version ?? null, storedPackage: stored };
+  }
+
+  private async failClosedUnavailableStoredPackage(error: unknown, knownRecord?: LifecycleRecord): Promise<boolean> {
+    const errorCode = storedPackageAvailabilityErrorCode(error);
+    if (!errorCode) return false;
+    const prior = knownRecord ?? await this.dependencies.store.readLifecycle();
+    if (!prior.installation_id || !["active", "disabled", "failed_recoverable"].includes(prior.state)) return false;
+
+    this.dependencies.tokenBroker.revokeInstallation(prior.installation_id);
+    if (prior.grant_id) await this.dependencies.store.revokeGrant(prior.grant_id).catch(() => undefined);
+    await this.stopInstallation(prior.installation_id, "reconcile").catch(() => undefined);
+
+    if (prior.state === "failed_recoverable") {
+      this.audit("app.lifecycle.stored_package_recovery_preserved", {
+        app_id: this.appId,
+        installation_id: prior.installation_id,
+        package_digest: prior.active_package_digest,
+        error_code: errorCode,
+      });
+      return true;
+    }
+
+    let operation = this.newOperation("reconcile", prior, prior.installation_id, `stored-package-recovery-${randomUUID()}`, { stored_package_unavailable: true, error_code: errorCode }, "failed_recoverable", "failed_recoverable");
+    await this.dependencies.store.saveOperation(operation);
+    operation = await this.stage(operation, "removing_runtime_authority");
+    const now = new Date().toISOString();
+    const checkpoint = prior.successful_use_checkpoint?.status === "pending"
+      ? { ...prior.successful_use_checkpoint, status: "failed" as const, completed_at: now, evidence_operation_id: null }
+      : prior.successful_use_checkpoint;
+    const next = LifecycleRecordSchema.parse({ ...prior, state: "failed_recoverable", generation: prior.generation + 1, pending_operation_id: null, successful_use_checkpoint: checkpoint, updated_at: now });
+    await this.dependencies.store.compareAndSwapLifecycle(prior.generation, next);
+    operation = await this.complete(operation, next, "committed", true);
+    this.emit("app.lifecycle.reconcile.failed_recoverable", prior, next, operation, errorCode);
+    return true;
   }
 
   private async reconcile(): Promise<void> {
@@ -480,7 +580,7 @@ export class AppLifecycleService {
           stage: "authority_removed",
           owner_data_preserved: true,
           removed_classes: ["runtime_registration", "capability_grant"],
-          retained_classes: [...(this.dependencies.ownerDataLifecycle?.retainedClasses ?? ["app_owner_data", "lifecycle_tombstone"])],
+          retained_classes: uninstallRetainedClasses(packages.map((stored) => stored?.manifest ?? null)),
           updated_at: new Date().toISOString(),
         };
         await this.dependencies.store.saveUninstallJournal(journal);
@@ -786,4 +886,25 @@ function capabilityDiff(prior: CapabilityGrant["capabilities"], requested: Capab
   const removed = prior.filter((item) => !requestedSet.has(item));
   const unchanged = requested.filter((item) => priorSet.has(item));
   return CapabilityDiffSchema.parse({ diff_version: 1, prior_capabilities: prior, requested_capabilities: requested, added, removed, unchanged, decision: added.length ? "owner_approval_required" : removed.length ? "narrowing_allowed" : "no_change" });
+}
+
+function storedPackageAvailabilityErrorCode(error: unknown): string | null {
+  if (error instanceof ZodError) return "package_manifest_invalid";
+  if (!(error instanceof AppPlatformError)) return null;
+  return [
+    "package_archive_digest_mismatch",
+    "package_cache_missing",
+    "package_manifest_invalid",
+    "package_verification_failed",
+    "store_corrupt",
+  ].includes(error.code) ? error.code : null;
+}
+
+function uninstallRetainedClasses(manifests: readonly (RuntimePackageManifest | null)[]): AppRetentionClass[] {
+  const manifest = manifests.find((candidate): candidate is RuntimePackageManifest => Boolean(candidate));
+  if (!manifest) return ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"];
+  if (manifest.manifest_version !== 2) return ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"];
+  return manifest.retention_policy.classes
+    .filter((entry) => entry.uninstall_behavior !== "remove")
+    .map((entry) => entry.retention_class);
 }

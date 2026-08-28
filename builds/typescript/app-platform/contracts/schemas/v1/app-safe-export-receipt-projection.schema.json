@@ -1,0 +1,65 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-safe-export-receipt-projection.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projection_version": {
+      "type": "number",
+      "const": 1
+    },
+    "status": {
+      "type": "string",
+      "const": "completed"
+    },
+    "receipt_revision_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "artifact_revision_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "media_type": {
+      "type": "string",
+      "enum": [
+        "application/pdf",
+        "text/plain"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "safe_destination_label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+$"
+    },
+    "replayed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "projection_version",
+    "status",
+    "receipt_revision_id",
+    "artifact_revision_id",
+    "content_digest",
+    "media_type",
+    "outcome",
+    "safe_destination_label",
+    "replayed"
+  ],
+  "additionalProperties": false
+}

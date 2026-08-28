@@ -11,6 +11,7 @@ export const RUNTIME_ENABLED = true as const;
 
 export * from "./workflow.js";
 export * from "./opportunities.js";
+export * from "./chat-workspace.js";
 
 export type ResumeBuilderPackageContract = {
   readonly packageId: typeof RESUME_BUILDER_PACKAGE_ID;

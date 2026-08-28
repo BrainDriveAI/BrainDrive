@@ -5,24 +5,57 @@ import {
   getApp,
   getAppCatalog,
   launchApp,
+  launchAppChatWorkspace,
   mutateApp,
+  runRetainedAppDataAction,
   type AppLaunch,
+  type AppPresentationProfileSummary,
   type AppLifecycleAction,
   type AppStatus,
 } from "@/api/apps-adapter";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import AppChatWorkspace from "./AppChatWorkspace";
 import AppCatalogCard from "./AppCatalogCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
 
 const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder";
-type BusyState = AppLifecycleAction | "launch";
+type RetainedDataAction = "delete" | "export" | "archive";
+type BusyState = AppLifecycleAction | "launch" | `retained-data:${RetainedDataAction}`;
 type SelectedSession = { appKey: string; appId: string; appName: string; launch: AppLaunch };
 
 function replaceApp(apps: AppStatus[], next: AppStatus): AppStatus[] {
   return apps.map((candidate) => candidate.route_key === next.route_key ? next : candidate);
 }
 
-export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSessionClosed }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void; onSessionClosed?: () => void }) {
+function primaryChatPresentation(app: AppStatus): Extract<AppPresentationProfileSummary, { type: "chat_workspace" }> | null {
+  const presentations = app.catalog?.presentations;
+  if (!presentations) return null;
+  const defaultProfile = presentations.profiles.find((profile) => profile.presentation_id === presentations.default_presentation_id);
+  if (defaultProfile?.type === "chat_workspace" && defaultProfile.owner_visibility !== "internal") return defaultProfile;
+  return presentations.profiles.find((profile): profile is Extract<AppPresentationProfileSummary, { type: "chat_workspace" }> =>
+    profile.type === "chat_workspace" && profile.owner_visibility === "primary"
+  ) ?? null;
+}
+
+function isChatWorkspaceLaunch(launch: AppLaunch): launch is Extract<AppLaunch, { kind: "chat_workspace" }> {
+  return launch.kind === "chat_workspace";
+}
+
+export default function AppsPage({
+  entryPoint = "direct",
+  onOpenSettings,
+  onSessionClosed,
+  onWorkspaceActiveChange,
+  onLogout,
+  tier = "local",
+}: {
+  entryPoint?: "direct" | "career";
+  onOpenSettings?: () => void;
+  onSessionClosed?: () => void;
+  onWorkspaceActiveChange?: (active: boolean) => void;
+  onLogout?: () => void;
+  tier?: "local" | "concierge";
+}) {
   const [apps, setApps] = useState<AppStatus[] | null>(null);
   const [selected, setSelected] = useState<SelectedSession | null>(null);
   const [busyByApp, setBusyByApp] = useState<Record<string, BusyState | undefined>>({});
@@ -47,6 +80,10 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { if (confirmUninstallKey) confirmButtonRef.current?.focus(); }, [confirmUninstallKey]);
+  useEffect(() => {
+    onWorkspaceActiveChange?.(Boolean(selected));
+    return () => onWorkspaceActiveChange?.(false);
+  }, [onWorkspaceActiveChange, selected]);
 
   const setAppBusy = (appKey: string, value?: BusyState) => setBusyByApp((current) => ({ ...current, [appKey]: value }));
   const setAppError = (appKey: string, value?: string) => setErrorsByApp((current) => ({ ...current, [appKey]: value }));
@@ -68,12 +105,34 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
     } finally { setAppBusy(app.route_key); }
   };
 
+  const retainedDataAction = async (app: AppStatus, action: RetainedDataAction) => {
+    if (busyByApp[app.route_key] || app.state !== "not_installed") return;
+    setAppBusy(app.route_key, `retained-data:${action}`); setAppError(app.route_key); setAppNotice(app.route_key);
+    try {
+      const result = await runRetainedAppDataAction(app.route_key, action, app);
+      const refreshed = await getApp(app.route_key);
+      setApps((current) => current ? replaceApp(current, refreshed) : current);
+      setAppNotice(app.route_key, action === "delete"
+        ? "Retained app data was deleted and an audit tombstone was recorded."
+        : `Retained app data was ${result.action === "archive" ? "archived" : "exported"} and remains unavailable to uninstalled app code.`);
+    } catch {
+      try {
+        const refreshed = await getApp(app.route_key);
+        setApps((current) => current ? replaceApp(current, refreshed) : current);
+      } catch { /* Keep the last safe catalog projection. */ }
+      setAppError(app.route_key, "The retained-data action was not confirmed. BrainDrive refreshed this app's status; review it before retrying.");
+    } finally { setAppBusy(app.route_key); }
+  };
+
   const open = async (app: AppStatus) => {
     if (busyByApp[app.route_key]) return;
     setAppBusy(app.route_key, "launch"); setAppError(app.route_key); setAppNotice(app.route_key);
     const trustedEntryPoint = app.identity.app_id === RESUME_BUILDER_APP_ID ? entryPoint : "direct";
     try {
-      const launch = await launchApp(app.route_key, trustedEntryPoint);
+      const chatPresentation = primaryChatPresentation(app);
+      const launch = chatPresentation
+        ? await launchAppChatWorkspace(app.route_key, { presentationId: chatPresentation.presentation_id, workspaceId: chatPresentation.workspace_id })
+        : await launchApp(app.route_key, trustedEntryPoint);
       setSelected({ appKey: app.route_key, appId: app.identity.app_id, appName: app.identity.display_name, launch });
     } catch {
       setAppError(app.route_key, `${app.identity.display_name} could not connect. Check its status and try again.`);
@@ -89,8 +148,13 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
 
   const reloadSession = useCallback(async () => {
     if (!selected) return;
-    const trustedEntryPoint = selected.appId === RESUME_BUILDER_APP_ID ? entryPoint : "direct";
-    const launch = await launchApp(selected.appKey, trustedEntryPoint, selected.launch);
+    const launch = isChatWorkspaceLaunch(selected.launch)
+      ? await launchAppChatWorkspace(selected.appKey, {
+          presentationId: selected.launch.presentation.presentation_id,
+          workspaceId: selected.launch.workspace.workspace_id,
+          resume: selected.launch,
+        })
+      : await launchApp(selected.appKey, selected.appId === RESUME_BUILDER_APP_ID ? entryPoint : "direct", selected.launch);
     setSelected((current) => current ? { ...current, launch } : current);
   }, [entryPoint, selected]);
 
@@ -107,7 +171,9 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
     await mutate(uninstallApp, "uninstall");
   };
 
-  if (selected) return <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={selected.appId === RESUME_BUILDER_APP_ID ? onOpenSettings : undefined} />;
+  if (selected) return isChatWorkspaceLaunch(selected.launch)
+    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
+    : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={selected.appId === RESUME_BUILDER_APP_ID ? onOpenSettings : undefined} />;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8" data-testid="apps-page">
@@ -136,10 +202,11 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
               error={errorsByApp[app.route_key]}
               notice={noticesByApp[app.route_key]}
               compact={compactCards}
-              launchLabel={app.identity.app_id === RESUME_BUILDER_APP_ID && entryPoint === "career" ? "Continue from Career" : undefined}
+              launchLabel={primaryChatPresentation(app)?.label ?? (app.identity.app_id === RESUME_BUILDER_APP_ID && entryPoint === "career" ? "Continue from Career" : undefined)}
               launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
               uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
               onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}
+              onRetainedDataAction={(action) => void retainedDataAction(app, action)}
             />)}
           </div>
         )}

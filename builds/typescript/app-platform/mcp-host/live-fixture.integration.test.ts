@@ -263,6 +263,55 @@ describe("live signed modern MCP Apps fixture", () => {
     }
   });
 
+  it("launches the modern Resume Builder chat workspace as the primary owner surface", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-chat-fixture-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    try {
+      await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-chat-fixture-install", approveCapabilities: true });
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle));
+      const launch = await host.launchChatWorkspace();
+
+      expect(launch).toMatchObject({
+        kind: "chat_workspace",
+        presentation: {
+          presentation_id: "just.chat",
+          type: "chat_workspace",
+          label: "Just Chat With It",
+          workspace_id: "resume.chat",
+          owner_visibility: "primary",
+        },
+        workspace: {
+          workspace_id: "resume.chat",
+          default_document_id: "conversation",
+        },
+      });
+      expect(launch.workspace.documents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ document_id: "conversation", title: "Conversation", role: "conversation" }),
+        expect.objectContaining({ document_id: "resume.profile", title: "Your Resume Profile", data_binding_id: "resume.profile.current" }),
+        expect.objectContaining({ document_id: "resume.document", title: "Your Resume", data_binding_id: "resume.definition.current.general" }),
+      ]));
+      const resources = launch.workspace.resources as Array<{ resource_id: string }>;
+      const actions = launch.workspace.actions as Array<{ action_id: string }>;
+      expect(resources.map((resource) => resource.resource_id)).toEqual([
+        "agent.instructions",
+        "interview.guide",
+        "quality.standard",
+        "template.standard",
+        "recovery.guidance",
+      ]);
+      expect(actions.map((action) => action.action_id)).toEqual([
+        "resume.profile.read",
+        "resume.profile.update",
+        "resume.create",
+        "resume.export.pdf.request",
+        "resume.state.read",
+      ]);
+      expect(JSON.stringify(launch)).not.toMatch(/payload\/ui\/main\.html|connection_token|private_key|\/home\/|[A-Za-z]:\\/i);
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  });
+
   it("executes the Resume-owned General program inside the signed app process while hiding its private tools", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-program-")); roots.push(root);
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });

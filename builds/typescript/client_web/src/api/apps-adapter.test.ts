@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, mutateApp, sendAppAppsBridgeMessage, sendAppBridgeMessage, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -30,6 +30,27 @@ describe("Apps gateway adapter", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ operation_id: operationId, idempotency_key: operationId, expected_generation: 0, installation_id: null, version: "3.0.0", approve_capabilities: true });
     expect(result.state).toBe("active");
     expect(result.request_resolution).toBe("confirmed_response");
+  });
+
+  it("uses trusted owner confirmation for post-uninstall retained-data actions", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      operation_id: "10000000-0000-4000-8000-000000000001",
+      app_id: status.identity.app_id,
+      action: "archive",
+      retained: true,
+      result_digest: `sha256:${"a".repeat(64)}`,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const operationId = crypto.randomUUID();
+
+    await expect(runRetainedAppDataAction("resume-builder", "archive", status, operationId)).resolves.toMatchObject({ action: "archive", retained: true });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/apps/resume-builder/data/archive");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      operation_id: operationId,
+      idempotency_key: operationId,
+      confirm_app_id: status.identity.app_id,
+      trusted_owner_confirmation: true,
+    });
   });
 
   it("launches, bridges, closes, and reads status only through authenticated gateway routes", async () => {
@@ -85,6 +106,186 @@ describe("Apps gateway adapter", () => {
     expect(body).not.toContain(prior.bridge_token_id);
     expect(body).not.toContain(prior.resource.html);
     expect(body).not.toContain(prior.server_id);
+  });
+
+  it("launches and reads app-chat workspace sessions through the additive generic routes", async () => {
+    const chat = {
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        operation_id: crypto.randomUUID(),
+        session_generation: 1,
+        owner_id: crypto.randomUUID(),
+        account_id: crypto.randomUUID(),
+        actor_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        publisher_id: "ai.braindrive",
+        installation_id: crypto.randomUUID(),
+        package_digest: `sha256:${"c".repeat(64)}` as const,
+        lifecycle_generation: 2,
+        grant_id: crypto.randomUUID(),
+        grant_revision: 1,
+        revocation_generation: 0,
+        presentation_id: "chat",
+        workspace_id: "resume.chat",
+        context_grant_set_digest: `sha256:${"d".repeat(64)}` as const,
+        created_at: "2026-08-26T12:00:00.000Z",
+        expires_at: "2026-08-26T12:05:00.000Z",
+      },
+      resumed: false,
+      presentation: { profile_version: 1, presentation_id: "chat", type: "chat_workspace", label: "Just Chat With It", description: "Open chat.", workspace_id: "resume.chat", owner_visibility: "primary" },
+      workspace: { workspace_version: 1, workspace_id: "resume.chat", title: "Workspace", description: "Shell.", default_document_id: "conversation", documents: [], resources: [], actions: [] },
+      context: { context_projection_set_version: 1, context_grant_set_digest: `sha256:${"d".repeat(64)}` as const, items: [] },
+    } satisfies AppChatWorkspaceLaunch;
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(chat), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(chat.session), { status: 200 }));
+
+    await expect(launchAppChatWorkspace("resume-builder", { presentationId: "chat", workspaceId: "resume.chat" })).resolves.toMatchObject({ kind: "chat_workspace" });
+    await expect(readAppChatWorkspaceSession("resume-builder", chat.session.session_id)).resolves.toMatchObject({ session_id: chat.session.session_id });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/apps/resume-builder/chat-workspaces/launch",
+      `/api/apps/resume-builder/chat-workspaces/sessions/${chat.session.session_id}`,
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({ presentation_id: "chat", workspace_id: "resume.chat" });
+  });
+
+  it("reads and writes generic app-chat workspace documents without caller-supplied authority", async () => {
+    const sessionId = crypto.randomUUID();
+    const readResult = {
+      result_version: 1,
+      state: "current",
+      document_id: "resume.profile",
+      document_binding_id: "resume.profile.current",
+      record: { revision: 2, media_type: "text/markdown", content: "# Profile" },
+    };
+    const writeResult = {
+      ...readResult,
+      record: { revision: 3, media_type: "text/markdown", content: "# Updated" },
+    };
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(readResult), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(writeResult), { status: 200 }));
+
+    await expect(readAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile")).resolves.toMatchObject({ state: "current", record: { revision: 2 } });
+    await expect(writeAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile", {
+      expectedRevision: 2,
+      content: "# Updated",
+      mediaType: "text/markdown",
+    })).resolves.toMatchObject({ record: { revision: 3, content: "# Updated" } });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+      `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+    ]);
+    const writeBody = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body));
+    expect(writeBody).toMatchObject({
+      expected_revision: 2,
+      media_type: "text/markdown",
+      content: "# Updated",
+    });
+    expect(writeBody.operation_id).toMatch(/[0-9a-f-]{36}/);
+    expect(writeBody.idempotency_key).toBe(writeBody.operation_id);
+    expect(JSON.stringify(writeBody)).not.toContain("grant");
+    expect(JSON.stringify(writeBody)).not.toContain("package_digest");
+  });
+
+  it("projects stale app document writes as typed safe errors", async () => {
+    const sessionId = crypto.randomUUID();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: "conflict",
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+        retryable: false,
+        current_revision: 4,
+      },
+      document_state: {
+        state_version: 1,
+        state: "conflict",
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+        retryable: false,
+        refresh_required: true,
+        current_revision: 4,
+      },
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+
+    const error = await writeAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile", {
+      expectedRevision: 2,
+      content: "# Updated",
+      mediaType: "text/markdown",
+    }).catch((failure) => failure);
+
+    expect(error).toBeInstanceOf(AppDocumentError);
+    expect(error).toMatchObject({
+      code: "conflict",
+      safeMessage: "The saved version changed. Refresh and review before saving again.",
+      currentRevision: 4,
+      refreshRequired: true,
+    });
+  });
+
+  it("reconnects an app-chat workspace without serializing sandbox bridge credentials or app resources", async () => {
+    const chat = {
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        operation_id: crypto.randomUUID(),
+        session_generation: 4,
+        owner_id: crypto.randomUUID(),
+        account_id: crypto.randomUUID(),
+        actor_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        publisher_id: "ai.braindrive",
+        installation_id: crypto.randomUUID(),
+        package_digest: `sha256:${"c".repeat(64)}` as const,
+        lifecycle_generation: 2,
+        grant_id: crypto.randomUUID(),
+        grant_revision: 1,
+        revocation_generation: 0,
+        presentation_id: "chat",
+        workspace_id: "resume.chat",
+        context_grant_set_digest: `sha256:${"d".repeat(64)}` as const,
+        created_at: "2026-08-26T12:00:00.000Z",
+        expires_at: "2026-08-26T12:05:00.000Z",
+      },
+      resumed: true,
+      presentation: { profile_version: 1, presentation_id: "chat", type: "chat_workspace", label: "Just Chat With It", description: "Open chat.", workspace_id: "resume.chat", owner_visibility: "primary" },
+      workspace: {
+        workspace_version: 1,
+        workspace_id: "resume.chat",
+        title: "Workspace",
+        description: "Shell.",
+        default_document_id: "conversation",
+        documents: [],
+        resources: [{ resource_version: 1, resource_id: "instructions", role: "agent_instructions", title: "Instructions", description: "Resource.", package_path: "payload/resources/instructions.md", media_type: "text/markdown", content_digest: `sha256:${"e".repeat(64)}`, owner_editable: false, prompt_inclusion: "workspace_start" }],
+        actions: [],
+      },
+      context: { context_projection_set_version: 1, context_grant_set_digest: `sha256:${"d".repeat(64)}` as const, items: [] },
+    } satisfies AppChatWorkspaceLaunch;
+    const next = { ...chat, session: { ...chat.session, session_id: crypto.randomUUID(), session_generation: 5 } };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(next), { status: 200 }));
+
+    await launchAppChatWorkspace("resume-builder", { presentationId: "chat", workspaceId: "resume.chat", resume: chat });
+
+    const body = String(fetchMock.mock.calls[0]![1]?.body);
+    expect(JSON.parse(body)).toEqual({
+      presentation_id: "chat",
+      workspace_id: "resume.chat",
+      resume: {
+        session_id: chat.session.session_id,
+        view_id: chat.session.view_id,
+        operation_id: chat.session.operation_id,
+        session_generation: 4,
+      },
+    });
+    expect(body).not.toContain("payload/resources/instructions.md");
+    expect(body).not.toContain("bridge_token_id");
+    expect(body).not.toContain("server_id");
   });
 
   it("refreshes authoritative status after a lost committed response without declaring request failure", async () => {

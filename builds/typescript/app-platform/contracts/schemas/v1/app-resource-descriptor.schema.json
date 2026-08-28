@@ -1,0 +1,80 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-resource-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "resource_version": {
+      "type": "number",
+      "const": 1
+    },
+    "resource_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "agent_instructions",
+        "interview_guide",
+        "quality_standard",
+        "template_standard",
+        "recovery_guidance",
+        "owner_reference"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "package_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "media_type": {
+      "type": "string",
+      "enum": [
+        "text/markdown",
+        "text/plain",
+        "application/json"
+      ]
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "owner_editable": {
+      "type": "boolean"
+    },
+    "prompt_inclusion": {
+      "type": "string",
+      "enum": [
+        "never",
+        "workspace_start",
+        "document_open",
+        "action_request"
+      ]
+    }
+  },
+  "required": [
+    "resource_version",
+    "resource_id",
+    "role",
+    "title",
+    "description",
+    "package_path",
+    "media_type",
+    "content_digest",
+    "owner_editable",
+    "prompt_inclusion"
+  ],
+  "additionalProperties": false
+}

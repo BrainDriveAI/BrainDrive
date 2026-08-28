@@ -21,6 +21,7 @@ import type {
   OwnerDataActivationRequest,
   OwnerDataSchemaCompatibility,
   RetainedDataDeleteRequest,
+  RetainedDataOwnerActionRequest,
 } from "../app-platform/lifecycle/owner-data.js";
 import { validateAppDataBackupIdentity } from "../app-platform/lifecycle/owner-data.js";
 import { ResumeDomainError } from "./errors.js";
@@ -50,7 +51,7 @@ export type ResumeDataRepairState = {
 };
 
 export class ResumeDataLifecycleAdapter implements AppDataLifecycleAdapter, ResumeLifecycleDataAdapter {
-  readonly retainedClasses = ["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"] as const;
+  readonly retainedClasses = ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"] as const;
   readonly identity = {
     adapter_contract_version: 1,
     app_id: "ai.braindrive.resume-builder",
@@ -70,13 +71,7 @@ export class ResumeDataLifecycleAdapter implements AppDataLifecycleAdapter, Resu
   }
 
   async deleteRetainedData(request: RetainedDataDeleteRequest): Promise<{ deleted: true; deleted_namespace_digest: `sha256:${string}` }> {
-    if (
-      request.app_id !== this.identity.app_id ||
-      request.trusted_owner_confirmation !== true ||
-      path.resolve(this.namespaceRoot) !== path.resolve(this.memoryRoot, "apps", "resume-builder")
-    ) {
-      throw new ResumeDomainError("denied", "Retained Resume Builder data deletion authority is invalid", 403);
-    }
+    this.assertRetainedDataAuthority(request, "delete");
     const deletedNamespaceDigest = canonicalInputDigest({
       app_id: this.identity.app_id,
       owner_id: request.owner_id,
@@ -85,6 +80,24 @@ export class ResumeDataLifecycleAdapter implements AppDataLifecycleAdapter, Resu
     });
     await rm(this.namespaceRoot, { recursive: true, force: true });
     return { deleted: true, deleted_namespace_digest: deletedNamespaceDigest };
+  }
+
+  async exportRetainedData(request: RetainedDataOwnerActionRequest): Promise<{ exported: true; export_digest: `sha256:${string}`; retained: true }> {
+    this.assertRetainedDataAuthority(request, "export");
+    return {
+      exported: true,
+      export_digest: this.retainedDataActionDigest(request, "export"),
+      retained: true,
+    };
+  }
+
+  async archiveRetainedData(request: RetainedDataOwnerActionRequest): Promise<{ archived: true; archive_digest: `sha256:${string}`; retained: true }> {
+    this.assertRetainedDataAuthority(request, "archive");
+    return {
+      archived: true,
+      archive_digest: this.retainedDataActionDigest(request, "archive"),
+      retained: true,
+    };
   }
 
   async inspectSchema(request: Parameters<ResumeLifecycleDataAdapter["inspectSchema"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>> {
@@ -411,6 +424,27 @@ export class ResumeDataLifecycleAdapter implements AppDataLifecycleAdapter, Resu
     assertContentFreeAudit(event);
     const { event_name: eventName, ...details } = event;
     this.audit(eventName, details);
+  }
+
+  private assertRetainedDataAuthority(request: RetainedDataDeleteRequest, action: "delete" | "export" | "archive"): void {
+    if (
+      request.app_id !== this.identity.app_id ||
+      request.trusted_owner_confirmation !== true ||
+      path.resolve(this.namespaceRoot) !== path.resolve(this.memoryRoot, "apps", "resume-builder")
+    ) {
+      throw new ResumeDomainError("denied", `Retained Resume Builder data ${action} authority is invalid`, 403);
+    }
+  }
+
+  private retainedDataActionDigest(request: RetainedDataOwnerActionRequest, action: "export" | "archive"): `sha256:${string}` {
+    return canonicalInputDigest({
+      action,
+      app_id: this.identity.app_id,
+      owner_id: request.owner_id,
+      operation_id: request.operation_id,
+      namespace: "host_derived",
+      retained: true,
+    });
   }
 }
 

@@ -26,6 +26,32 @@ export type AppLifecycleOperationView = {
   completed_at: string | null;
 };
 
+export type AppPresentationProfileSummary =
+  | {
+      profile_version: 1;
+      presentation_id: string;
+      type: "surface";
+      label: string;
+      description: string;
+      resource_uri: string;
+      owner_visibility: "primary" | "secondary" | "internal";
+    }
+  | {
+      profile_version: 1;
+      presentation_id: string;
+      type: "chat_workspace";
+      label: string;
+      description: string;
+      workspace_id: string;
+      owner_visibility: "primary" | "secondary" | "internal";
+    };
+
+export type AppPresentationSetSummary = {
+  presentation_set_version: 1;
+  default_presentation_id: string;
+  profiles: AppPresentationProfileSummary[];
+};
+
 export type AppStatus = {
   contract_version: 1;
   identity: {
@@ -51,6 +77,7 @@ export type AppStatus = {
     safe_message: string;
     uninstall_removes: string[];
     uninstall_retains: string[];
+    post_uninstall_controls?: Array<"delete" | "export" | "archive">;
   };
   progress: AppLifecycleOperationView | null;
   recovery: { available: boolean; action: string };
@@ -60,6 +87,7 @@ export type AppStatus = {
     retention_summary: string;
     primary_resource_uri: string;
     provenance: "verified_first_party_package" | "host_registration";
+    presentations?: AppPresentationSetSummary | null;
   } | null;
   availability?: {
     status: "available" | "unavailable";
@@ -74,8 +102,19 @@ export type AppStatus = {
 
 export type AppCatalog = { catalog_version: 1; apps: AppStatus[] };
 
-export type AppLaunch = {
+export type RetainedAppDataActionResult = {
+  operation_id: string;
+  app_id: string;
+  action?: "export" | "archive";
+  retained?: true;
+  result_digest?: `sha256:${string}`;
+  deleted?: true;
+  deleted_namespace_digest?: `sha256:${string}`;
+};
+
+export type AppSurfaceLaunch = {
   launch_version: 1;
+  kind?: "surface";
   session_id: string;
   installation_id: string;
   view_id: string;
@@ -98,6 +137,127 @@ export type AppLaunch = {
   entry_point: "direct" | "career";
 };
 
+export type AppWorkspaceDocumentDescriptor = {
+  document_version: 1;
+  document_id: string;
+  role: "conversation" | "source_document" | "derived_document" | "advanced_resource" | "recovery";
+  title: string;
+  description: string;
+  editable: boolean;
+  default_visibility: "primary" | "secondary" | "advanced";
+  model_access: "none" | "read_reference" | "read_write_draft" | "action_result";
+  resource_id: string | null;
+  data_binding_id: string | null;
+  presentation?: AppWorkspaceDocumentPresentation | null;
+};
+
+export type AppWorkspaceDocumentHeaderAction =
+  | { type: "back_to_chat"; label: string }
+  | { type: "edit_document"; label: string }
+  | { type: "app_action"; action_id: string; label: string; delivery: "chat_prompt"; prompt: string };
+
+export type AppWorkspaceDocumentPresentation = {
+  presentation_version: 1;
+  renderer: "plain_text" | "markdown_document" | "paper_document" | "json_editor";
+  chrome: "standard" | "document";
+  title: string | null;
+  subtitle: string | null;
+  header_actions: AppWorkspaceDocumentHeaderAction[];
+};
+
+export type AppResourceDescriptor = {
+  resource_version: 1;
+  resource_id: string;
+  role: "agent_instructions" | "interview_guide" | "quality_standard" | "template_standard" | "recovery_guidance" | "owner_reference";
+  title: string;
+  description: string;
+  package_path: string;
+  media_type: "text/markdown" | "text/plain" | "application/json";
+  content_digest: `sha256:${string}`;
+  owner_editable: boolean;
+  prompt_inclusion: "never" | "workspace_start" | "document_open" | "action_request";
+};
+
+export type AppActionDescriptor = {
+  action_version: 1;
+  action_id: string;
+  kind: "read" | "write" | "render" | "export" | "recover" | "inspect";
+  title: string;
+  description: string;
+  input_schema_id: string;
+  result_schema_id: string;
+  confirmation: "none" | "owner_confirmation" | "trusted_owner_confirmation";
+  idempotency_policy: "not_applicable" | "optional" | "required";
+  model_exposure: "hidden" | "available";
+};
+
+export type AppChatContextProjection = {
+  context_projection_set_version: 1;
+  context_grant_set_digest: `sha256:${string}`;
+  items: Array<
+    | {
+        context_projection_version: 1;
+        context_id: string;
+        kind: "career_context" | "owner_profile" | "workspace_context" | "app_state";
+        state: "available";
+        required: boolean;
+        byte_length: number;
+        content_digest: `sha256:${string}`;
+        content: unknown;
+      }
+    | {
+        context_projection_version: 1;
+        context_id: string;
+        kind: "career_context" | "owner_profile" | "workspace_context" | "app_state";
+        state: "unavailable";
+        required: boolean;
+        reason: "not_granted" | "unsupported" | "too_large";
+      }
+  >;
+};
+
+export type AppChatWorkspaceLaunch = {
+  launch_version: 1;
+  kind: "chat_workspace";
+  session: {
+    session_id: string;
+    view_id: string;
+    operation_id: string;
+    session_generation: number;
+    owner_id: string;
+    account_id: string;
+    actor_id: string;
+    app_id: string;
+    publisher_id: string;
+    installation_id: string;
+    package_digest: `sha256:${string}`;
+    lifecycle_generation: number;
+    grant_id: string;
+    grant_revision: number;
+    revocation_generation: number;
+    presentation_id: string;
+    workspace_id: string;
+    context_grant_set_digest: `sha256:${string}`;
+    created_at: string;
+    expires_at: string;
+  };
+  resumed: boolean;
+  workspace: {
+    workspace_version: 1;
+    workspace_id: string;
+    title: string;
+    description: string;
+    default_document_id: string;
+    documents: AppWorkspaceDocumentDescriptor[];
+    resources: AppResourceDescriptor[];
+    actions: AppActionDescriptor[];
+  };
+  presentation: Extract<AppPresentationProfileSummary, { type: "chat_workspace" }>;
+  context: AppChatContextProjection;
+};
+
+export type AppLaunch = AppSurfaceLaunch | AppChatWorkspaceLaunch;
+
 export type OwnerSafeAppDataState = {
   state_version: 1;
   state: "ready" | "review_needed" | "conflict" | "cancelled" | "incompatible" | "recoverable_failure" | "unavailable";
@@ -106,6 +266,55 @@ export type OwnerSafeAppDataState = {
   refresh_required: boolean;
   current_revision: number | null;
   proposal_preserved: boolean;
+};
+
+export type AppDocumentRecord = {
+  record_version: 1;
+  record_kind: "document" | "state";
+  owner_id: string;
+  actor_id: string;
+  app_id: string;
+  publisher_id: string;
+  installation_id: string;
+  package_digest: `sha256:${string}`;
+  lifecycle_generation: number;
+  grant_id: string;
+  grant_revision: number;
+  revocation_generation: number;
+  document_id: string;
+  document_binding_id: string;
+  role: "source_document" | "derived_document" | "recovery_document" | "action_result_document" | "app_state";
+  retention_class: "durable_owner_data" | "durable_provenance_while_referenced" | "durable_operation_lookup" | "rollback_recovery_window" | "disposable_preview_cache" | "transient_abandoned_operation";
+  media_type: "application/json" | "text/markdown" | "text/plain";
+  revision: number;
+  revision_id: string;
+  prior_revision_id: string | null;
+  operation_id: string;
+  idempotency_key: string;
+  content_digest: `sha256:${string}`;
+  content_size_bytes: number;
+  content: unknown;
+  created_at: string;
+  created_by: unknown;
+  updated_at: string;
+  updated_by: unknown;
+};
+
+export type AppDocumentReadResult = {
+  result_version: 1;
+  state: "current" | "missing";
+  document_id: string;
+  document_binding_id: string;
+  record: AppDocumentRecord | null;
+};
+
+export type AppDocumentState = {
+  state_version: 1;
+  state: "unavailable" | "conflict";
+  safe_message: string;
+  retryable: boolean;
+  refresh_required: boolean;
+  current_revision: number | null;
 };
 
 export type HostConfirmationPresentation = {
@@ -183,6 +392,27 @@ export class AppCapabilityError extends GatewayError {
   }
 }
 
+export class AppDocumentError extends GatewayError {
+  readonly safeMessage: string;
+  readonly retryable: boolean;
+  readonly refreshRequired: boolean;
+  readonly currentRevision: number | null;
+
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    public readonly documentState: AppDocumentState,
+  ) {
+    super(message, status, code);
+    this.name = "AppDocumentError";
+    this.safeMessage = message;
+    this.retryable = documentState.retryable;
+    this.refreshRequired = documentState.refresh_required;
+    this.currentRevision = documentState.current_revision;
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {
@@ -238,7 +468,25 @@ export async function mutateApp(appKey: string, action: AppLifecycleAction, curr
   }
 }
 
-export function launchApp(appKey: string, entryPoint: "direct" | "career" = "direct", resume?: AppLaunch): Promise<AppLaunch> {
+export function runRetainedAppDataAction(
+  appKey: string,
+  action: "delete" | "export" | "archive",
+  current: AppStatus,
+  operationId = secureRandomUuid(),
+): Promise<RetainedAppDataActionResult> {
+  return requestJson(`${appPath(appKey)}/data/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: operationId,
+      confirm_app_id: current.identity.app_id,
+      trusted_owner_confirmation: true,
+    }),
+  });
+}
+
+export function launchApp(appKey: string, entryPoint: "direct" | "career" = "direct", resume?: AppSurfaceLaunch): Promise<AppSurfaceLaunch> {
   return requestJson(`${appPath(appKey)}/launch`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -250,6 +498,32 @@ export function launchApp(appKey: string, entryPoint: "direct" | "career" = "dir
           view_id: resume.view_id,
           operation_id: resume.operation_id,
           bridge_generation: resume.bridge_generation,
+        },
+      } : {}),
+    }),
+  });
+}
+
+export function launchAppChatWorkspace(
+  appKey: string,
+  input: {
+    presentationId?: string;
+    workspaceId?: string;
+    resume?: AppChatWorkspaceLaunch;
+  } = {},
+): Promise<AppChatWorkspaceLaunch> {
+  return requestJson(`${appPath(appKey)}/chat-workspaces/launch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...(input.presentationId ? { presentation_id: input.presentationId } : {}),
+      ...(input.workspaceId ? { workspace_id: input.workspaceId } : {}),
+      ...(input.resume ? {
+        resume: {
+          session_id: input.resume.session.session_id,
+          view_id: input.resume.session.view_id,
+          operation_id: input.resume.session.operation_id,
+          session_generation: input.resume.session.session_generation,
         },
       } : {}),
     }),
@@ -353,6 +627,68 @@ export async function closeAppSession(appKey: string, sessionId: string): Promis
   if (!response.ok && response.status !== 404 && response.status !== 410) throw new GatewayError("Unable to close app session", response.status);
 }
 
+export function readAppChatWorkspaceSession(appKey: string, sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> {
+  return requestJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export function readAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`);
+}
+
+export function writeAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string, input: {
+  expectedRevision: number | null;
+  content: unknown;
+  mediaType?: AppDocumentRecord["media_type"];
+  retentionClass?: AppDocumentRecord["retention_class"];
+  operationId?: string;
+  idempotencyKey?: string;
+}): Promise<AppDocumentReadResult> {
+  const operationId = input.operationId ?? secureRandomUuid();
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: input.idempotencyKey ?? operationId,
+      expected_revision: input.expectedRevision,
+      content: input.content,
+      ...(input.mediaType ? { media_type: input.mediaType } : {}),
+      ...(input.retentionClass ? { retention_class: input.retentionClass } : {}),
+    }),
+  });
+}
+
+async function requestDocumentJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
+  if (!response.ok) {
+    try {
+      const payload = await response.json() as {
+        error?: {
+          code?: string;
+          safe_message?: string;
+          retryable?: boolean;
+          current_revision?: number | null;
+        };
+        document_state?: AppDocumentState;
+      };
+      if (payload.error?.code && payload.error.safe_message && payload.document_state) {
+        throw new AppDocumentError(payload.error.safe_message, response.status, payload.error.code, {
+          state_version: 1,
+          state: payload.document_state.state === "conflict" ? "conflict" : "unavailable",
+          safe_message: payload.document_state.safe_message,
+          retryable: payload.document_state.retryable === true,
+          refresh_required: payload.document_state.refresh_required === true,
+          current_revision: typeof payload.document_state.current_revision === "number" ? payload.document_state.current_revision : null,
+        });
+      }
+    } catch (error) {
+      if (error instanceof AppDocumentError) throw error;
+    }
+    throw new GatewayError(`App document request failed with status ${response.status}`, response.status, "recoverable_internal_failure");
+  }
+  return await response.json() as T;
+}
+
 export function sendAppBridgeMessage(appKey: string, sessionId: string, message: unknown): Promise<unknown> {
   return requestJson(`${appPath(appKey)}/bridge`, {
     method: "POST",
@@ -361,7 +697,7 @@ export function sendAppBridgeMessage(appKey: string, sessionId: string, message:
   });
 }
 
-export function sendAppAppsBridgeMessage(appKey: string, launch: AppLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
+export function sendAppAppsBridgeMessage(appKey: string, launch: AppSurfaceLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
   const operationId = secureRandomUuid();
   if (signal?.aborted) return Promise.reject(new DOMException("Cancelled", "AbortError"));
   const cancel = () => {

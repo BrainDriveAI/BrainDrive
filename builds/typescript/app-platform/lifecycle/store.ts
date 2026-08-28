@@ -3,7 +3,7 @@ import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
-import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
+import { AppRetentionClassSchema, GenericPackageManifestSchema } from "../contracts/app-registry.js";
 import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
 import { LifecycleOperationSchema, LifecycleRecordSchema } from "../contracts/lifecycle.js";
 import { CapabilityGrantSchema, PackageManifestSchema, PackageTrustSchema } from "../contracts/package.js";
@@ -42,7 +42,7 @@ const UninstallJournalSchema = z.object({
   stage: z.enum(["authority_removed", "references_cleared", "bytes_removed", "committed"]),
   owner_data_preserved: z.literal(true),
   removed_classes: z.array(z.enum(["runtime_registration", "capability_grant", "package_reference", "package_bytes", "disposable_cache"])),
-  retained_classes: z.array(z.enum(["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "app_owner_data", "approved_revision_history", "lifecycle_tombstone"])),
+  retained_classes: z.array(AppRetentionClassSchema),
   updated_at: z.string().datetime(),
 }).strict();
 
@@ -77,6 +77,34 @@ const DataDeletionTombstoneSchema = z.discriminatedUnion("status", [
 ]);
 
 export type DataDeletionTombstone = z.infer<typeof DataDeletionTombstoneSchema>;
+
+const DataRetentionActionTombstoneSchema = z
+  .object({
+    tombstone_version: z.literal(1),
+    operation_id: z.string().uuid(),
+    app_id: z.string().min(3).max(128),
+    owner_id: z.string().uuid(),
+    adapter_binding_id: z.string().min(3).max(128),
+    data_contract_version: z.number().int().positive(),
+    action: z.enum(["export", "archive"]),
+    status: z.enum(["prepared", "committed"]),
+    retained: z.literal(true),
+    result_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/).nullable(),
+    started_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+    completed_at: z.string().datetime().nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "prepared" && (value.result_digest !== null || value.completed_at !== null)) {
+      context.addIssue({ code: "custom", message: "prepared retained-data action cannot claim a committed result" });
+    }
+    if (value.status === "committed" && (value.result_digest === null || value.completed_at === null)) {
+      context.addIssue({ code: "custom", message: "committed retained-data action requires digest-bound evidence" });
+    }
+  });
+
+export type DataRetentionActionTombstone = z.infer<typeof DataRetentionActionTombstoneSchema>;
 
 type StoreOptions = StoreHooks & { appId?: string };
 const StoreAppIdSchema = z.string().min(3).max(128).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/);
@@ -263,6 +291,23 @@ export class AppLifecycleStore {
     }
   }
 
+  async saveDataRetentionActionTombstone(tombstone: DataRetentionActionTombstone): Promise<void> {
+    const parsed = DataRetentionActionTombstoneSchema.parse(tombstone);
+    if (parsed.app_id !== this.appId) throw new AppPlatformError("denied", "Data retention tombstone targets a different registered app", 403);
+    await this.writeAtomic(path.join(this.tombstonesRoot, `data-${parsed.action}-${parsed.operation_id}.json`), parsed);
+  }
+
+  async readDataRetentionActionTombstone(action: "export" | "archive", operationId: string): Promise<DataRetentionActionTombstone | null> {
+    try {
+      const parsed = DataRetentionActionTombstoneSchema.parse(JSON.parse(await readFile(path.join(this.tombstonesRoot, `data-${action}-${operationId}.json`), "utf8")));
+      if (parsed.app_id !== this.appId) throw new AppPlatformError("store_corrupt", "Data retention tombstone belongs to a different registered app");
+      return parsed;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
   async runLifecycleMutation<T>(action: () => Promise<T>): Promise<T> {
     return this.mutationSerial(async () => {
       const pending = await this.pendingDataDeletionOperations();
@@ -327,7 +372,7 @@ export class AppLifecycleStore {
 
   private async pendingDataDeletionOperations(): Promise<DataDeletionTombstone[]> {
     const names = (await readdir(this.tombstonesRoot))
-      .filter((name) => name.startsWith("data-") && name.endsWith(".json"))
+      .filter((name) => /^data-[0-9a-f-]{36}\.json$/i.test(name))
       .sort();
     const records = await Promise.all(names.map(async (name) => {
       const parsed = DataDeletionTombstoneSchema.parse(JSON.parse(await readFile(path.join(this.tombstonesRoot, name), "utf8")));

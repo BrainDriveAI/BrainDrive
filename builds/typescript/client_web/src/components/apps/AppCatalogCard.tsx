@@ -44,6 +44,12 @@ const actionLabel: Record<string, string> = {
   uninstall: "Uninstall",
 };
 
+const retainedDataActionLabel: Record<"delete" | "export" | "archive", string> = {
+  delete: "Delete retained data",
+  export: "Export retained data",
+  archive: "Archive retained data",
+};
+
 const appDescriptionCopy: Record<string, { short: string; long: string }> = {
   "ai.braindrive.brief-builder": {
     short: "Summarize source material.",
@@ -65,9 +71,10 @@ export default function AppCatalogCard({
   launchButtonRef,
   uninstallButtonRef,
   onAction,
+  onRetainedDataAction,
 }: {
   app: AppStatus;
-  busy: AppLifecycleAction | "launch" | null;
+  busy: AppLifecycleAction | "launch" | `retained-data:${"delete" | "export" | "archive"}` | null;
   error?: string;
   notice?: string;
   compact?: boolean;
@@ -75,6 +82,7 @@ export default function AppCatalogCard({
   launchButtonRef?: Ref<HTMLButtonElement>;
   uninstallButtonRef?: Ref<HTMLButtonElement>;
   onAction: (action: AppLifecycleAction | "launch") => void;
+  onRetainedDataAction?: (action: "delete" | "export" | "archive") => void;
 }) {
   const titleId = `app-${app.route_key}-title`;
   const actions = app.available_actions ?? [];
@@ -82,6 +90,7 @@ export default function AppCatalogCard({
   const fallbackDescription = appDescriptionCopy[app.identity.app_id];
   const shortDescription = fallbackDescription?.short ?? catalog?.summary ?? `Open ${app.identity.display_name}.`;
   const longDescription = catalog?.summary ?? fallbackDescription?.long ?? shortDescription;
+  const retainedDataControls = app.state === "not_installed" ? app.retention.post_uninstall_controls ?? [] : [];
 
   return (
     <article className="flex h-full flex-col rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-app-key={app.route_key}>
@@ -141,6 +150,17 @@ export default function AppCatalogCard({
           <p className="mt-1 text-bd-text-secondary">{catalog?.retention_summary ?? app.retention.safe_message}</p>
           <p className="mt-2 text-bd-text-secondary">Uninstall retains {app.retention.uninstall_retains.join(", ") || "no app-owned records"}.</p>
           <p className="mt-1 text-bd-text-secondary">It removes {app.retention.uninstall_removes.join(", ") || "no host authority"}.</p>
+          {retainedDataControls.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">
+            {retainedDataControls.map((action) => <button
+              key={action}
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => onRetainedDataAction?.(action)}
+              className={action === "delete" ? "rounded-lg border border-bd-danger px-3 py-1.5 text-xs font-medium text-bd-text-primary hover:bg-bd-bg-hover disabled:opacity-60" : "rounded-lg border border-bd-border px-3 py-1.5 text-xs font-medium text-bd-text-primary hover:bg-bd-bg-hover disabled:opacity-60"}
+            >
+              {retainedDataActionLabel[action]}
+            </button>)}
+          </div> : null}
           {catalog ? <p className="mt-2 break-all text-xs text-bd-text-muted">Primary resource: {catalog.primary_resource_uri}{catalog.icon ? ` · Icon: ${catalog.icon.package_path}` : ""}</p> : null}
         </section>
       </div> : null}

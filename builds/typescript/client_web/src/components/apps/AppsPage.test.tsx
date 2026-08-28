@@ -8,7 +8,7 @@ import AppsPage from "./AppsPage";
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, getAppCatalog: vi.fn(), getApp: vi.fn(), mutateApp: vi.fn(), launchApp: vi.fn(), closeAppSession: vi.fn(), sendAppBridgeMessage: vi.fn(), callAppCapability: vi.fn() };
+  return { ...actual, getAppCatalog: vi.fn(), getApp: vi.fn(), mutateApp: vi.fn(), launchApp: vi.fn(), launchAppChatWorkspace: vi.fn(), readAppChatWorkspaceSession: vi.fn(), closeAppSession: vi.fn(), sendAppBridgeMessage: vi.fn(), callAppCapability: vi.fn() };
 });
 
 function renderApps(ui: ReactElement) {
@@ -54,6 +54,137 @@ const launch = {
   resource: { uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" as const, content_digest: `sha256:${"a".repeat(64)}`, size_bytes: 32, html: "<!doctype html><main>Fixture</main>" },
   allowed_tools: ["fixture.status"], allowed_capabilities: ["career.context.read"], entry_point: "direct" as const,
 };
+
+function chatPresentation(): NonNullable<appsApi.AppStatus["catalog"]>["presentations"] {
+  return {
+    presentation_set_version: 1,
+    default_presentation_id: "chat",
+    profiles: [
+      {
+        profile_version: 1,
+        presentation_id: "chat",
+        type: "chat_workspace",
+        label: "Just Chat With It",
+        description: "Open the native app workspace.",
+        workspace_id: "resume.chat",
+        owner_visibility: "primary",
+      },
+      {
+        profile_version: 1,
+        presentation_id: "surface",
+        type: "surface",
+        label: "Open App",
+        description: "Open the sandboxed app surface.",
+        resource_uri: "ui://resume-builder/main",
+        owner_visibility: "internal",
+      },
+    ],
+  };
+}
+
+function chatLaunch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): appsApi.AppChatWorkspaceLaunch {
+  const session = {
+    session_id: crypto.randomUUID(),
+    view_id: crypto.randomUUID(),
+    operation_id: crypto.randomUUID(),
+    session_generation: 1,
+    owner_id: crypto.randomUUID(),
+    account_id: crypto.randomUUID(),
+    actor_id: crypto.randomUUID(),
+    app_id: "ai.braindrive.resume-builder",
+    publisher_id: "ai.braindrive",
+    installation_id: crypto.randomUUID(),
+    package_digest: `sha256:${"c".repeat(64)}` as const,
+    lifecycle_generation: 2,
+    grant_id: crypto.randomUUID(),
+    grant_revision: 1,
+    revocation_generation: 0,
+    presentation_id: "chat",
+    workspace_id: "resume.chat",
+    context_grant_set_digest: `sha256:${"d".repeat(64)}` as const,
+    created_at: "2026-08-26T12:00:00.000Z",
+    expires_at: "2026-08-26T12:05:00.000Z",
+  };
+  return {
+    launch_version: 1,
+    kind: "chat_workspace",
+    session,
+    resumed: false,
+    presentation: {
+      profile_version: 1,
+      presentation_id: "chat",
+      type: "chat_workspace",
+      label: "Just Chat With It",
+      description: "Open the native app workspace.",
+      workspace_id: "resume.chat",
+      owner_visibility: "primary",
+    },
+    workspace: {
+      workspace_version: 1,
+      workspace_id: "resume.chat",
+      title: "Resume Workspace",
+      description: "Native app-chat workspace.",
+      default_document_id: "conversation",
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Native app conversation.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "profile",
+          role: "source_document",
+          title: "Your Profile",
+          description: "Owner-editable app document.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: "profile.current",
+        },
+        {
+          document_version: 1,
+          document_id: "instructions",
+          role: "advanced_resource",
+          title: "Agent Instructions",
+          description: "Package-provided resource descriptor.",
+          editable: false,
+          default_visibility: "advanced",
+          model_access: "read_reference",
+          resource_id: "instructions",
+          data_binding_id: null,
+        },
+      ],
+      resources: [{
+        resource_version: 1,
+        resource_id: "instructions",
+        role: "agent_instructions",
+        title: "Agent Instructions",
+        description: "Read-only package resource.",
+        package_path: "payload/resources/instructions.md",
+        media_type: "text/markdown",
+        content_digest: `sha256:${"e".repeat(64)}`,
+        owner_editable: false,
+        prompt_inclusion: "workspace_start",
+      }],
+      actions: [],
+    },
+    context: {
+      context_projection_set_version: 1,
+      context_grant_set_digest: session.context_grant_set_digest,
+      items: [],
+    },
+    ...overrides,
+  };
+}
 
 describe("manifest-driven Apps surface", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [brief, base] }); });
@@ -204,6 +335,46 @@ describe("manifest-driven Apps surface", () => {
     expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "career");
     await user.click(await screen.findByRole("button", { name: "Close app" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue from Career" })).toHaveFocus());
+  });
+
+  it("routes a primary chat workspace presentation to the native shell and restores focus after close", async () => {
+    const current = installed({ catalog: { ...installed().catalog!, presentations: chatPresentation() } });
+    const launched = chatLaunch();
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    vi.mocked(appsApi.launchAppChatWorkspace).mockResolvedValue(launched);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(launched.session);
+
+    const user = userEvent.setup();
+    renderApps(<AppsPage />);
+    const launchButton = await screen.findByRole("button", { name: "Just Chat With It" });
+    await user.click(launchButton);
+
+    expect(appsApi.launchAppChatWorkspace).toHaveBeenCalledWith("resume-builder", { presentationId: "chat", workspaceId: "resume.chat" });
+    expect(appsApi.launchApp).not.toHaveBeenCalled();
+    expect(await screen.findByRole("region", { name: "Resume Builder native app workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Profile" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agent Instructions" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Your Profile" }));
+    expect(await screen.findByRole("heading", { name: "Your Profile" })).toHaveFocus();
+    expect(screen.getAllByPlaceholderText("Message your BrainDrive...").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Back to Apps" }));
+    await waitFor(() => expect(appsApi.closeAppSession).toHaveBeenCalledWith("resume-builder", launched.session.session_id));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Just Chat With It" })).toHaveFocus());
+  });
+
+  it("keeps surface presentations on the sandbox launch path", async () => {
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
+    vi.mocked(appsApi.launchApp).mockResolvedValue(launch);
+
+    const user = userEvent.setup();
+    renderApps(<AppsPage />);
+    await user.click(await screen.findByRole("button", { name: /^Launch$/ }));
+
+    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "direct");
+    expect(appsApi.launchAppChatWorkspace).not.toHaveBeenCalled();
+    expect(await screen.findByTitle("Resume Builder sandbox proxy")).toBeInTheDocument();
   });
 
   it("reloads through the bounded reconnect handshake before the old session is torn down", async () => {

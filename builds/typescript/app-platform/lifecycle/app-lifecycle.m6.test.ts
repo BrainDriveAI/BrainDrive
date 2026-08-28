@@ -45,7 +45,7 @@ describe("M6 selective uninstall and fresh reinstall", () => {
     expect(await missing(packageRoot)).toBe(true);
     expect(await missing(cacheRoot)).toBe(true);
     expect({ retained: sha256(await readFile(retainedPath)), ownerExport: sha256(await readFile(exportPath)) }).toEqual(before);
-    expect(await h.store.readUninstallJournal(uninstallOperation)).toMatchObject({ stage: "committed", package_roots: [], owner_data_preserved: true, retained_classes: expect.arrayContaining(["career_data", "owner_exports", "lifecycle_tombstone"]) });
+    expect(await h.store.readUninstallJournal(uninstallOperation)).toMatchObject({ stage: "committed", package_roots: [], owner_data_preserved: true, retained_classes: expect.arrayContaining(["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"]) });
   });
 
   it("resumes safely after partial deletion and tolerates already-missing files", async () => {
@@ -95,7 +95,7 @@ describe("M6 selective uninstall and fresh reinstall", () => {
         prior_state: "active",
         result_state: "not_installed",
         removed_classes: ["runtime_registration", "package_bytes"],
-        retained_classes: ["career_data", "owner_exports"],
+        retained_classes: ["app_storage", "owner_exports"],
         owner_data_preserved: true,
         package_root: root,
         connection_token: "secret-token-value",

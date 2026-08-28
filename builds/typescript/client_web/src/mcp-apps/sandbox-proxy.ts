@@ -1,4 +1,4 @@
-import type { AppLaunch } from "@/api/apps-adapter";
+import type { AppSurfaceLaunch } from "@/api/apps-adapter";
 
 export const BRIDGE_CHANNEL = "braindrive:mcp-app-proxy:v1" as const;
 export const OUTER_PROXY_SANDBOX = "allow-scripts allow-same-origin" as const;
@@ -47,7 +47,7 @@ export function buildViewCsp(csp: ApprovedResourceCsp = {}): string {
 }
 
 export function createSandboxResourceNotification(
-  resource: AppLaunch["resource"],
+  resource: AppSurfaceLaunch["resource"],
   csp: ApprovedResourceCsp = {},
 ) {
   return {
@@ -63,7 +63,7 @@ export function createSandboxResourceNotification(
 }
 
 export function createSafeHostContext(
-  entryPoint: AppLaunch["entry_point"],
+  entryPoint: AppSurfaceLaunch["entry_point"],
   input: { width: number; height: number; platform: "web" | "desktop" | "mobile" },
 ) {
   return {

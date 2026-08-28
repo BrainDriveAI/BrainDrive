@@ -132,6 +132,32 @@ describe("conservative ATS PDF renderer", () => {
     expect(await store.list("artifact_parity_report")).toHaveLength(1);
   });
 
+  it("rejects a failed PDF export without artifact side effects while preview keeps clean-text recovery available", async () => {
+    const { store, service, definition } = await approvedDefinition();
+    const broker = new ResumeExportBroker(service, () => undefined, () => new Date(), () => { throw new Error("forced_pdf_export_failure"); });
+
+    await expect(broker.export({
+      action: "export",
+      definition_revision_id: definition.metadata.revision_id,
+      safe_filename: "synthetic-resume.pdf",
+      destination_intent: "new_download",
+      overwrite_confirmed: false,
+    }, authority("resume.export.request"))).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+
+    const preview = await broker.preview({ action: "preview", definition_revision_id: definition.metadata.revision_id }, authority("resume.export.request", crypto.randomUUID()));
+    expect(preview).toMatchObject({
+      status: "clean_text_only",
+      pdf: { status: "unavailable", error_code: "pdf_render_failed" },
+      clean_text: { selectable: true, mime_type: "text/plain" },
+    });
+    expect(preview.clean_text.text).toContain("Owner Name");
+    expect(await store.readRevision(definition.metadata.revision_id)).toEqual(definition);
+    expect(await store.list("artifact")).toHaveLength(0);
+    expect(await store.list("export_receipt")).toHaveLength(0);
+  });
+
   it("blocks a mutated preview only and preserves verified clean-text recovery", async () => {
     const { service, definition } = await approvedDefinition();
     const rendered = renderApprovedResume(definition);

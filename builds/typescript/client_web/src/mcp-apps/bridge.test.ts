@@ -1,4 +1,4 @@
-import { AppCapabilityError, type AppLaunch } from "@/api/apps-adapter";
+import { AppCapabilityError, type AppSurfaceLaunch } from "@/api/apps-adapter";
 
 import {
   APPS_PROTOCOL_VERSION,
@@ -7,7 +7,7 @@ import {
   type ProxyToHostMessage,
 } from "./bridge";
 
-const launch: AppLaunch = {
+const launch: AppSurfaceLaunch = {
   launch_version: 1,
   session_id: "00000000-0000-4000-8000-000000000001",
   installation_id: "00000000-0000-4000-8000-000000000002",
