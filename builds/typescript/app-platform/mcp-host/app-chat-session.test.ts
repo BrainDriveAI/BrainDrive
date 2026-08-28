@@ -11,6 +11,7 @@ import { ResumeAppHostAdapter } from "./resume-host-adapter.js";
 import type { AppChatWorkspaceLaunch } from "./app-host-types.js";
 import { buildAppChatModelContext, parseAppChatModelMetadata, type AppChatModelMetadata } from "./app-chat-model.js";
 import type { ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
+import { canonicalInputDigest } from "../contracts/common.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
 import type { AuthContext } from "../../contracts.js";
@@ -45,9 +46,244 @@ const ownerAuth: AuthContext = {
   },
 };
 
+function actionSchema(schemaId: string, schema: Record<string, unknown>) {
+  return {
+    schema_id: schemaId,
+    schema_version: 1 as const,
+    content_digest: canonicalInputDigest(schema),
+    schema,
+  };
+}
+
+function actionSchemas(
+  inputSchemaId: string,
+  resultSchemaId: string,
+  inputSchema: Record<string, unknown> = emptyObjectSchema(),
+  resultSchema: Record<string, unknown> = capabilityResultSchema(),
+) {
+  return {
+    input_schema: actionSchema(inputSchemaId, inputSchema),
+    result_schema: actionSchema(resultSchemaId, resultSchema),
+  };
+}
+
+function emptyObjectSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+    required: [],
+  };
+}
+
+function capabilityResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      cancelled: { type: "boolean" },
+      context: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      definition: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      inference_contract_version: { type: "number" },
+      raw: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      record: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
+      result: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      results: { type: "array", items: {}, maxItems: 1024 },
+      reused: { type: "boolean" },
+      status: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    required: [],
+  };
+}
+
+function profileReadInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      view: { type: "string", enum: ["workspace"], description: "Workspace projection to read." },
+    },
+    required: [],
+  };
+}
+
+function profileUpdateInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      profile_markdown: { type: "string", minLength: 1, maxLength: 65536 },
+      completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+      current_topic: { type: ["string", "null"], maxLength: 64 },
+    },
+    required: ["profile_markdown", "completed_topics", "current_topic"],
+  };
+}
+
+function profileUpdateCapabilityInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      kind: { type: "string", enum: ["interview_progress"] },
+      progress: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          expected_revision: { type: ["number", "null"] },
+          status: { type: "string", enum: ["review_needed"] },
+          current_topic: { type: ["string", "null"], maxLength: 64 },
+          completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+          skipped_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+          draft_state: { type: "string", enum: ["owner_reviewed"] },
+          session_id: { type: "string", format: "uuid" },
+          audit_turn: {
+            type: "object",
+            additionalProperties: true,
+            properties: {
+              transcript_version: { type: "number" },
+              turn_id: { type: "string", format: "uuid" },
+              session_id: { type: "string", format: "uuid" },
+              answer: { type: "string", minLength: 1, maxLength: 65536 },
+            },
+            required: ["transcript_version", "turn_id", "session_id", "answer"],
+          },
+        },
+        required: ["expected_revision", "status", "current_topic", "completed_topics", "skipped_topics", "draft_state", "session_id", "audit_turn"],
+      },
+    },
+    required: ["kind", "progress"],
+  };
+}
+
+function resumeCreateInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: { type: "string", minLength: 1, maxLength: 160 },
+      resume_markdown: { type: "string", minLength: 1, maxLength: 65536 },
+      sections: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            section_id: { type: "string", minLength: 1, maxLength: 64 },
+            statements: { type: "array", items: { type: "string", minLength: 1, maxLength: 2048 }, maxItems: 24 },
+          },
+          required: ["section_id", "statements"],
+        },
+        maxItems: 16,
+      },
+    },
+    required: ["title"],
+  };
+}
+
+function resumeCreateCapabilityInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      definition_kind: { type: "string", enum: ["general"] },
+      status: { type: "string", enum: ["proposed"] },
+      title: { type: "string", minLength: 1, maxLength: 256 },
+      statements: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            statement_id: { type: "string", format: "uuid" },
+            section_id: { type: "string", minLength: 1, maxLength: 64 },
+            text: { type: "string", minLength: 1, maxLength: 8192 },
+          },
+          required: ["statement_id", "section_id", "text"],
+        },
+        minItems: 1,
+        maxItems: 500,
+      },
+      section_order: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, minItems: 1, maxItems: 32 },
+      presentation_preferences: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      locale: { type: "string", minLength: 2, maxLength: 35 },
+      page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+      template_id: { type: "string", minLength: 1, maxLength: 128 },
+      template_version: { type: "string", minLength: 1, maxLength: 64 },
+      parent_definition_revision_id: { type: ["string", "null"], maxLength: 128 },
+      job_revision_id: { type: ["string", "null"], maxLength: 128 },
+      policy_version: { type: "string", minLength: 1, maxLength: 128 },
+      prompt_policy_version: { type: ["string", "null"], maxLength: 128 },
+      variant: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
+    },
+    required: [
+      "definition_kind",
+      "status",
+      "title",
+      "statements",
+      "section_order",
+      "presentation_preferences",
+      "locale",
+      "page_intent",
+      "template_id",
+      "template_version",
+      "parent_definition_revision_id",
+      "job_revision_id",
+      "policy_version",
+      "prompt_policy_version",
+      "variant",
+    ],
+  };
+}
+
+function stateReadInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      queried_operation_id: { type: "string", format: "uuid" },
+    },
+    required: ["queried_operation_id"],
+  };
+}
+
+function acceptedActionJsonSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", const: "draft", enum: ["draft"], description: "Scalar const and enum are runtime-enforced." },
+      reference_id: { type: "string", format: "uuid" },
+      nickname: { type: ["string", "null"], minLength: 2, maxLength: 5 },
+      tags: { type: "array", minItems: 1, maxItems: 2, items: { type: "string", minLength: 2, maxLength: 4 } },
+      details: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          nested: { type: "string", enum: ["ready"] },
+        },
+        required: ["nested"],
+      },
+      revision: { type: "integer" },
+    },
+    required: ["mode", "reference_id", "nickname", "tags", "details", "revision"],
+  };
+}
+
+function validAcceptedActionPayload(): Record<string, unknown> {
+  return {
+    mode: "draft",
+    reference_id: randomUUID(),
+    nickname: "Maya",
+    tags: ["cv"],
+    details: { nested: "ready" },
+    revision: 1,
+  };
+}
+
 function workspace(
   contextRequests: ChatWorkspaceDescriptor["context_requests"] = [],
-  overrides: Partial<Pick<ChatWorkspaceDescriptor, "resources" | "actions">> = {},
+  overrides: Partial<Pick<ChatWorkspaceDescriptor, "documents" | "resources" | "actions">> = {},
 ): ChatWorkspaceDescriptor {
   return {
     workspace_version: 1,
@@ -55,7 +291,7 @@ function workspace(
     title: "Resume Workspace",
     description: "Native app-chat workspace fixture.",
     default_document_id: "conversation",
-    documents: [{
+    documents: overrides.documents ?? [{
       document_version: 1,
       document_id: "conversation",
       role: "conversation",
@@ -106,6 +342,7 @@ async function setup(input: {
   requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
   contextRequests?: ChatWorkspaceDescriptor["context_requests"];
   actions?: ChatWorkspaceDescriptor["actions"];
+  documents?: ChatWorkspaceDescriptor["documents"];
   router?: ResumeCapabilityRouter;
   clientFactory?: HostOptions["clientFactory"];
   installedAppInference?: HostOptions["installedAppInference"];
@@ -117,7 +354,7 @@ async function setup(input: {
     routeKey: "resume-builder",
     displayName: "Resume Builder",
   });
-  const chatWorkspace = workspace(input.contextRequests, { actions: input.actions });
+  const chatWorkspace = workspace(input.contextRequests, { actions: input.actions, documents: input.documents });
   await rm(path.join(root, "source"), { recursive: true, force: true });
   harness.dependencies.repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [{
     appId: "ai.braindrive.resume-builder",
@@ -160,6 +397,78 @@ function metadataFor(launch: AppChatWorkspaceLaunch): AppChatModelMetadata {
     workspace_id: launch.session.workspace_id,
     context_grant_set_digest: launch.session.context_grant_set_digest,
   };
+}
+
+async function buildSyntheticActionExecutor(input: {
+  inputSchema: Record<string, unknown>;
+  resultSchema: Record<string, unknown>;
+  executeAction: (request: unknown) => Promise<unknown>;
+}) {
+  const session = {
+    ownerId: randomUUID(),
+    accountId: randomUUID(),
+    actorId: "owner",
+    appId: "ai.braindrive.resume-builder",
+    publisherId: "ai.braindrive",
+    installationId: randomUUID(),
+    packageDigest: digest("a"),
+    lifecycleGeneration: 2,
+    grantId: randomUUID(),
+    grantRevision: 1,
+    revocationGeneration: 0,
+    presentationId: "chat",
+    workspaceId: "resume.chat",
+    contextGrantSetDigest: digest("b"),
+    sessionId: randomUUID(),
+    viewId: randomUUID(),
+    operationId: randomUUID(),
+    sessionGeneration: 1,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const metadata: AppChatModelMetadata = {
+    metadata_version: 1,
+    app_id: session.appId,
+    installation_id: session.installationId,
+    package_digest: session.packageDigest,
+    session_id: session.sessionId,
+    view_id: session.viewId,
+    operation_id: session.operationId,
+    session_generation: session.sessionGeneration,
+    presentation_id: session.presentationId,
+    workspace_id: session.workspaceId,
+    context_grant_set_digest: session.contextGrantSetDigest,
+  };
+  const model = await buildAppChatModelContext({
+    metadata,
+    session,
+    workspace: workspace([], {
+      actions: [{
+        action_version: 1,
+        action_id: "validate.schema",
+        kind: "inspect",
+        title: "Validate Schema",
+        description: "Exercise the app action JSON Schema runtime subset.",
+        ...actionSchemas("validate.schema.input.v1", "validate.schema.result.v1", input.inputSchema, input.resultSchema),
+        confirmation: "none",
+        idempotency_policy: "optional",
+        model_exposure: "available",
+        required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+        required_inference_purposes: [],
+      }],
+    }),
+    storedPackage: {
+      store_version: 1,
+      package_digest: session.packageDigest,
+      package_version: "1.0.0",
+      package_root: os.tmpdir(),
+      entrypoint: path.join(os.tmpdir(), "index.js"),
+      manifest: {} as never,
+      trust: {} as never,
+    },
+    executeAction: input.executeAction,
+  });
+  return new ToolExecutor(model.tools);
 }
 
 describe("app-chat workspace session authority", () => {
@@ -239,6 +548,181 @@ describe("app-chat workspace session authority", () => {
       { entry_point: "direct" },
       expect.objectContaining({ viewId: launch.session.view_id }),
     );
+  });
+
+  it("reads and writes app-owned documents through app-chat session authority", async () => {
+    const { host } = await setup({
+      requestedCapabilities: ["resume.definitions.read", "resume.definitions.write"],
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Native app conversation.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "resume.profile",
+          role: "source_document",
+          title: "Your Resume Profile",
+          description: "App-owned profile document.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: "resume.profile.current",
+        },
+      ],
+    });
+    const launch = await host.launchChatWorkspace();
+
+    await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
+      state: "missing",
+      document_id: "resume.profile",
+      document_binding_id: "resume.profile.current",
+      record: null,
+    });
+    const written = await host.writeAppDocument(launch.session.session_id, "resume.profile", {
+      operation_id: randomUUID(),
+      idempotency_key: "app-chat-profile-write-0001",
+      expected_revision: null,
+      content: "# Profile",
+    });
+    expect(written).toMatchObject({
+      state: "current",
+      document_id: "resume.profile",
+      record: {
+        app_id: "ai.braindrive.resume-builder",
+        document_binding_id: "resume.profile.current",
+        role: "source_document",
+        revision: 1,
+        content: "# Profile",
+      },
+    });
+    await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
+      state: "current",
+      record: { revision: 1, content: "# Profile" },
+    });
+    await expect(host.writeAppDocument(launch.session.session_id, "conversation", {
+      operation_id: randomUUID(),
+      idempotency_key: "app-chat-conversation-write-0001",
+      expected_revision: null,
+      content: "not a durable app document",
+    })).rejects.toMatchObject({ code: "denied" });
+  });
+
+  it("projects Resume-domain records for declared document bindings when generic storage is empty", async () => {
+    const definitionRevisionId = randomUUID();
+    const progressRevisionId = randomUUID();
+    const router = fakeRouter({
+      workspace_version: 4,
+      definitions: [{
+        record_type: "resume_definition",
+        definition_kind: "general",
+        lifecycle_state: "active",
+        title: "Maya Chen Resume",
+        updated_at: "2026-08-27T20:31:20.510Z",
+        metadata: {
+          record_id: randomUUID(),
+          revision_id: definitionRevisionId,
+          revision: 2,
+          created_at: "2026-08-27T20:31:20.510Z",
+          prior_revision_id: null,
+        },
+        section_order: ["header", "experience"],
+        statements: [
+          { section_id: "header", display_role: "heading", text: "Maya Chen" },
+          { section_id: "experience", display_role: "bullet", text: "Built product operations for a B2B SaaS team." },
+        ],
+      }],
+      interview: [{
+        record_type: "interview_progress",
+        lifecycle_state: "active",
+        status: "review_needed",
+        current_topic: null,
+        completed_topics: ["contact_and_identity", "employment_history"],
+        updated_at: "2026-08-27T20:29:20.510Z",
+        metadata: {
+          record_id: randomUUID(),
+          revision_id: progressRevisionId,
+          revision: 1,
+          created_at: "2026-08-27T20:29:20.510Z",
+          prior_revision_id: null,
+        },
+      }],
+    });
+    const { host } = await setup({
+      router,
+      requestedCapabilities: ["resume.definitions.read"],
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Native app conversation.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "resume.profile",
+          role: "source_document",
+          title: "Your Resume Profile",
+          description: "App-owned profile document.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: "resume.profile.current",
+        },
+        {
+          document_version: 1,
+          document_id: "resume.document",
+          role: "derived_document",
+          title: "Your Resume",
+          description: "App-owned resume document.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "action_result",
+          resource_id: null,
+          data_binding_id: "resume.definition.current.general",
+        },
+      ],
+    });
+    const launch = await host.launchChatWorkspace();
+
+    await expect(host.readAppDocument(launch.session.session_id, "resume.document")).resolves.toMatchObject({
+      state: "current",
+      document_id: "resume.document",
+      document_binding_id: "resume.definition.current.general",
+      record: {
+        revision: 2,
+        revision_id: definitionRevisionId,
+        media_type: "text/markdown",
+        content: expect.stringContaining("Maya Chen"),
+      },
+    });
+    await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
+      state: "current",
+      document_id: "resume.profile",
+      document_binding_id: "resume.profile.current",
+      record: {
+        revision: 1,
+        revision_id: progressRevisionId,
+        media_type: "text/markdown",
+        content: expect.stringContaining("# Resume Profile"),
+      },
+    });
   });
 
   it("rejects disabled launch, surface presentation launch, and required ungranted context", async () => {
@@ -375,8 +859,7 @@ describe("app-chat workspace session authority", () => {
         kind: "inspect",
         title: "Inspect Profile",
         description: "Read the current app-owned profile.",
-        input_schema_id: "resume.profile.inspect.input.v1",
-        result_schema_id: "resume.profile.inspect.result.v1",
+        ...actionSchemas("resume.profile.inspect.input.v1", "resume.profile.inspect.result.v1"),
         confirmation: "none",
         idempotency_policy: "optional",
         model_exposure: "available",
@@ -449,6 +932,76 @@ describe("app-chat workspace session authority", () => {
     })]);
   });
 
+  it("rejects opaque schema-id-only model actions during app-chat tool assembly", async () => {
+    const chatWorkspace = workspace([], {
+      actions: [{
+        action_version: 1,
+        action_id: "read.profile",
+        kind: "read",
+        title: "Read Profile",
+        description: "Read app-owned profile state.",
+        input_schema_id: "resume.profile.read.input.v1",
+        result_schema_id: "resume.profile.read.result.v1",
+        confirmation: "none",
+        idempotency_policy: "required",
+        model_exposure: "available",
+        required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+        required_inference_purposes: [],
+      } as never],
+    });
+    const session = {
+      ownerId: randomUUID(),
+      accountId: randomUUID(),
+      actorId: "owner",
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+      installationId: randomUUID(),
+      packageDigest: digest("a"),
+      lifecycleGeneration: 2,
+      grantId: randomUUID(),
+      grantRevision: 1,
+      revocationGeneration: 0,
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      contextGrantSetDigest: digest("b"),
+      sessionId: randomUUID(),
+      viewId: randomUUID(),
+      operationId: randomUUID(),
+      sessionGeneration: 1,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const metadata: AppChatModelMetadata = {
+      metadata_version: 1,
+      app_id: session.appId,
+      installation_id: session.installationId,
+      package_digest: session.packageDigest,
+      session_id: session.sessionId,
+      view_id: session.viewId,
+      operation_id: session.operationId,
+      session_generation: session.sessionGeneration,
+      presentation_id: session.presentationId,
+      workspace_id: session.workspaceId,
+      context_grant_set_digest: session.contextGrantSetDigest,
+    };
+
+    await expect(buildAppChatModelContext({
+      metadata,
+      session,
+      workspace: chatWorkspace,
+      storedPackage: {
+        store_version: 1,
+        package_digest: session.packageDigest,
+        package_version: "1.0.0",
+        package_root: os.tmpdir(),
+        entrypoint: path.join(os.tmpdir(), "index.js"),
+        manifest: {} as never,
+        trust: {} as never,
+      },
+      executeAction: async () => ({ ok: true }),
+    })).rejects.toMatchObject({ code: "descriptor_invalid" });
+  });
+
   it("exposes only declared model-visible app actions and routes execution through scoped capabilities", async () => {
     const router = fakeRouter({ record: null, results: [], reused: false });
     const { host } = await setup({
@@ -461,8 +1014,7 @@ describe("app-chat workspace session authority", () => {
           kind: "read",
           title: "Read Profile",
           description: "Read app-owned profile state.",
-          input_schema_id: "resume.profile.read.input.v1",
-          result_schema_id: "resume.profile.read.result.v1",
+          ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -475,8 +1027,7 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Hidden Write",
           description: "Hidden action.",
-          input_schema_id: "resume.hidden.write.input.v1",
-          result_schema_id: "resume.hidden.write.result.v1",
+          ...actionSchemas("resume.hidden.write.input.v1", "resume.hidden.write.result.v1"),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "hidden",
@@ -492,6 +1043,40 @@ describe("app-chat workspace session authority", () => {
     const idempotencyKey = `rbjc-004-${operationId}`;
 
     expect(model.tools.map((tool) => tool.name)).toEqual(["app_action_read_profile"]);
+    expect(model.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action_input: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            view: { type: "string", enum: ["workspace"] },
+          },
+          required: [],
+        },
+        operation_id: { type: "string", format: "uuid" },
+        idempotency_key: { type: "string", minLength: 16, maxLength: 256 },
+      },
+      required: ["action_input", "operation_id", "idempotency_key"],
+    });
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-004",
+    }, "app_action_read_profile", {
+      action_input: { view: "wrong" },
+      operation_id: randomUUID(),
+      idempotency_key: `rbjc-004-${randomUUID()}`,
+    })).resolves.toMatchObject({
+      status: "error",
+      output: {
+        code: "invalid_input",
+        message: "App action input failed schema validation",
+        recoverable: true,
+      },
+    });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
     expect(model.evidence.action_exposure).toEqual([
       { action_id: "read.profile", tool_name: "app_action_read_profile", model_exposure: "available", exposed: true },
       { action_id: "hidden.write", tool_name: null, model_exposure: "hidden", exposed: false },
@@ -523,12 +1108,250 @@ describe("app-chat workspace session authority", () => {
       idempotency_key: idempotencyKey,
     })).resolves.toMatchObject({
       status: "ok",
-      output: { result: { reused: true } },
+      output: { result: { reused: false } },
     });
     expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(1);
   });
 
-  it("translates Resume Builder chat profile and create actions into owner-authored domain writes", async () => {
+  it("rejects app action results that do not match the declared result schema", async () => {
+    const router = fakeRouter({ unexpected: "result" });
+    const { host } = await setup({
+      router,
+      requestedCapabilities: ["resume.definitions.read"],
+      actions: [{
+        action_version: 1,
+        action_id: "read.profile",
+        kind: "read",
+        title: "Read Profile",
+        description: "Read app-owned profile state.",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema(), emptyObjectSchema()),
+        confirmation: "none",
+        idempotency_policy: "required",
+        model_exposure: "available",
+        required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+        required_inference_purposes: [],
+      }],
+    });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    const operationId = randomUUID();
+
+    const result = await executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-result-schema",
+    }, "app_action_read_profile", {
+      action_input: {},
+      operation_id: operationId,
+      idempotency_key: `rbjc-result-schema-${operationId}`,
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      output: {
+        code: "execution_failed",
+        message: "App action result failed schema validation",
+        recoverable: false,
+      },
+    });
+    expect(JSON.stringify(result.output)).not.toContain("unexpected");
+  });
+
+  it("enforces every accepted app action schema keyword on model input before app invocation", async () => {
+    const executeAction = vi.fn(async () => validAcceptedActionPayload());
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: acceptedActionJsonSchema(),
+      resultSchema: acceptedActionJsonSchema(),
+      executeAction,
+    });
+    const valid = validAcceptedActionPayload();
+    const invalidInputs: Array<[string, Record<string, unknown>]> = [
+      ["required", (() => { const input = { ...valid }; delete input.mode; return input; })()],
+      ["additionalProperties", { ...valid, owner_secret: "Authorization: Bearer should-not-leak" }],
+      ["type union", { ...valid, nickname: 42 }],
+      ["const enum", { ...valid, mode: "publish" }],
+      ["format", { ...valid, reference_id: "not-a-uuid" }],
+      ["minLength", { ...valid, nickname: "x" }],
+      ["maxLength", { ...valid, nickname: "toolong" }],
+      ["minItems", { ...valid, tags: [] }],
+      ["maxItems", { ...valid, tags: ["aa", "bb", "cc"] }],
+      ["items", { ...valid, tags: ["x"] }],
+      ["nested required", { ...valid, details: {} }],
+      ["closed nested object", { ...valid, details: { nested: "ready", host_path: "/home/owner/private" } }],
+      ["integer type", { ...valid, revision: 1.5 }],
+    ];
+
+    for (const [keyword, actionInput] of invalidInputs) {
+      const result = await executor.execute(ownerAuth, {
+        memoryRoot: "/tmp/brain",
+        auth: ownerAuth,
+        correlationId: `schema-input-${keyword}`,
+      }, "app_action_validate_schema", {
+        action_input: actionInput,
+      });
+
+      expect(result, keyword).toMatchObject({
+        status: "error",
+        output: {
+          code: "invalid_input",
+          message: "App action input failed schema validation",
+          recoverable: true,
+        },
+      });
+      expect(JSON.stringify(result.output), keyword).not.toMatch(sensitiveMetadataPattern());
+    }
+    expect(executeAction).not.toHaveBeenCalled();
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "schema-input-valid",
+    }, "app_action_validate_schema", {
+      action_input: validAcceptedActionPayload(),
+    })).resolves.toMatchObject({ status: "ok" });
+    expect(executeAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("enforces every accepted app action schema keyword on app results before returning to the model", async () => {
+    let appResult: unknown = validAcceptedActionPayload();
+    const executeAction = vi.fn(async () => appResult);
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: acceptedActionJsonSchema(),
+      resultSchema: acceptedActionJsonSchema(),
+      executeAction,
+    });
+    const valid = validAcceptedActionPayload();
+    const invalidResults: Array<[string, Record<string, unknown>]> = [
+      ["required", (() => { const output = { ...valid }; delete output.mode; return output; })()],
+      ["additionalProperties", { ...valid, provider_secret: "Authorization: Bearer should-not-leak" }],
+      ["type union", { ...valid, nickname: 42 }],
+      ["const enum", { ...valid, mode: "publish" }],
+      ["format", { ...valid, reference_id: "not-a-uuid" }],
+      ["minLength", { ...valid, nickname: "x" }],
+      ["maxLength", { ...valid, nickname: "toolong" }],
+      ["minItems", { ...valid, tags: [] }],
+      ["maxItems", { ...valid, tags: ["aa", "bb", "cc"] }],
+      ["items", { ...valid, tags: ["x"] }],
+      ["nested required", { ...valid, details: {} }],
+      ["closed nested object", { ...valid, details: { nested: "ready", host_path: "/home/owner/private" } }],
+      ["integer type", { ...valid, revision: 1.5 }],
+    ];
+
+    for (const [keyword, resultPayload] of invalidResults) {
+      appResult = resultPayload;
+      const result = await executor.execute(ownerAuth, {
+        memoryRoot: "/tmp/brain",
+        auth: ownerAuth,
+        correlationId: `schema-result-${keyword}`,
+      }, "app_action_validate_schema", {
+        action_input: validAcceptedActionPayload(),
+      });
+
+      expect(result, keyword).toMatchObject({
+        status: "error",
+        output: {
+          code: "execution_failed",
+          message: "App action result failed schema validation",
+          recoverable: false,
+        },
+      });
+      expect(JSON.stringify(result.output), keyword).not.toMatch(sensitiveMetadataPattern());
+    }
+    expect(executeAction).toHaveBeenCalledTimes(invalidResults.length);
+
+    appResult = validAcceptedActionPayload();
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "schema-result-valid",
+    }, "app_action_validate_schema", {
+      action_input: validAcceptedActionPayload(),
+    })).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("denies model-visible actions whose capability is requested by the manifest but not granted", async () => {
+    const router = fakeRouter({ record: null, results: [], reused: false });
+    const { harness, host } = await setup({
+      router,
+      requestedCapabilities: ["career.context.read", "resume.definitions.read"],
+      actions: [{
+        action_version: 1,
+        action_id: "read.profile",
+        kind: "read",
+        title: "Read Profile",
+        description: "Read app-owned profile state.",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
+        confirmation: "none",
+        idempotency_policy: "required",
+        model_exposure: "available",
+        required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+        required_inference_purposes: [],
+      }],
+    });
+    const launch = await host.launchChatWorkspace();
+    const status = await harness.service.status();
+    const grant = await harness.store.readGrant(status.grant_id!);
+    await harness.store.saveGrant({ ...grant!, capabilities: ["career.context.read"] });
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    const operationId = randomUUID();
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-action-grant",
+    }, "app_action_read_profile", {
+      action_input: {},
+      operation_id: operationId,
+      idempotency_key: `rbjc-action-grant-${operationId}`,
+    })).resolves.toMatchObject({
+      status: "error",
+      output: { code: "permission_denied", message: "App action authority is unavailable" },
+    });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
+  });
+
+  it("denies model-visible actions whose capability has no reviewed host registration", async () => {
+    const router = fakeRouter({ record: null, results: [], reused: false });
+    const { host } = await setup({
+      router,
+      requestedCapabilities: ["third.party.records.write"],
+      actions: [{
+        action_version: 1,
+        action_id: "third.party.write",
+        kind: "write",
+        title: "Write Third Party Record",
+        description: "Write through a capability that the host has not reviewed.",
+        ...actionSchemas("third.party.write.input.v1", "third.party.write.result.v1"),
+        confirmation: "none",
+        idempotency_policy: "required",
+        model_exposure: "available",
+        required_capabilities: [{ name: "third.party.records.write", version: 1 }],
+        required_inference_purposes: [],
+      }],
+    });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    const operationId = randomUUID();
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-unregistered-capability",
+    }, "app_action_third_party_write", {
+      action_input: {},
+      operation_id: operationId,
+      idempotency_key: `rbjc-unregistered-capability-${operationId}`,
+    })).resolves.toMatchObject({
+      status: "error",
+      output: { code: "permission_denied", message: "App action authority is unavailable" },
+    });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
+  });
+
+  it("forwards Resume Builder chat profile and create actions as app-owned capability inputs", async () => {
     const router = fakeRouter({ definition: { metadata: { revision_id: randomUUID() } }, reused: false });
     const { host } = await setup({
       router,
@@ -540,8 +1363,7 @@ describe("app-chat workspace session authority", () => {
           kind: "read",
           title: "Read Resume Profile",
           description: "Read profile.",
-          input_schema_id: "resume.profile.read.input.v1",
-          result_schema_id: "resume.profile.read.result.v1",
+          ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",
@@ -554,8 +1376,7 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Update Resume Profile",
           description: "Update profile.",
-          input_schema_id: "resume.profile.update.input.v1",
-          result_schema_id: "resume.profile.update.result.v1",
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -568,8 +1389,7 @@ describe("app-chat workspace session authority", () => {
           kind: "render",
           title: "Create Resume",
           description: "Create resume.",
-          input_schema_id: "resume.create.input.v1",
-          result_schema_id: "resume.create.result.v1",
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -583,6 +1403,23 @@ describe("app-chat workspace session authority", () => {
     const executor = new ToolExecutor(model.tools);
     const profileOperationId = randomUUID();
     const createOperationId = randomUUID();
+    const profileInput = {
+      profile_markdown: "# Resume Profile\n\nMaya Torres profile",
+      completed_topics: ["direction", "experience"],
+      current_topic: null,
+    };
+    const createInput = {
+      title: "Maya Torres - Director of Product Operations",
+      resume_markdown: [
+        "# Maya Torres - Director of Product Operations",
+        "",
+        "## Summary",
+        "Product operations leader for scaling SaaS teams.",
+        "",
+        "## Experience",
+        "- Reduced launch slips by 38% across six product squads.",
+      ].join("\n"),
+    };
 
     expect(model.prompt_context).toContain("profile_markdown");
     expect(model.prompt_context).toContain("resume_markdown");
@@ -590,7 +1427,7 @@ describe("app-chat workspace session authority", () => {
     await expect(executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
-      correlationId: "rbjc-translate",
+      correlationId: "rbjc-dispatch",
     }, "app_action_resume_profile_read", {
       action_input: {},
     })).resolves.toMatchObject({ status: "ok" });
@@ -598,36 +1435,27 @@ describe("app-chat workspace session authority", () => {
     await expect(executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
-      correlationId: "rbjc-translate",
+      correlationId: "rbjc-dispatch",
     }, "app_action_resume_profile_update", {
-      action_input: { profile_markdown: "Maya Torres profile", completed_topics: ["direction", "experience"], current_topic: null },
+      action_input: profileInput,
       operation_id: profileOperationId,
-      idempotency_key: `rbjc-translate-${profileOperationId}`,
+      idempotency_key: `rbjc-dispatch-${profileOperationId}`,
     })).resolves.toMatchObject({ status: "ok" });
 
     await expect(executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
-      correlationId: "rbjc-translate",
+      correlationId: "rbjc-dispatch",
     }, "app_action_resume_create", {
-      action_input: {
-        title: "Maya Torres - Director of Product Operations",
-        resume_markdown: [
-          "# Maya Torres",
-          "## Summary",
-          "Director of Product Operations candidate with 9 years in SaaS operations.",
-          "## Experience",
-          "- Reduced launch slips by 38% across six product squads.",
-        ].join("\n"),
-      },
+      action_input: createInput,
       operation_id: createOperationId,
-      idempotency_key: `rbjc-translate-${createOperationId}`,
+      idempotency_key: `rbjc-dispatch-${createOperationId}`,
     })).resolves.toMatchObject({ status: "ok" });
 
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
       1,
       "resume.definitions.read",
-      { view: "workspace" },
+      {},
       expect.objectContaining({ viewId: launch.session.view_id }),
     );
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
@@ -636,9 +1464,8 @@ describe("app-chat workspace session authority", () => {
       expect.objectContaining({
         kind: "interview_progress",
         progress: expect.objectContaining({
-          status: "review_needed",
-          draft_state: "owner_reviewed",
-          audit_turn: expect.objectContaining({ answer: "Maya Torres profile" }),
+          completed_topics: ["direction", "experience"],
+          audit_turn: expect.objectContaining({ answer: "# Resume Profile\n\nMaya Torres profile" }),
         }),
       }),
       expect.objectContaining({ viewId: launch.session.view_id }),
@@ -649,13 +1476,10 @@ describe("app-chat workspace session authority", () => {
       expect.objectContaining({
         definition_kind: "general",
         status: "proposed",
-        title: "Maya Torres - Director of Product Operations",
+        template_id: "resume.single-column",
         statements: expect.arrayContaining([
-          expect.objectContaining({ section_id: "summary", text: "Summary", display_role: "heading" }),
-          expect.objectContaining({ section_id: "experience", text: "Reduced launch slips by 38% across six product squads.", display_role: "bullet" }),
+          expect.objectContaining({ section_id: "experience", display_role: "bullet", text: "Reduced launch slips by 38% across six product squads." }),
         ]),
-        section_order: ["summary", "experience"],
-        prompt_policy_version: null,
       }),
       expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
     );
@@ -690,8 +1514,25 @@ describe("app-chat workspace session authority", () => {
         kind: "inspect",
         title: "Draft Resume",
         description: "Run an app-declared inference program.",
-        input_schema_id: "resume.draft.input.v1",
-        result_schema_id: "resume.draft.result.v1",
+        ...actionSchemas("resume.draft.input.v1", "resume.draft.result.v1", {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            inference_contract_version: { type: "number", const: 2 },
+            operation_id: { type: "string", format: "uuid" },
+            program: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                id: { type: "string", minLength: 1, maxLength: 128 },
+                version: { type: "number" },
+              },
+              required: ["id", "version"],
+            },
+            input: { type: "object", additionalProperties: true, properties: {}, required: [] },
+          },
+          required: ["inference_contract_version", "operation_id", "program", "input"],
+        }),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",
@@ -761,8 +1602,7 @@ describe("app-chat workspace session authority", () => {
         kind: "read",
         title: "Read Profile",
         description: "Read app-owned profile state.",
-        input_schema_id: "resume.profile.read.input.v1",
-        result_schema_id: "resume.profile.read.result.v1",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",
@@ -788,8 +1628,8 @@ describe("app-chat workspace session authority", () => {
     expect(host.close(launch.session.session_id)).toBe(true);
     releaseAction();
     await expect(pending).resolves.toMatchObject({
-      status: "ok",
-      output: { result: { cancelled: true } },
+      status: "error",
+      output: { code: "execution_failed", message: "App action was cancelled", recoverable: true },
     });
   });
 
@@ -815,8 +1655,7 @@ describe("app-chat workspace session authority", () => {
         kind: "read",
         title: "Read Profile",
         description: "Read app-owned profile state.",
-        input_schema_id: "resume.profile.read.input.v1",
-        result_schema_id: "resume.profile.read.result.v1",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",
@@ -842,8 +1681,8 @@ describe("app-chat workspace session authority", () => {
     await host.closeAll();
     releaseAction();
     await expect(pending).resolves.toMatchObject({
-      status: "ok",
-      output: { result: { cancelled: true } },
+      status: "error",
+      output: { code: "execution_failed", message: "App action was cancelled", recoverable: true },
     });
     await expect(host.buildChatWorkspaceModelContext(metadataFor(launch))).rejects.toMatchObject({ code: "session_closed" });
   });
@@ -859,8 +1698,7 @@ describe("app-chat workspace session authority", () => {
         kind: "read",
         title: "Read Profile",
         description: "Read app-owned profile state.",
-        input_schema_id: "resume.profile.read.input.v1",
-        result_schema_id: "resume.profile.read.result.v1",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",
@@ -919,8 +1757,7 @@ describe("app-chat workspace session authority", () => {
         kind: "read",
         title: "Read Profile",
         description: "Read app-owned profile state.",
-        input_schema_id: "resume.profile.read.input.v1",
-        result_schema_id: "resume.profile.read.result.v1",
+        ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",

@@ -20,7 +20,9 @@
         "source_document",
         "derived_document",
         "advanced_resource",
-        "recovery"
+        "recovery",
+        "recovery_document",
+        "action_result_document"
       ]
     },
     "title": {
@@ -73,6 +75,154 @@
           "minLength": 3,
           "maxLength": 128,
           "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "presentation": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "presentation_version": {
+              "type": "number",
+              "const": 1
+            },
+            "renderer": {
+              "type": "string",
+              "enum": [
+                "plain_text",
+                "markdown_document",
+                "paper_document",
+                "json_editor"
+              ]
+            },
+            "chrome": {
+              "type": "string",
+              "enum": [
+                "standard",
+                "document"
+              ]
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "subtitle": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "header_actions": {
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "back_to_chat"
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "edit_document"
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "app_action"
+                      },
+                      "action_id": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 128,
+                        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      },
+                      "delivery": {
+                        "type": "string",
+                        "const": "chat_prompt"
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "action_id",
+                      "label",
+                      "delivery",
+                      "prompt"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "presentation_version",
+            "renderer",
+            "chrome",
+            "title",
+            "subtitle",
+            "header_actions"
+          ],
+          "additionalProperties": false
         },
         {
           "type": "null"

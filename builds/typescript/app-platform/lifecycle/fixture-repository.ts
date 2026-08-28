@@ -4,8 +4,8 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
-import { GenericPackageManifestSchema, type GenericPackageManifest } from "../contracts/app-registry.js";
+import { canonicalInputDigest, canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
+import { DEFAULT_APP_RETENTION_POLICY, GenericPackageManifestSchema, type GenericPackageManifest } from "../contracts/app-registry.js";
 import { z } from "zod";
 import {
   PackageDescriptorSchema,
@@ -25,6 +25,7 @@ type Revocations = z.infer<typeof RevocationListSchema>;
 type ModernPresentations = NonNullable<GenericPackageManifest["presentations"]>;
 type ModernResourceRole = ModernPresentations["workspaces"][number]["resources"][number]["role"];
 type ModernPromptInclusion = ModernPresentations["workspaces"][number]["resources"][number]["prompt_inclusion"];
+type ModernActionSchemaResource = ModernPresentations["workspaces"][number]["actions"][number]["input_schema"];
 
 const PersistedGenericSourceIndexSchema = z.object({
   payload: z.object({
@@ -125,7 +126,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
       primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
       ...(app.presentations ? { presentations: app.presentations } : {}),
       requested_capabilities: (app.requestedCapabilities ?? ["career.context.read"]).map((name) => ({ name, version: 1 })),
-      requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: "retain_owner_data_remove_runtime_authority",
+      requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: DEFAULT_APP_RETENTION_POLICY,
     });
     const archive = createStoredZip([{ name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`), executable: false }, ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") }))]);
     const archivePath = path.join(appRoot, `${app.version}.bdapp`);
@@ -193,7 +194,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.0.1" as const;
+export const MODERN_FIXTURE_VERSION = "4.1.0" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -296,6 +297,190 @@ function loadResumeBuilderResource(fileName: string): Buffer {
   return Buffer.from(readFileSync(resourcePath, "utf8"), "utf8");
 }
 
+function emptyActionSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+    required: [],
+  };
+}
+
+function actionSchema(schemaId: string, schema: Record<string, unknown>): ModernActionSchemaResource {
+  return {
+    schema_id: schemaId,
+    schema_version: 1,
+    content_digest: canonicalInputDigest(schema),
+    schema,
+  };
+}
+
+function actionSchemas(
+  inputSchemaId: string,
+  resultSchemaId: string,
+  inputSchema: Record<string, unknown> = emptyActionSchema(),
+  resultSchema: Record<string, unknown> = capabilityResultSchema(),
+) {
+  return {
+    input_schema: actionSchema(inputSchemaId, inputSchema),
+    result_schema: actionSchema(resultSchemaId, resultSchema),
+  };
+}
+
+function profileReadInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      view: { type: "string", enum: ["workspace"], description: "Workspace projection to read." },
+    },
+    required: ["view"],
+  };
+}
+
+function workspaceRecordArraySchema(): Record<string, unknown> {
+  return { type: "array", items: {}, maxItems: 4096 };
+}
+
+function profileReadResultSchema(): Record<string, unknown> {
+  const records = workspaceRecordArraySchema();
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      workspace_version: { type: "number" },
+      definitions: records,
+      definition_history: records,
+      variants: records,
+      artifacts: records,
+      exports: records,
+      interview: records,
+      jobs: records,
+      job_history: records,
+      revision_requests: records,
+      coverage: records,
+      strategies: records,
+      target_fit_analyses: records,
+      craft_quality_reports: records,
+      craft_repair_operations: records,
+      artifact_parity_reports: records,
+      quality_reviews: records,
+    },
+    required: [
+      "workspace_version",
+      "definitions",
+      "definition_history",
+      "variants",
+      "artifacts",
+      "exports",
+      "interview",
+      "jobs",
+      "job_history",
+      "revision_requests",
+      "coverage",
+      "strategies",
+      "target_fit_analyses",
+      "craft_quality_reports",
+      "craft_repair_operations",
+      "artifact_parity_reports",
+      "quality_reviews",
+    ],
+  };
+}
+
+function profileUpdateInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      profile_markdown: { type: "string", minLength: 1, maxLength: 131072 },
+      completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+      skipped_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+      current_topic: { type: ["string", "null"], maxLength: 64 },
+    },
+    required: ["profile_markdown"],
+  };
+}
+
+function resumeCreateInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: { type: "string", minLength: 1, maxLength: 256 },
+      resume_markdown: { type: "string", minLength: 1, maxLength: 262144 },
+      sections: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            section_id: { type: "string", minLength: 1, maxLength: 128 },
+            title: { type: "string", minLength: 1, maxLength: 128 },
+            statements: { type: "array", items: { type: "string", minLength: 1, maxLength: 8192 }, minItems: 1, maxItems: 64 },
+          },
+          required: ["statements"],
+        },
+        minItems: 1,
+        maxItems: 64,
+      },
+      locale: { type: "string", minLength: 2, maxLength: 35 },
+      page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+    },
+    required: ["resume_markdown"],
+  };
+}
+
+function exportRequestInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      format: { type: "string", enum: ["pdf"] },
+      definition_revision_id: { type: "string", format: "uuid" },
+      safe_filename: { type: "string", minLength: 1, maxLength: 128 },
+      destination_intent: { type: "string", enum: ["new_download", "replace_existing"] },
+      overwrite_confirmed: { type: "boolean" },
+    },
+    required: ["format"],
+  };
+}
+
+function stateReadInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      queried_operation_id: { type: "string", format: "uuid" },
+    },
+    required: ["queried_operation_id"],
+  };
+}
+
+function capabilityResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      approved_revision_id: { type: "string", format: "uuid" },
+      cancelled: { type: "boolean" },
+      catalog_revision: { type: "number" },
+      definition: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      draft: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      progress: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      record: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
+      recovery_reconciliation: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      result: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      results: { type: "array", items: {}, maxItems: 1024 },
+      reused: { type: "boolean" },
+      source: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      status: { type: "string", minLength: 1, maxLength: 64 },
+      variant: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
+    },
+    required: [],
+  };
+}
+
 function buildModernResumePresentations(files: Map<string, Buffer>): GenericPackageManifest["presentations"] {
   const cap = (name: typeof MODERN_FIXTURE_CAPABILITIES[number]) => ({ name, version: 1 });
   const appResource = (resource: typeof RESUME_CHAT_RESOURCE_FILES[number]) => ({
@@ -351,6 +536,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "read_write_draft",
           resource_id: null,
           data_binding_id: null,
+          presentation: null,
         },
         {
           document_version: 1,
@@ -363,6 +549,18 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "read_write_draft",
           resource_id: null,
           data_binding_id: "resume.profile.current",
+          presentation: {
+            presentation_version: 1,
+            renderer: "markdown_document",
+            chrome: "document",
+            title: "resume-profile.md",
+            subtitle: "Resume Profile",
+            header_actions: [
+              { type: "back_to_chat", label: "Back to chat" },
+              { type: "app_action", action_id: "resume.create", label: "Create resume", delivery: "chat_prompt", prompt: "Please create the current resume from my reviewed Resume Profile." },
+              { type: "edit_document", label: "Edit" },
+            ],
+          },
         },
         {
           document_version: 1,
@@ -375,6 +573,17 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "action_result",
           resource_id: null,
           data_binding_id: "resume.definition.current.general",
+          presentation: {
+            presentation_version: 1,
+            renderer: "paper_document",
+            chrome: "document",
+            title: "resume.md",
+            subtitle: "Resume",
+            header_actions: [
+              { type: "back_to_chat", label: "Back to chat" },
+              { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "chat_prompt", prompt: "Please export the current resume as a PDF." },
+            ],
+          },
         },
         ...RESUME_CHAT_RESOURCE_FILES.map((resource) => ({
           document_version: 1 as const,
@@ -387,6 +596,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "read_reference" as const,
           resource_id: resource.resourceId,
           data_binding_id: null,
+          presentation: null,
         })),
       ],
       resources: RESUME_CHAT_RESOURCE_FILES.map(appResource),
@@ -421,8 +631,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "read",
           title: "Read Resume Profile",
           description: "Read the current Resume Profile projection from Resume-domain records.",
-          input_schema_id: "resume.profile.read.input.v1",
-          result_schema_id: "resume.profile.read.result.v1",
+          ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema(), profileReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",
@@ -435,8 +644,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "write",
           title: "Update Resume Profile",
           description: "Write app-owned Resume Profile progress through Resume-domain records.",
-          input_schema_id: "resume.profile.update.input.v1",
-          result_schema_id: "resume.profile.update.result.v1",
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -449,8 +657,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "render",
           title: "Create Resume",
           description: "Create the current general Resume from the reviewed Resume Profile state.",
-          input_schema_id: "resume.create.input.v1",
-          result_schema_id: "resume.create.result.v1",
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -463,8 +670,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "export",
           title: "Request PDF Export",
           description: "Request a PDF export for the current Resume through the host export broker.",
-          input_schema_id: "resume.export.pdf.request.input.v1",
-          result_schema_id: "resume.export.pdf.request.result.v1",
+          ...actionSchemas("resume.export.pdf.request.input.v1", "resume.export.pdf.request.result.v1", exportRequestInputSchema()),
           confirmation: "trusted_owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -477,8 +683,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "inspect",
           title: "Read Resume Operation State",
           description: "Read Resume Builder operation state for recovery and convergence checks.",
-          input_schema_id: "resume.state.read.input.v1",
-          result_schema_id: "resume.state.read.result.v1",
+          ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", stateReadInputSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",
@@ -772,7 +977,7 @@ async function loadOrCreateFixtureSource(
           requested_inference_purposes: [...RESUME_INFERENCE_PURPOSE_REQUESTS],
           provenance_path: "provenance/build.jsonl",
           sbom_path: "sbom/cyclonedx.json",
-          retention_policy: "retain_owner_data_remove_runtime_authority",
+          retention_policy: DEFAULT_APP_RETENTION_POLICY,
         })
       : PackageManifestSchema.parse({
           manifest_version: 1,

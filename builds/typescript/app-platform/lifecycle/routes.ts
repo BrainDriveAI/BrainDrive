@@ -170,6 +170,34 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
       }));
     } catch (error) { return sendSafeError(reply, error); }
   });
+
+  app.post("/apps/:appKey/data/export", async (request, reply) => {
+    const entry = resolveEntry(request, reply, platform);
+    if (!entry || !authorizeOwner(request, reply, entry.service)) return;
+    const parsed = deletionSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      return reply.send(await entry.service.exportRetainedData({
+        operationId: parsed.data.operation_id, idempotencyKey: parsed.data.idempotency_key,
+        ownerActorId: request.authContext.actorId, confirmAppId: parsed.data.confirm_app_id,
+        trustedOwnerConfirmation: parsed.data.trusted_owner_confirmation,
+      }));
+    } catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/apps/:appKey/data/archive", async (request, reply) => {
+    const entry = resolveEntry(request, reply, platform);
+    if (!entry || !authorizeOwner(request, reply, entry.service)) return;
+    const parsed = deletionSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      return reply.send(await entry.service.archiveRetainedData({
+        operationId: parsed.data.operation_id, idempotencyKey: parsed.data.idempotency_key,
+        ownerActorId: request.authContext.actorId, confirmAppId: parsed.data.confirm_app_id,
+        trustedOwnerConfirmation: parsed.data.trusted_owner_confirmation,
+      }));
+    } catch (error) { return sendSafeError(reply, error); }
+  });
 }
 
 function resolveEntry(request: FastifyRequest, reply: FastifyReply, platform: AppLifecycleRoutePlatform): AppLifecycleRouteEntry | null {
@@ -252,8 +280,11 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
       availabilityError = error instanceof AppPlatformError ? error : new AppPlatformError("package_verification_failed", "Available package verification failed");
     }
   }
-  const retained = record.state === "not_installed" ? undefined
-    : await service.dependencies.ownerDataLifecycle?.repairState?.(manifest ? manifestDataCompatibility(manifest) : { read_min: 1, read_max: 1, write_version: 1 });
+  const retention = retentionProjection(manifest);
+  const shouldInspectRetainedData = record.state !== "not_installed" || record.generation > 0;
+  const retained = !availabilityError && shouldInspectRetainedData
+    ? await service.dependencies.ownerDataLifecycle?.repairState?.(manifest ? manifestDataCompatibility(manifest) : { read_min: 1, read_max: 1, write_version: 1 })
+    : undefined;
   const pending = record.pending_operation_id ? await service.dependencies.store.readOperation(record.pending_operation_id) : null;
   const trustStatus = record.state === "quarantined" ? "quarantined" : trust?.executable_allowed ? "verified" : "not_verified";
   return {
@@ -289,12 +320,13 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
       granted: grant?.revoked_at ? [] : grant?.capabilities ?? [],
     },
     retention: {
-      owner_data_preserved: true,
-      retained_data_present: record.state === "not_installed" ? null : retained ? retained.state !== "missing" : false,
-      compatibility: record.state === "not_installed" ? "not_inspected" : retained?.state ?? "missing",
-      safe_message: record.state === "not_installed" ? "Owner data is not inspected during catalog reads." : retained?.safe_message ?? `No retained ${entry.displayName} data is present.`,
-      uninstall_removes: ["app code", "disposable cache", "runtime authority", "capability grants"],
-      uninstall_retains: retentionClasses(service.appId, manifest),
+      owner_data_preserved: retention.ownerDataPreserved,
+      retained_data_present: shouldInspectRetainedData ? retained ? retained.state !== "missing" : false : null,
+      compatibility: shouldInspectRetainedData ? retained?.state ?? "missing" : "not_inspected",
+      safe_message: shouldInspectRetainedData ? retained?.safe_message ?? `No retained ${entry.displayName} data is present.` : "Owner data is not inspected before this app has lifecycle history.",
+      uninstall_removes: retention.removes,
+      uninstall_retains: retention.retains,
+      post_uninstall_controls: retention.controls,
     },
     progress: pending ? safeOperation(pending) : null,
     recovery: {
@@ -340,11 +372,39 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
   };
 }
 
-function retentionClasses(appId: string, manifest: RuntimePackageManifest | undefined): string[] {
-  if (manifest?.retention_policy !== "retain_owner_data_remove_runtime_authority") return [];
-  return appId === "ai.braindrive.resume-builder"
-    ? ["career data", "resume and job history", "artifact metadata", "owner exports", "lifecycle evidence"]
-    : ["owner data", "owner exports", "lifecycle evidence"];
+function retentionProjection(manifest: RuntimePackageManifest | undefined): {
+  ownerDataPreserved: boolean;
+  removes: string[];
+  retains: string[];
+  controls: Array<"delete" | "export" | "archive">;
+} {
+  if (!manifest) return { ownerDataPreserved: false, removes: [], retains: [], controls: [] };
+  if (manifest.manifest_version !== 2) {
+    return {
+      ownerDataPreserved: manifest.retention_policy === "retain_owner_data_remove_runtime_authority",
+      removes: ["app code", "disposable cache", "runtime authority", "capability grants"],
+      retains: manifest.retention_policy === "retain_owner_data_remove_runtime_authority" ? ["app storage", "owner exports", "lifecycle evidence"] : [],
+      controls: ["delete", "export", "archive"],
+    };
+  }
+  const removed = manifest.retention_policy.classes
+    .filter((entry) => entry.uninstall_behavior === "remove")
+    .map((entry) => entry.label);
+  const retained = manifest.retention_policy.classes
+    .filter((entry) => entry.uninstall_behavior === "retain" || entry.uninstall_behavior === "outside_app_lifecycle" || entry.uninstall_behavior === "retain_minimal_tombstone")
+    .map((entry) => entry.label);
+  const controls = new Set<"delete" | "export" | "archive">();
+  for (const entry of manifest.retention_policy.classes) {
+    if (entry.owner_controls.includes("delete_after_uninstall")) controls.add("delete");
+    if (entry.owner_controls.includes("export_after_uninstall")) controls.add("export");
+    if (entry.owner_controls.includes("archive_after_uninstall")) controls.add("archive");
+  }
+  return {
+    ownerDataPreserved: manifest.retention_policy.classes.some((entry) => entry.uninstall_behavior === "retain"),
+    removes: [...removed, "capability grants"],
+    retains: retained,
+    controls: [...controls],
+  };
 }
 
 function lifecycleActions(state: string, installed: string | null, available: string | null, packageUsable: boolean): string[] {

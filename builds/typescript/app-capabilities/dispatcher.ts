@@ -9,9 +9,26 @@ export type CapabilityDispatchContext = {
   appId: string;
   installationId: string;
   packageDigest: `sha256:${string}`;
+  connectionId?: string | null;
+  viewId?: string | null;
+  sessionId?: string | null;
+  lifecycleGeneration?: number;
   manifestRequests: readonly { name: string; version: number }[];
   requestedPurposes?: readonly { purpose_id: string; version: number }[];
-  grant: { app_id: string; installation_id: string; package_digest: string; capabilities: readonly string[]; revoked_at: string | null; expires_at: string };
+  grantId?: string;
+  grantRevision?: number;
+  revocationGeneration?: number;
+  grant: {
+    app_id: string;
+    installation_id: string;
+    package_digest: string;
+    grant_id?: string;
+    grant_revision?: number;
+    revocation_generation?: number;
+    capabilities: readonly string[];
+    revoked_at: string | null;
+    expires_at: string;
+  };
   operationId: string;
   idempotencyKey: string;
   deadlineAt: number;
@@ -46,6 +63,9 @@ export class CapabilityDispatcher {
     const grant = context.grant;
     if (
       grant.app_id !== context.appId || grant.installation_id !== context.installationId || grant.package_digest !== context.packageDigest ||
+      (context.grantId !== undefined && grant.grant_id !== context.grantId) ||
+      (context.grantRevision !== undefined && grant.grant_revision !== context.grantRevision) ||
+      (context.revocationGeneration !== undefined && grant.revocation_generation !== context.revocationGeneration) ||
       grant.revoked_at !== null || Date.parse(grant.expires_at) <= this.now() || !grant.capabilities.includes(registration.name) ||
       !context.manifestRequests.some((request) => request.name === registration.name && request.version === registration.version)
     ) throw new AppPlatformError("denied", "Capability is not requested and granted", 403);
@@ -96,7 +116,9 @@ export class CapabilityDispatcher {
     operation.promise = Promise.race([
       registration.handler(input.data, {
         appId: context.appId, installationId: context.installationId, packageDigest: context.packageDigest,
-        operationId: context.operationId, idempotencyKey: context.idempotencyKey, signal: controller.signal,
+        connectionId: context.connectionId ?? null, viewId: context.viewId ?? null, sessionId: context.sessionId ?? null,
+        lifecycleGeneration: context.lifecycleGeneration, grantId: context.grantId, grantRevision: context.grantRevision,
+        revocationGeneration: context.revocationGeneration, operationId: context.operationId, idempotencyKey: context.idempotencyKey, signal: controller.signal,
         deadlineAt: context.deadlineAt, requestedPurposes: context.requestedPurposes ?? [], grant,
         isCancelled: () => controller.signal.aborted, ownerConfirmation: context.ownerConfirmation ?? { confirmed: false },
       }),

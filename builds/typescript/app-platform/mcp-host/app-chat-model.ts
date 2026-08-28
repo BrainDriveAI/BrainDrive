@@ -6,8 +6,8 @@ import { z } from "zod";
 
 import type { ToolDefinition } from "../../contracts.js";
 import { ToolExecutionFailure } from "../../tool-error.js";
-import type { AppActionDescriptor, AppResourceDescriptor, ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
-import { Sha256DigestSchema } from "../contracts/common.js";
+import { AppActionDescriptorSchema, type AppActionDescriptor, type AppResourceDescriptor, type ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
+import { canonicalJson, Sha256DigestSchema } from "../contracts/common.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 import type { StoredPackage } from "../lifecycle/store.js";
 import type { AppChatSessionRecord } from "./app-chat-session.js";
@@ -138,47 +138,62 @@ function createAppChatActionTools(
   const evidence: AppChatModelContext["evidence"]["actionExposure"] = [];
   const seen = new Set<string>();
   for (const action of actions) {
-    const exposed = action.model_exposure === "available";
-    const toolName = exposed ? appChatActionToolName(action.action_id) : null;
-    evidence.push({ action_id: action.action_id, tool_name: toolName, model_exposure: action.model_exposure, exposed });
+    const parsedAction = AppActionDescriptorSchema.safeParse(action);
+    if (!parsedAction.success) {
+      throw new AppPlatformError("descriptor_invalid", "App action descriptor is missing concrete schema resources", 409);
+    }
+    const descriptor = parsedAction.data;
+    const exposed = descriptor.model_exposure === "available";
+    const toolName = exposed ? appChatActionToolName(descriptor.action_id) : null;
+    evidence.push({ action_id: descriptor.action_id, tool_name: toolName, model_exposure: descriptor.model_exposure, exposed });
     if (!exposed) continue;
     if (seen.has(toolName!)) throw new AppPlatformError("descriptor_invalid", "App action tool names are ambiguous", 409);
     seen.add(toolName!);
     tools.push({
       name: toolName!,
-      description: `${action.title}: ${action.description}`,
-      requiresApproval: action.confirmation !== "none",
-      readOnly: action.kind === "read" || action.kind === "inspect",
+      description: `${descriptor.title}: ${descriptor.description}`,
+      requiresApproval: descriptor.confirmation !== "none",
+      readOnly: descriptor.kind === "read" || descriptor.kind === "inspect",
       inputSchema: {
         type: "object",
         additionalProperties: false,
         properties: {
-          action_input: { description: `Input matching app schema ${action.input_schema_id}` },
+          action_input: descriptor.input_schema.schema,
           operation_id: { type: "string", format: "uuid", description: "Stable operation id for this app action." },
           idempotency_key: { type: "string", minLength: 16, maxLength: 256, description: "Stable idempotency key for retryable app actions." },
         },
-        required: action.idempotency_policy === "required" ? ["action_input", "operation_id", "idempotency_key"] : ["action_input"],
+        required: descriptor.idempotency_policy === "required" ? ["action_input", "operation_id", "idempotency_key"] : ["action_input"],
       },
       execute: async (_context, rawInput): Promise<AppChatActionExecutionResult> => {
         try {
           const parsed = AppChatActionToolInputSchema.parse(rawInput);
-          if (action.idempotency_policy === "required" && (!parsed.operation_id || !parsed.idempotency_key)) {
+          if (descriptor.idempotency_policy === "required" && (!parsed.operation_id || !parsed.idempotency_key)) {
             throw new ToolExecutionFailure("invalid_input", "App action requires operation_id and idempotency_key", true);
+          }
+          const actionInput = parsed.action_input ?? {};
+          const validationErrors = validateJsonValueAgainstActionSchema(actionInput, descriptor.input_schema.schema);
+          if (validationErrors.length > 0) {
+            throw new ToolExecutionFailure("invalid_input", "App action input failed schema validation", true);
           }
           const operationId = parsed.operation_id ?? randomUUID();
           const idempotencyKey = parsed.idempotency_key ?? `app-action-${operationId}`;
+          const result = await executeAction({
+            metadata,
+            action: descriptor,
+            actionInput,
+            operationId,
+            idempotencyKey,
+            ownerConfirmed: descriptor.confirmation !== "none",
+          });
+          const resultValidationErrors = validateJsonValueAgainstActionSchema(result, descriptor.result_schema.schema);
+          if (resultValidationErrors.length > 0) {
+            throw new ToolExecutionFailure("execution_failed", "App action result failed schema validation", false);
+          }
           return {
-            action_id: action.action_id,
+            action_id: descriptor.action_id,
             operation_id: operationId,
             idempotency_key: idempotencyKey,
-            result: await executeAction({
-              metadata,
-              action,
-              actionInput: parsed.action_input ?? {},
-              operationId,
-              idempotencyKey,
-              ownerConfirmed: action.confirmation !== "none",
-            }),
+            result,
           };
         } catch (error) {
           throw toAppChatToolFailure(error);
@@ -187,6 +202,73 @@ function createAppChatActionTools(
     });
   }
   return { tools, evidence };
+}
+
+function validateJsonValueAgainstActionSchema(value: unknown, schema: Record<string, unknown>, path: string[] = []): string[] {
+  const errors: string[] = [];
+  if (!schemaTypeMatches(value, schema.type)) {
+    errors.push(`${path.join(".") || "action_input"} type mismatch`);
+    return errors;
+  }
+  if ("const" in schema && !Object.is(value, schema.const)) {
+    errors.push(`${path.join(".") || "action_input"} const mismatch`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => Object.is(item, value))) {
+    errors.push(`${path.join(".") || "action_input"} enum mismatch`);
+  }
+  if (typeof value === "string") {
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) errors.push(`${path.join(".") || "action_input"} shorter than minLength`);
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) errors.push(`${path.join(".") || "action_input"} exceeds maxLength`);
+    if (schema.format === "uuid" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      errors.push(`${path.join(".") || "action_input"} format mismatch`);
+    }
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) errors.push(`${path.join(".") || "action_input"} shorter than minItems`);
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) errors.push(`${path.join(".") || "action_input"} exceeds maxItems`);
+    if (isJsonSchemaObject(schema.items)) {
+      value.forEach((item, index) => errors.push(...validateJsonValueAgainstActionSchema(item, schema.items as Record<string, unknown>, [...path, String(index)])));
+    }
+  }
+  if (isPlainObject(value)) {
+    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
+    for (const key of required) {
+      if (!(key in value)) errors.push(`${[...path, key].join(".")} is required`);
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!(key in properties)) errors.push(`${[...path, key].join(".")} is not declared`);
+      }
+    }
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (key in value && isJsonSchemaObject(childSchema)) {
+        errors.push(...validateJsonValueAgainstActionSchema(value[key], childSchema, [...path, key]));
+      }
+    }
+  }
+  return errors;
+}
+
+function schemaTypeMatches(value: unknown, type: unknown): boolean {
+  if (type === undefined) return true;
+  const types = Array.isArray(type) ? type : [type];
+  return types.some((item) => {
+    if (item === "null") return value === null;
+    if (item === "array") return Array.isArray(value);
+    if (item === "object") return isPlainObject(value);
+    if (item === "integer") return Number.isInteger(value);
+    if (item === "number") return typeof value === "number" && Number.isFinite(value);
+    return typeof item === "string" && typeof value === item;
+  });
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
+  return isPlainObject(value);
 }
 
 async function buildPromptResources(
@@ -253,23 +335,11 @@ function actionPromptLines(actions: readonly AppActionDescriptor[]): string[] {
   if (visible.length === 0) return [...lines, "- None declared for model use."];
   return [
     ...lines,
-    ...visible.map((action) => `- ${appChatActionToolName(action.action_id)}: ${action.title}; action id ${action.action_id}; input schema ${action.input_schema_id}; result schema ${action.result_schema_id}; idempotency ${action.idempotency_policy}.${actionInputHint(action)}`),
+    ...visible.map((action) => [
+      `- ${appChatActionToolName(action.action_id)}: ${action.title}; action id ${action.action_id}; input schema ${action.input_schema.schema_id}; result schema ${action.result_schema.schema_id}; idempotency ${action.idempotency_policy}.`,
+      `  Input JSON Schema: ${canonicalJson(action.input_schema.schema)}`,
+    ].join("\n")),
   ];
-}
-
-function actionInputHint(action: AppActionDescriptor): string {
-  switch (action.action_id) {
-    case "resume.profile.read":
-      return " Use action_input {\"view\":\"workspace\"} to read the Resume Builder workspace projection.";
-    case "resume.profile.update":
-      return " Use action_input {\"profile_markdown\":\"owner-reviewed Resume Profile markdown\",\"completed_topics\":[\"direction\",\"experience\"],\"current_topic\":null}.";
-    case "resume.create":
-      return " Use action_input {\"title\":\"Candidate Name - Target Role\",\"resume_markdown\":\"# Candidate Name\\n## Summary\\n...\\n## Experience\\n- ...\"} or {\"title\":\"...\",\"sections\":[{\"section_id\":\"summary\",\"statements\":[\"...\"]}]}.";
-    case "resume.state.read":
-      return " Only use action_input {\"queried_operation_id\":\"uuid-from-a-previous-action-result\"} when checking a known prior operation.";
-    default:
-      return "";
-  }
 }
 
 function toAppChatToolFailure(error: unknown): ToolExecutionFailure {
@@ -279,6 +349,7 @@ function toAppChatToolFailure(error: unknown): ToolExecutionFailure {
     ? error as AppPlatformError
     : null;
   if (platformError) {
+    if (platformError.code === "cancelled") return new ToolExecutionFailure("execution_failed", "App action was cancelled", true);
     const permissionCodes = new Set(["denied", "grant_missing", "grant_revoked", "session_closed", "session_expired", "token_revoked", "token_scope_invalid"]);
     const invalidCodes = new Set(["invalid_input", "descriptor_invalid", "incompatible_schema", "idempotency_conflict", "validation_failed"]);
     if (permissionCodes.has(platformError.code)) return new ToolExecutionFailure("permission_denied", safeActionErrorMessage(platformError), true);
@@ -292,6 +363,7 @@ function safeActionErrorMessage(error: AppPlatformError): string {
   if (error.code === "session_closed" || error.code === "session_expired") return "App-chat session authority is no longer current";
   if (error.code === "idempotency_conflict") return "App action operation identity was already used with different input";
   if (error.code === "invalid_input") return "App action input is invalid";
+  if (error.code === "validation_failed") return error.message;
   if (error.code === "denied" || error.code.startsWith("grant_") || error.code.startsWith("token_")) return "App action authority is unavailable";
   return "Installed app action is unavailable for this session";
 }

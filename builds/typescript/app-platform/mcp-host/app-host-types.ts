@@ -1,6 +1,22 @@
 import type { z } from "zod";
 
 import type { ToolDefinition } from "../../contracts.js";
+import type {
+  AppDocumentDeleteMode,
+  AppDocumentMediaType,
+  AppDocumentRecord,
+  AppDocumentStorageDeletionResult,
+  AppDocumentStorageListResult,
+  AppStorageRetentionClass,
+} from "../contracts/app-storage.js";
+import type {
+  AppArtifactRecord,
+  AppArtifactRegistrationRequest,
+  AppExportFinalizeRequest,
+  AppExportPreparedResult,
+  AppExportPrepareRequest,
+  AppSafeExportReceiptProjection,
+} from "../contracts/app-artifacts.js";
 import type { AppChatModelMetadata } from "./app-chat-model.js";
 import type { McpAppResourceSchema } from "../contracts/mcp-app.js";
 import type { AppChatContextProjection, AppChatSessionResumeRequest } from "./app-chat-session.js";
@@ -89,3 +105,53 @@ export type AppChatModelContext = {
 };
 
 export type AppChatModelContextRequest = AppChatModelMetadata;
+
+export type AppDocumentReadResult = {
+  result_version: 1;
+  state: "current" | "missing";
+  document_id: string;
+  document_binding_id: string;
+  record: AppDocumentRecord | null;
+};
+
+export type AppDocumentWriteInput = {
+  operation_id: string;
+  idempotency_key: string;
+  expected_revision: number | null;
+  content: unknown;
+  media_type?: AppDocumentMediaType;
+  retention_class?: AppStorageRetentionClass;
+};
+
+export type AppDocumentDeleteInput = {
+  operation_id: string;
+  idempotency_key: string;
+  expected_revision: number;
+  delete_mode?: AppDocumentDeleteMode;
+};
+
+export type AppDocumentListResult = AppDocumentStorageListResult;
+export type AppDocumentDeleteResult = AppDocumentStorageDeletionResult;
+
+export type AppArtifactRegistrationInput = Omit<AppArtifactRegistrationRequest, "authority">;
+
+export type AppExportPrepareInput = Omit<AppExportPrepareRequest, "authority" | "owner_confirmed"> & {
+  owner_confirmed?: boolean;
+};
+
+export type AppExportFinalizeInput = Omit<AppExportFinalizeRequest, "authority">;
+
+export type AppArtifactRegistrationResult = {
+  result_version: 1;
+  artifact: AppArtifactRecord;
+  replayed: boolean;
+};
+
+export type AppExportPrepared = AppExportPreparedResult;
+
+export type AppExportFinalized = AppSafeExportReceiptProjection | {
+  status: "completed";
+  receipt_revision_id: string;
+  safe_destination_label: string;
+  outcome: "completed" | "cancelled" | "failed";
+};

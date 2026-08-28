@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { canonicalInputDigest, canonicalJsonDocumentDigest, OpaqueIdSchema, SemverSchema, Sha256DigestSchema } from "./common.js";
+import { canonicalInputDigest, canonicalJson, canonicalJsonDocumentDigest, OpaqueIdSchema, SemverSchema, Sha256DigestSchema } from "./common.js";
 import {
   APP_CONTRACT_SCHEMA_VERSION,
   FIRST_PARTY_APP_REGISTRY_VERSION,
@@ -89,9 +89,209 @@ const DescriptorActionIdSchema = HostBindingIdSchema;
 const DescriptorPresentationIdSchema = HostBindingIdSchema;
 const DescriptorWorkspaceIdSchema = HostBindingIdSchema;
 
+const MAX_ACTION_SCHEMA_BYTES = 16_384;
+const MAX_ACTION_SCHEMA_DEPTH = 12;
+const MAX_ACTION_SCHEMA_PROPERTIES = 128;
+const MAX_ACTION_SCHEMA_STRING_LENGTH = 4_096;
+const MAX_ACTION_SCHEMA_RUNTIME_STRING_LENGTH = 1_048_576;
+const MAX_ACTION_SCHEMA_RUNTIME_ARRAY_ITEMS = 10_000;
+const ActionJsonSchemaTypeNameSchema = z.enum(["null", "boolean", "object", "array", "number", "integer", "string"]);
+const ActionJsonSchemaScalarSchema = z.union([
+  z.string().max(MAX_ACTION_SCHEMA_STRING_LENGTH),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+// App action schemas intentionally use the runtime-enforced subset below instead of
+// accepting broad JSON Schema. Keywords outside this set fail manifest validation.
+const AppActionJsonSchemaNodeSchema: z.ZodType<Record<string, unknown>> = z.lazy(() => z
+  .object({
+    type: z.union([ActionJsonSchemaTypeNameSchema, z.array(ActionJsonSchemaTypeNameSchema).min(1).max(8)]).optional(),
+    additionalProperties: z.boolean().optional(),
+    properties: z.record(z.string().min(1).max(128), AppActionJsonSchemaNodeSchema).optional(),
+    required: z.array(z.string().min(1).max(128)).max(MAX_ACTION_SCHEMA_PROPERTIES).optional(),
+    items: AppActionJsonSchemaNodeSchema.optional(),
+    const: ActionJsonSchemaScalarSchema.optional(),
+    enum: z.array(ActionJsonSchemaScalarSchema).min(1).max(MAX_ACTION_SCHEMA_PROPERTIES).optional(),
+    minLength: z.number().int().nonnegative().max(MAX_ACTION_SCHEMA_RUNTIME_STRING_LENGTH).optional(),
+    maxLength: z.number().int().nonnegative().max(MAX_ACTION_SCHEMA_RUNTIME_STRING_LENGTH).optional(),
+    format: z.literal("uuid").optional(),
+    minItems: z.number().int().nonnegative().max(MAX_ACTION_SCHEMA_RUNTIME_ARRAY_ITEMS).optional(),
+    maxItems: z.number().int().nonnegative().max(MAX_ACTION_SCHEMA_RUNTIME_ARRAY_ITEMS).optional(),
+    description: z.string().max(MAX_ACTION_SCHEMA_STRING_LENGTH).optional(),
+  })
+  .strict()) as z.ZodType<Record<string, unknown>>;
+
+const AppActionJsonSchemaBodyBaseSchema: z.ZodType<Record<string, unknown>> = z
+  .object({
+    type: z.literal("object"),
+    additionalProperties: z.literal(false),
+    properties: z.record(z.string().min(1).max(128), AppActionJsonSchemaNodeSchema),
+    required: z.array(z.string().min(1).max(128)).max(MAX_ACTION_SCHEMA_PROPERTIES),
+    description: z.string().max(MAX_ACTION_SCHEMA_STRING_LENGTH).optional(),
+  })
+  .strict() as z.ZodType<Record<string, unknown>>;
+
 function uniqueValues(values: readonly string[], path: (string | number)[], context: z.RefinementCtx): void {
   if (new Set(values).size !== values.length) context.addIssue({ code: "custom", path, message: "duplicate_identity" });
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function validateActionJsonSchemaBody(value: Record<string, unknown>, context: z.RefinementCtx): void {
+  let bytes;
+  try {
+    bytes = Buffer.byteLength(canonicalJson(value), "utf8");
+  } catch {
+    context.addIssue({ code: "custom", message: "schema body must be canonical JSON" });
+    return;
+  }
+  if (bytes > MAX_ACTION_SCHEMA_BYTES) {
+    context.addIssue({ code: "custom", message: "schema body exceeds action schema size limit" });
+  }
+  if (value.type !== "object") {
+    context.addIssue({ code: "custom", path: ["type"], message: "action schemas must use a root object schema" });
+  }
+  if (!isRecord(value.properties)) {
+    context.addIssue({ code: "custom", path: ["properties"], message: "action schemas must declare object properties" });
+  }
+  if (value.additionalProperties !== false) {
+    context.addIssue({ code: "custom", path: ["additionalProperties"], message: "action schemas must close root additional properties" });
+  }
+  if (!Array.isArray(value.required) || value.required.some((item) => typeof item !== "string")) {
+    context.addIssue({ code: "custom", path: ["required"], message: "action schemas must declare required as a string array" });
+  }
+  const declaredProperties = isRecord(value.properties) ? new Set(Object.keys(value.properties)) : new Set<string>();
+  if (Array.isArray(value.required)) {
+    for (const [index, item] of value.required.entries()) {
+      if (typeof item === "string" && !declaredProperties.has(item)) {
+        context.addIssue({ code: "custom", path: ["required", index], message: "required property must be declared" });
+      }
+    }
+  }
+  validateActionJsonSchemaNode(value, context, [], { depth: 0, propertyCount: 0 });
+}
+
+function validateActionJsonSchemaNode(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: (string | number)[],
+  state: { depth: number; propertyCount: number },
+): void {
+  if (state.depth > MAX_ACTION_SCHEMA_DEPTH) {
+    context.addIssue({ code: "custom", path, message: "schema body exceeds action schema depth limit" });
+    return;
+  }
+  if (typeof value === "string") {
+    if (value.length > MAX_ACTION_SCHEMA_STRING_LENGTH) {
+      context.addIssue({ code: "custom", path, message: "schema string exceeds action schema safety limit" });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_ACTION_SCHEMA_PROPERTIES) {
+      context.addIssue({ code: "custom", path, message: "schema array exceeds action schema safety limit" });
+    }
+    value.forEach((item, index) => validateActionJsonSchemaNode(item, context, [...path, index], { ...state, depth: state.depth + 1 }));
+    return;
+  }
+  if (!isRecord(value)) return;
+  if (Object.keys(value).length > MAX_ACTION_SCHEMA_PROPERTIES) {
+    context.addIssue({ code: "custom", path, message: "schema object exceeds action schema safety limit" });
+  }
+  validateActionJsonSchemaNodeSemantics(value, context, path);
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "properties" && isRecord(item)) {
+      state.propertyCount += Object.keys(item).length;
+      if (state.propertyCount > MAX_ACTION_SCHEMA_PROPERTIES) {
+        context.addIssue({ code: "custom", path: [...path, key], message: "schema body declares too many properties" });
+      }
+      for (const [propertyName, propertySchema] of Object.entries(item)) {
+        validateActionJsonSchemaNode(propertySchema, context, [...path, key, propertyName], { ...state, depth: state.depth + 1 });
+      }
+      continue;
+    }
+    if (key === "items" && isRecord(item)) {
+      validateActionJsonSchemaNode(item, context, [...path, key], { ...state, depth: state.depth + 1 });
+      continue;
+    }
+    if (key === "type" || key === "additionalProperties" || key === "required" || key === "const" || key === "enum" || key === "minLength" || key === "maxLength" || key === "format" || key === "minItems" || key === "maxItems" || key === "description") {
+      validateActionJsonSchemaNode(item, context, [...path, key], { ...state, depth: state.depth + 1 });
+    }
+  }
+}
+
+function validateActionJsonSchemaNodeSemantics(schema: Record<string, unknown>, context: z.RefinementCtx, path: (string | number)[]): void {
+  const types = schemaTypeNames(schema.type);
+  const hasType = types.length > 0;
+  if (Array.isArray(schema.type) && new Set(schema.type).size !== schema.type.length) {
+    context.addIssue({ code: "custom", path: [...path, "type"], message: "schema type union must not contain duplicates" });
+  }
+  if (Array.isArray(schema.required)) {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const seenRequired = new Set<string>();
+    for (const [index, propertyName] of schema.required.entries()) {
+      if (typeof propertyName !== "string") continue;
+      if (seenRequired.has(propertyName)) {
+        context.addIssue({ code: "custom", path: [...path, "required", index], message: "required property must not be duplicated" });
+      }
+      seenRequired.add(propertyName);
+      if (!(propertyName in properties)) {
+        context.addIssue({ code: "custom", path: [...path, "required", index], message: "required property must be declared" });
+      }
+    }
+  }
+  if (schema.minLength !== undefined || schema.maxLength !== undefined || schema.format !== undefined) {
+    if (hasType && !types.includes("string")) {
+      context.addIssue({ code: "custom", path, message: "string validation keywords require a string type" });
+    }
+    if (typeof schema.minLength === "number" && typeof schema.maxLength === "number" && schema.minLength > schema.maxLength) {
+      context.addIssue({ code: "custom", path: [...path, "minLength"], message: "minLength must not exceed maxLength" });
+    }
+  }
+  if (schema.minItems !== undefined || schema.maxItems !== undefined || schema.items !== undefined) {
+    if (hasType && !types.includes("array")) {
+      context.addIssue({ code: "custom", path, message: "array validation keywords require an array type" });
+    }
+    if (typeof schema.minItems === "number" && typeof schema.maxItems === "number" && schema.minItems > schema.maxItems) {
+      context.addIssue({ code: "custom", path: [...path, "minItems"], message: "minItems must not exceed maxItems" });
+    }
+  }
+  if ((schema.properties !== undefined || schema.required !== undefined || schema.additionalProperties !== undefined) && hasType && !types.includes("object")) {
+    context.addIssue({ code: "custom", path, message: "object validation keywords require an object type" });
+  }
+  if (Array.isArray(schema.enum)) {
+    const canonical = schema.enum.map((item) => canonicalJson(item));
+    if (new Set(canonical).size !== canonical.length) {
+      context.addIssue({ code: "custom", path: [...path, "enum"], message: "enum values must be unique" });
+    }
+  }
+}
+
+function schemaTypeNames(type: unknown): string[] {
+  if (typeof type === "string") return [type];
+  if (Array.isArray(type)) return type.filter((item): item is string => typeof item === "string");
+  return [];
+}
+
+export const AppActionJsonSchemaBodySchema = AppActionJsonSchemaBodyBaseSchema.superRefine(validateActionJsonSchemaBody);
+
+export const AppActionSchemaResourceSchema = z
+  .object({
+    schema_id: ContractSchemaIdSchema,
+    schema_version: z.literal(1),
+    content_digest: Sha256DigestSchema,
+    schema: AppActionJsonSchemaBodySchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.content_digest !== canonicalInputDigest(value.schema)) {
+      context.addIssue({ code: "custom", path: ["content_digest"], message: "schema content digest mismatch" });
+    }
+  });
 
 export const AppResourceDescriptorSchema = z
   .object({
@@ -108,11 +308,46 @@ export const AppResourceDescriptorSchema = z
   })
   .strict();
 
+export const WorkspaceDocumentHeaderActionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("back_to_chat"),
+      label: safePresentationText(40),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("edit_document"),
+      label: safePresentationText(40),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("app_action"),
+      action_id: DescriptorActionIdSchema,
+      label: safePresentationText(40),
+      delivery: z.literal("chat_prompt"),
+      prompt: safePresentationText(512),
+    })
+    .strict(),
+]);
+
+export const WorkspaceDocumentPresentationSchema = z
+  .object({
+    presentation_version: z.literal(1),
+    renderer: z.enum(["plain_text", "markdown_document", "paper_document", "json_editor"]),
+    chrome: z.enum(["standard", "document"]),
+    title: safePresentationText(80).nullable(),
+    subtitle: safePresentationText(160).nullable(),
+    header_actions: z.array(WorkspaceDocumentHeaderActionSchema).max(6),
+  })
+  .strict();
+
 export const WorkspaceDocumentDescriptorSchema = z
   .object({
     document_version: z.literal(1),
     document_id: DescriptorDocumentIdSchema,
-    role: z.enum(["conversation", "source_document", "derived_document", "advanced_resource", "recovery"]),
+    role: z.enum(["conversation", "source_document", "derived_document", "advanced_resource", "recovery", "recovery_document", "action_result_document"]),
     title: safePresentationText(80),
     description: safePresentationText(512),
     editable: z.boolean(),
@@ -120,6 +355,7 @@ export const WorkspaceDocumentDescriptorSchema = z
     model_access: z.enum(["none", "read_reference", "read_write_draft", "action_result"]),
     resource_id: DescriptorResourceIdSchema.nullable(),
     data_binding_id: HostBindingIdSchema.nullable(),
+    presentation: WorkspaceDocumentPresentationSchema.nullable().optional(),
   })
   .strict();
 
@@ -147,8 +383,8 @@ export const AppActionDescriptorSchema = z
     kind: z.enum(["read", "write", "render", "export", "recover", "inspect"]),
     title: safePresentationText(80),
     description: safePresentationText(512),
-    input_schema_id: ContractSchemaIdSchema,
-    result_schema_id: ContractSchemaIdSchema,
+    input_schema: AppActionSchemaResourceSchema,
+    result_schema: AppActionSchemaResourceSchema,
     confirmation: z.enum(["none", "owner_confirmation", "trusted_owner_confirmation"]),
     idempotency_policy: z.enum(["not_applicable", "optional", "required"]),
     model_exposure: z.enum(["hidden", "available"]),
@@ -157,6 +393,9 @@ export const AppActionDescriptorSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.input_schema.schema_id === value.result_schema.schema_id) {
+      context.addIssue({ code: "custom", path: ["result_schema", "schema_id"], message: "duplicate_identity" });
+    }
     uniqueValues(value.required_capabilities.map((item) => `${item.name}@${item.version}`), ["required_capabilities"], context);
     uniqueValues(value.required_inference_purposes.map((item) => `${item.purpose_id}@${item.version}`), ["required_inference_purposes"], context);
   });
@@ -179,14 +418,22 @@ export const ChatWorkspaceDescriptorSchema = z
     uniqueValues(value.resources.map((item) => item.resource_id), ["resources"], context);
     uniqueValues(value.context_requests.map((item) => item.context_id), ["context_requests"], context);
     uniqueValues(value.actions.map((item) => item.action_id), ["actions"], context);
+    uniqueValues(value.actions.flatMap((item) => [item.input_schema.schema_id, item.result_schema.schema_id]), ["actions"], context);
     const documentIds = new Set(value.documents.map((item) => item.document_id));
     if (!documentIds.has(value.default_document_id)) {
       context.addIssue({ code: "custom", path: ["default_document_id"], message: "default document must reference a declared workspace document" });
     }
     const resourceIds = new Set(value.resources.map((item) => item.resource_id));
+    const actionIds = new Set(value.actions.map((item) => item.action_id));
     for (const [index, document] of value.documents.entries()) {
       if (document.resource_id !== null && !resourceIds.has(document.resource_id)) {
         context.addIssue({ code: "custom", path: ["documents", index, "resource_id"], message: "document resource must reference a declared app resource" });
+      }
+      const headerActions = document.presentation?.header_actions ?? [];
+      for (const [actionIndex, headerAction] of headerActions.entries()) {
+        if (headerAction.type === "app_action" && !actionIds.has(headerAction.action_id)) {
+          context.addIssue({ code: "custom", path: ["documents", index, "presentation", "header_actions", actionIndex, "action_id"], message: "document header action must reference a declared workspace action" });
+        }
       }
     }
   });
@@ -254,6 +501,102 @@ const ArchivePolicySchema = z
   })
   .strict();
 
+export const AppRetentionClassSchema = z.enum([
+  "runtime_authority",
+  "verified_package",
+  "disposable_cache",
+  "app_storage",
+  "artifact_records",
+  "export_receipts",
+  "owner_exports",
+  "lifecycle_tombstone",
+]);
+
+export const AppRetentionUninstallBehaviorSchema = z.enum([
+  "remove",
+  "retain",
+  "outside_app_lifecycle",
+  "retain_minimal_tombstone",
+]);
+
+export const AppRetentionOwnerControlSchema = z.enum([
+  "delete_after_uninstall",
+  "export_after_uninstall",
+  "archive_after_uninstall",
+]);
+
+export const AppRetentionPolicySchema = z
+  .object({
+    retention_policy_version: z.literal(1),
+    classes: z.array(z.object({
+      retention_class: AppRetentionClassSchema,
+      label: safePresentationText(80),
+      description: safePresentationText(256),
+      uninstall_behavior: AppRetentionUninstallBehaviorSchema,
+      owner_controls: z.array(AppRetentionOwnerControlSchema).max(3),
+      reinstall_access: z.enum(["fresh_grant_required", "outside_app_lifecycle", "not_restored"]),
+    }).strict()).min(8).max(8),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    uniqueValues(value.classes.map((item) => item.retention_class), ["classes"], context);
+    const byClass = new Map(value.classes.map((item) => [item.retention_class, item]));
+    for (const required of AppRetentionClassSchema.options) {
+      if (!byClass.has(required)) context.addIssue({ code: "custom", path: ["classes"], message: `missing retention class: ${required}` });
+    }
+    const mustRemove = ["runtime_authority", "verified_package", "disposable_cache"] as const;
+    for (const retentionClass of mustRemove) {
+      const entry = byClass.get(retentionClass);
+      if (entry && (entry.uninstall_behavior !== "remove" || entry.owner_controls.length !== 0 || entry.reinstall_access !== "not_restored")) {
+        context.addIssue({ code: "custom", path: ["classes"], message: `${retentionClass} must be removed on uninstall` });
+      }
+    }
+    const appStorage = byClass.get("app_storage");
+    if (appStorage && (
+      appStorage.uninstall_behavior !== "retain" ||
+      appStorage.reinstall_access !== "fresh_grant_required" ||
+      !appStorage.owner_controls.includes("delete_after_uninstall") ||
+      !appStorage.owner_controls.includes("export_after_uninstall") ||
+      !appStorage.owner_controls.includes("archive_after_uninstall")
+    )) {
+      context.addIssue({ code: "custom", path: ["classes"], message: "app storage must be retained with post-uninstall owner delete/export/archive controls and fresh reinstall grant" });
+    }
+    for (const retentionClass of ["artifact_records", "export_receipts"] as const) {
+      const entry = byClass.get(retentionClass);
+      if (entry && (
+        entry.uninstall_behavior !== "retain" ||
+        entry.reinstall_access !== "fresh_grant_required" ||
+        !entry.owner_controls.includes("delete_after_uninstall") ||
+        !entry.owner_controls.includes("export_after_uninstall") ||
+        !entry.owner_controls.includes("archive_after_uninstall")
+      )) {
+        context.addIssue({ code: "custom", path: ["classes"], message: `${retentionClass} must follow retained owner-data controls` });
+      }
+    }
+    const exports = byClass.get("owner_exports");
+    if (exports && (exports.uninstall_behavior !== "outside_app_lifecycle" || exports.owner_controls.length !== 0 || exports.reinstall_access !== "outside_app_lifecycle")) {
+      context.addIssue({ code: "custom", path: ["classes"], message: "owner exports remain outside app lifecycle deletion" });
+    }
+    const tombstone = byClass.get("lifecycle_tombstone");
+    if (tombstone && (tombstone.uninstall_behavior !== "retain_minimal_tombstone" || tombstone.owner_controls.length !== 0 || tombstone.reinstall_access !== "fresh_grant_required")) {
+      context.addIssue({ code: "custom", path: ["classes"], message: "lifecycle tombstones must be minimally retained for audit" });
+    }
+  });
+
+export const DEFAULT_APP_RETENTION_POLICY = AppRetentionPolicySchema.parse({
+  retention_policy_version: 1,
+  classes: [
+    { retention_class: "runtime_authority", label: "runtime authority", description: "Runtime sessions, bridge authority, grants, and tokens.", uninstall_behavior: "remove", owner_controls: [], reinstall_access: "not_restored" },
+    { retention_class: "verified_package", label: "app code", description: "Verified package references and unshared package bytes.", uninstall_behavior: "remove", owner_controls: [], reinstall_access: "not_restored" },
+    { retention_class: "disposable_cache", label: "disposable cache", description: "Runtime cache and temporary app instance state.", uninstall_behavior: "remove", owner_controls: [], reinstall_access: "not_restored" },
+    { retention_class: "app_storage", label: "app storage", description: "App-owned durable documents, state, and operation records.", uninstall_behavior: "retain", owner_controls: ["delete_after_uninstall", "export_after_uninstall", "archive_after_uninstall"], reinstall_access: "fresh_grant_required" },
+    { retention_class: "artifact_records", label: "artifact metadata", description: "App artifact records retained for recovery and audit.", uninstall_behavior: "retain", owner_controls: ["delete_after_uninstall", "export_after_uninstall", "archive_after_uninstall"], reinstall_access: "fresh_grant_required" },
+    { retention_class: "export_receipts", label: "export receipts", description: "Owner-visible receipts for mediated exports.", uninstall_behavior: "retain", owner_controls: ["delete_after_uninstall", "export_after_uninstall", "archive_after_uninstall"], reinstall_access: "fresh_grant_required" },
+    { retention_class: "owner_exports", label: "owner exports", description: "Files the owner exported outside the app lifecycle.", uninstall_behavior: "outside_app_lifecycle", owner_controls: [], reinstall_access: "outside_app_lifecycle" },
+    { retention_class: "lifecycle_tombstone", label: "lifecycle evidence", description: "Minimal install, uninstall, deletion, export, and archive evidence.", uninstall_behavior: "retain_minimal_tombstone", owner_controls: [], reinstall_access: "fresh_grant_required" },
+  ],
+});
+
 export const GenericPackageManifestSchema = z
   .object({
     manifest_version: z.literal(GENERIC_PACKAGE_MANIFEST_VERSION),
@@ -281,7 +624,7 @@ export const GenericPackageManifestSchema = z
     requested_inference_purposes: z.array(InferencePurposeRequestSchema).max(32),
     provenance_path: PackagePathSchema,
     sbom_path: PackagePathSchema,
-    retention_policy: z.literal("retain_owner_data_remove_runtime_authority"),
+    retention_policy: AppRetentionPolicySchema,
   })
   .strict()
   .superRefine((value, context) => {
@@ -589,6 +932,8 @@ export const ResolvedAppDescriptorSchema = z
   });
 
 export type GenericPackageManifest = z.infer<typeof GenericPackageManifestSchema>;
+export type AppRetentionPolicy = z.infer<typeof AppRetentionPolicySchema>;
+export type AppRetentionClass = z.infer<typeof AppRetentionClassSchema>;
 export type AppPresentationProfile = z.infer<typeof AppPresentationProfileSchema>;
 export type AppPresentationSet = z.infer<typeof AppPresentationSetSchema>;
 export type ChatWorkspaceDescriptor = z.infer<typeof ChatWorkspaceDescriptorSchema>;

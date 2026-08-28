@@ -7,6 +7,7 @@ import {
   launchApp,
   launchAppChatWorkspace,
   mutateApp,
+  runRetainedAppDataAction,
   type AppLaunch,
   type AppPresentationProfileSummary,
   type AppLifecycleAction,
@@ -18,7 +19,8 @@ import AppCatalogCard from "./AppCatalogCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
 
 const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder";
-type BusyState = AppLifecycleAction | "launch";
+type RetainedDataAction = "delete" | "export" | "archive";
+type BusyState = AppLifecycleAction | "launch" | `retained-data:${RetainedDataAction}`;
 type SelectedSession = { appKey: string; appId: string; appName: string; launch: AppLaunch };
 
 function replaceApp(apps: AppStatus[], next: AppStatus): AppStatus[] {
@@ -100,6 +102,25 @@ export default function AppsPage({
         setApps((current) => current ? replaceApp(current, refreshed) : current);
       } catch { /* Keep the last safe catalog projection. */ }
       setAppError(app.route_key, "The lifecycle action was not confirmed. BrainDrive refreshed this app's status; review it before retrying.");
+    } finally { setAppBusy(app.route_key); }
+  };
+
+  const retainedDataAction = async (app: AppStatus, action: RetainedDataAction) => {
+    if (busyByApp[app.route_key] || app.state !== "not_installed") return;
+    setAppBusy(app.route_key, `retained-data:${action}`); setAppError(app.route_key); setAppNotice(app.route_key);
+    try {
+      const result = await runRetainedAppDataAction(app.route_key, action, app);
+      const refreshed = await getApp(app.route_key);
+      setApps((current) => current ? replaceApp(current, refreshed) : current);
+      setAppNotice(app.route_key, action === "delete"
+        ? "Retained app data was deleted and an audit tombstone was recorded."
+        : `Retained app data was ${result.action === "archive" ? "archived" : "exported"} and remains unavailable to uninstalled app code.`);
+    } catch {
+      try {
+        const refreshed = await getApp(app.route_key);
+        setApps((current) => current ? replaceApp(current, refreshed) : current);
+      } catch { /* Keep the last safe catalog projection. */ }
+      setAppError(app.route_key, "The retained-data action was not confirmed. BrainDrive refreshed this app's status; review it before retrying.");
     } finally { setAppBusy(app.route_key); }
   };
 
@@ -185,6 +206,7 @@ export default function AppsPage({
               launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
               uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
               onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}
+              onRetainedDataAction={(action) => void retainedDataAction(app, action)}
             />)}
           </div>
         )}

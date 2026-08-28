@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ResumeDataLifecycleAdapter } from "../../resume-domain/lifecycle.js";
 import { LifecycleDiagnosticEventSchema } from "../contracts/audit.js";
-import { canonicalJson } from "../contracts/common.js";
+import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
 import type { FirstPartyAppRegistration } from "../contracts/app-registry.js";
 import {
   ALLOWED_LIFECYCLE_TRANSITIONS,
@@ -27,6 +27,7 @@ import { LifecycleReconciler } from "./reconciler.js";
 import {
   assertAppDataAdapterBinding,
   deleteRetainedAppData,
+  runRetainedAppDataOwnerAction,
   validateAppDataBackupIdentity,
   type AppDataLifecycleAdapter,
   type AppDataBackupIdentity,
@@ -648,6 +649,8 @@ describe("Spec 08 M2 generic data lifecycle adapter", () => {
         binding_id: "data.brief-builder",
         data_contract_version: 1,
       }, backup),
+      exportRetainedData: async (request) => ({ exported: true, export_digest: canonicalInputDigest({ action: "export", app_id: request.app_id, owner_id: request.owner_id, operation_id: request.operation_id }), retained: true }),
+      archiveRetainedData: async (request) => ({ archived: true, archive_digest: canonicalInputDigest({ action: "archive", app_id: request.app_id, owner_id: request.owner_id, operation_id: request.operation_id }), retained: true }),
       deleteRetainedData: async () => {
         await rm(root, { recursive: true, force: true });
         return { deleted: true as const, deleted_namespace_digest: `sha256:${"d".repeat(64)}` as const };
@@ -760,6 +763,79 @@ describe("Spec 08 M2 generic data lifecycle adapter", () => {
     expect(result).toMatchObject({ app_id: "ai.braindrive.brief-builder", deleted: true });
     await expect(readFile(path.join(dataRoot, "synthetic.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     expect(await store.readDataDeletionTombstone(result.operation_id)).toMatchObject({ app_id: "ai.braindrive.brief-builder", deleted: true });
+  });
+
+  it("permits retained-data export and archive only after uninstall and records digest-bound receipts", async () => {
+    const root = await temporaryRoot("bd-spec08-m2-retained-actions-");
+    const dataRoot = path.join(root, "memory", "apps", "brief-builder");
+    await mkdir(dataRoot, { recursive: true });
+    await writeFile(path.join(dataRoot, "synthetic.json"), "{}\n", "utf8");
+    const store = new AppLifecycleStore(path.join(root, "state", "apps", "brief-builder"), { appId: "ai.braindrive.brief-builder" });
+    await store.initialize();
+    const adapter = fakeAdapter(dataRoot);
+
+    const active = await store.readLifecycle();
+    await store.compareAndSwapLifecycle(active.generation, {
+      ...active,
+      state: "active",
+      generation: active.generation + 1,
+      installation_id: INSTALLATION_ID,
+      active_package_digest: ACTIVE_DIGEST,
+      grant_id: GRANT_ID,
+    });
+    await expect(runRetainedAppDataOwnerAction({
+      store,
+      adapter,
+      appId: "ai.braindrive.brief-builder",
+      ownerId: OWNER_ID,
+      ownerActorId: "owner",
+      expectedDataRoot: dataRoot,
+      action: "export",
+      request: { operationId: randomUUID(), idempotencyKey: "retained-export-active", ownerActorId: "owner", confirmAppId: "ai.braindrive.brief-builder", trustedOwnerConfirmation: true },
+    })).rejects.toMatchObject({ code: "invalid_state_transition" });
+
+    const current = await store.readLifecycle();
+    await store.compareAndSwapLifecycle(current.generation, {
+      ...initialLifecycleRecord(FIXED_TIME, "ai.braindrive.brief-builder"),
+      generation: current.generation + 1,
+    });
+    const exportOperationId = randomUUID();
+    const exported = await runRetainedAppDataOwnerAction({
+      store,
+      adapter,
+      appId: "ai.braindrive.brief-builder",
+      ownerId: OWNER_ID,
+      ownerActorId: "owner",
+      expectedDataRoot: dataRoot,
+      action: "export",
+      request: { operationId: exportOperationId, idempotencyKey: "retained-export-safe", ownerActorId: "owner", confirmAppId: "ai.braindrive.brief-builder", trustedOwnerConfirmation: true },
+    });
+    expect(exported).toMatchObject({ app_id: "ai.braindrive.brief-builder", action: "export", retained: true });
+    expect(await store.readDataRetentionActionTombstone("export", exportOperationId)).toMatchObject({
+      status: "committed",
+      retained: true,
+      result_digest: exported.result_digest,
+    });
+    expect(await readFile(path.join(dataRoot, "synthetic.json"), "utf8")).toBe("{}\n");
+
+    const archiveOperationId = randomUUID();
+    const archived = await runRetainedAppDataOwnerAction({
+      store,
+      adapter,
+      appId: "ai.braindrive.brief-builder",
+      ownerId: OWNER_ID,
+      ownerActorId: "owner",
+      expectedDataRoot: dataRoot,
+      action: "archive",
+      request: { operationId: archiveOperationId, idempotencyKey: "retained-archive-safe", ownerActorId: "owner", confirmAppId: "ai.braindrive.brief-builder", trustedOwnerConfirmation: true },
+    });
+    expect(archived).toMatchObject({ app_id: "ai.braindrive.brief-builder", action: "archive", retained: true });
+    expect(await store.readDataRetentionActionTombstone("archive", archiveOperationId)).toMatchObject({
+      status: "committed",
+      retained: true,
+      result_digest: archived.result_digest,
+    });
+    expect(await readFile(path.join(dataRoot, "synthetic.json"), "utf8")).toBe("{}\n");
   });
 
   it("serializes retained-data deletion against install data preparation", async () => {

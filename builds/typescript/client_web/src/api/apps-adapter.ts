@@ -77,6 +77,7 @@ export type AppStatus = {
     safe_message: string;
     uninstall_removes: string[];
     uninstall_retains: string[];
+    post_uninstall_controls?: Array<"delete" | "export" | "archive">;
   };
   progress: AppLifecycleOperationView | null;
   recovery: { available: boolean; action: string };
@@ -100,6 +101,16 @@ export type AppStatus = {
 };
 
 export type AppCatalog = { catalog_version: 1; apps: AppStatus[] };
+
+export type RetainedAppDataActionResult = {
+  operation_id: string;
+  app_id: string;
+  action?: "export" | "archive";
+  retained?: true;
+  result_digest?: `sha256:${string}`;
+  deleted?: true;
+  deleted_namespace_digest?: `sha256:${string}`;
+};
 
 export type AppSurfaceLaunch = {
   launch_version: 1;
@@ -137,6 +148,21 @@ export type AppWorkspaceDocumentDescriptor = {
   model_access: "none" | "read_reference" | "read_write_draft" | "action_result";
   resource_id: string | null;
   data_binding_id: string | null;
+  presentation?: AppWorkspaceDocumentPresentation | null;
+};
+
+export type AppWorkspaceDocumentHeaderAction =
+  | { type: "back_to_chat"; label: string }
+  | { type: "edit_document"; label: string }
+  | { type: "app_action"; action_id: string; label: string; delivery: "chat_prompt"; prompt: string };
+
+export type AppWorkspaceDocumentPresentation = {
+  presentation_version: 1;
+  renderer: "plain_text" | "markdown_document" | "paper_document" | "json_editor";
+  chrome: "standard" | "document";
+  title: string | null;
+  subtitle: string | null;
+  header_actions: AppWorkspaceDocumentHeaderAction[];
 };
 
 export type AppResourceDescriptor = {
@@ -242,6 +268,55 @@ export type OwnerSafeAppDataState = {
   proposal_preserved: boolean;
 };
 
+export type AppDocumentRecord = {
+  record_version: 1;
+  record_kind: "document" | "state";
+  owner_id: string;
+  actor_id: string;
+  app_id: string;
+  publisher_id: string;
+  installation_id: string;
+  package_digest: `sha256:${string}`;
+  lifecycle_generation: number;
+  grant_id: string;
+  grant_revision: number;
+  revocation_generation: number;
+  document_id: string;
+  document_binding_id: string;
+  role: "source_document" | "derived_document" | "recovery_document" | "action_result_document" | "app_state";
+  retention_class: "durable_owner_data" | "durable_provenance_while_referenced" | "durable_operation_lookup" | "rollback_recovery_window" | "disposable_preview_cache" | "transient_abandoned_operation";
+  media_type: "application/json" | "text/markdown" | "text/plain";
+  revision: number;
+  revision_id: string;
+  prior_revision_id: string | null;
+  operation_id: string;
+  idempotency_key: string;
+  content_digest: `sha256:${string}`;
+  content_size_bytes: number;
+  content: unknown;
+  created_at: string;
+  created_by: unknown;
+  updated_at: string;
+  updated_by: unknown;
+};
+
+export type AppDocumentReadResult = {
+  result_version: 1;
+  state: "current" | "missing";
+  document_id: string;
+  document_binding_id: string;
+  record: AppDocumentRecord | null;
+};
+
+export type AppDocumentState = {
+  state_version: 1;
+  state: "unavailable" | "conflict";
+  safe_message: string;
+  retryable: boolean;
+  refresh_required: boolean;
+  current_revision: number | null;
+};
+
 export type HostConfirmationPresentation = {
   title: string;
   actionLabel: string;
@@ -317,6 +392,27 @@ export class AppCapabilityError extends GatewayError {
   }
 }
 
+export class AppDocumentError extends GatewayError {
+  readonly safeMessage: string;
+  readonly retryable: boolean;
+  readonly refreshRequired: boolean;
+  readonly currentRevision: number | null;
+
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    public readonly documentState: AppDocumentState,
+  ) {
+    super(message, status, code);
+    this.name = "AppDocumentError";
+    this.safeMessage = message;
+    this.retryable = documentState.retryable;
+    this.refreshRequired = documentState.refresh_required;
+    this.currentRevision = documentState.current_revision;
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {
@@ -370,6 +466,24 @@ export async function mutateApp(appKey: string, action: AppLifecycleAction, curr
     } catch { /* preserve the original safe failure */ }
     throw failure;
   }
+}
+
+export function runRetainedAppDataAction(
+  appKey: string,
+  action: "delete" | "export" | "archive",
+  current: AppStatus,
+  operationId = secureRandomUuid(),
+): Promise<RetainedAppDataActionResult> {
+  return requestJson(`${appPath(appKey)}/data/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: operationId,
+      confirm_app_id: current.identity.app_id,
+      trusted_owner_confirmation: true,
+    }),
+  });
 }
 
 export function launchApp(appKey: string, entryPoint: "direct" | "career" = "direct", resume?: AppSurfaceLaunch): Promise<AppSurfaceLaunch> {
@@ -515,6 +629,64 @@ export async function closeAppSession(appKey: string, sessionId: string): Promis
 
 export function readAppChatWorkspaceSession(appKey: string, sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> {
   return requestJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export function readAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`);
+}
+
+export function writeAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string, input: {
+  expectedRevision: number | null;
+  content: unknown;
+  mediaType?: AppDocumentRecord["media_type"];
+  retentionClass?: AppDocumentRecord["retention_class"];
+  operationId?: string;
+  idempotencyKey?: string;
+}): Promise<AppDocumentReadResult> {
+  const operationId = input.operationId ?? secureRandomUuid();
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: input.idempotencyKey ?? operationId,
+      expected_revision: input.expectedRevision,
+      content: input.content,
+      ...(input.mediaType ? { media_type: input.mediaType } : {}),
+      ...(input.retentionClass ? { retention_class: input.retentionClass } : {}),
+    }),
+  });
+}
+
+async function requestDocumentJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
+  if (!response.ok) {
+    try {
+      const payload = await response.json() as {
+        error?: {
+          code?: string;
+          safe_message?: string;
+          retryable?: boolean;
+          current_revision?: number | null;
+        };
+        document_state?: AppDocumentState;
+      };
+      if (payload.error?.code && payload.error.safe_message && payload.document_state) {
+        throw new AppDocumentError(payload.error.safe_message, response.status, payload.error.code, {
+          state_version: 1,
+          state: payload.document_state.state === "conflict" ? "conflict" : "unavailable",
+          safe_message: payload.document_state.safe_message,
+          retryable: payload.document_state.retryable === true,
+          refresh_required: payload.document_state.refresh_required === true,
+          current_revision: typeof payload.document_state.current_revision === "number" ? payload.document_state.current_revision : null,
+        });
+      }
+    } catch (error) {
+      if (error instanceof AppDocumentError) throw error;
+    }
+    throw new GatewayError(`App document request failed with status ${response.status}`, response.status, "recoverable_internal_failure");
+  }
+  return await response.json() as T;
 }
 
 export function sendAppBridgeMessage(appKey: string, sessionId: string, message: unknown): Promise<unknown> {

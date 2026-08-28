@@ -7,10 +7,16 @@ import {
   RESUME_CHAT_RESOURCES,
   RESUME_CHAT_WORKSPACE_ID,
   RESUME_DOCUMENT_BINDING_ID,
+  RESUME_EXPORT_ARTIFACTS,
   RESUME_PROFILE_BINDING_ID,
   RESUME_STRUCTURED_PRESENTATION_ID,
   RESUME_STRUCTURED_RESOURCE_URI,
+  buildResumeCreateCapabilityInput,
+  buildResumeProfileReadCapabilityInput,
+  buildResumeProfileUpdateCapabilityInput,
   describeResumeChatStateConvergence,
+  describeResumeExportMediation,
+  projectResumeStorageDocuments,
   projectResumeDocument,
   projectResumeProfile,
   type DurableWorkflowSnapshot,
@@ -48,12 +54,70 @@ describe("Resume Builder chat workspace contract", () => {
 
   it("keeps Profile and Resume bound to one Resume-domain state source", () => {
     const convergence = describeResumeChatStateConvergence();
-    expect(convergence.authoritativeStore).toBe("resume-domain");
+    expect(convergence.authoritativeStore).toBe("app-storage");
+    expect(convergence.compatibilityReadThrough).toBe("resume-domain");
     expect(convergence.chatWorkspace.profileBindingId).toBe(RESUME_PROFILE_BINDING_ID);
     expect(convergence.structuredSurface.profileBindingId).toBe(RESUME_PROFILE_BINDING_ID);
     expect(convergence.chatWorkspace.resumeBindingId).toBe(RESUME_DOCUMENT_BINDING_ID);
     expect(convergence.structuredSurface.resumeBindingId).toBe(RESUME_DOCUMENT_BINDING_ID);
     expect(convergence.structuredSurface.ownerVisibility).toBe("internal");
+  });
+
+  it("declares Resume export artifacts through the generic host-mediated API", () => {
+    expect(RESUME_EXPORT_ARTIFACTS).toMatchObject({
+      pdf: {
+        artifactId: "resume.export.pdf",
+        format: "pdf",
+        mediaType: "application/pdf",
+        sourceDocumentId: "resume.document",
+        destinationPolicy: "host_mediated_owner_confirmed",
+        safeFilename: "resume.pdf",
+      },
+      text: {
+        artifactId: "resume.export.text",
+        format: "text",
+        mediaType: "text/plain",
+        sourceDocumentId: "resume.document",
+        destinationPolicy: "host_mediated_owner_confirmed",
+        safeFilename: "resume.txt",
+      },
+    });
+
+    const mediation = describeResumeExportMediation();
+    expect(mediation).toMatchObject({
+      api: "generic_app_artifact_export_v1",
+      rendererOwner: "resume-builder",
+      hostOwner: "braindrive",
+    });
+    expect(mediation.appReceives).toEqual(["safe_destination_label", "artifact_revision_id", "content_digest", "receipt_revision_id"]);
+    expect(mediation.appNeverReceives).toEqual(["raw_filesystem_path", "destination_path", "provider_credentials", "host_authorization"]);
+    expect(JSON.stringify(mediation)).not.toMatch(/\/home\/|[A-Za-z]:\\/);
+  });
+
+  it("seeds existing Resume-domain Profile and Resume projections into generic app documents", () => {
+    const [profile, resume] = projectResumeStorageDocuments(snapshot());
+
+    expect(profile).toMatchObject({
+      documentId: "resume.profile",
+      bindingId: RESUME_PROFILE_BINDING_ID,
+      role: "source_document",
+      retentionClass: "durable_owner_data",
+      compatibilitySource: "resume-domain",
+      content: {
+        storage_projection_version: 1,
+        compatibility_source: "resume-domain",
+        projection: { bindingId: RESUME_PROFILE_BINDING_ID, source: "resume-domain", confirmedFactCount: 7 },
+      },
+    });
+    expect(resume).toMatchObject({
+      documentId: "resume.document",
+      bindingId: RESUME_DOCUMENT_BINDING_ID,
+      role: "derived_document",
+      retentionClass: "durable_owner_data",
+      content: {
+        projection: { bindingId: RESUME_DOCUMENT_BINDING_ID, source: "resume-domain", derivative: true },
+      },
+    });
   });
 
   it("keeps the hidden structured surface state-consistent across recovery and approved resume state", () => {
@@ -134,6 +198,58 @@ describe("Resume Builder chat workspace contract", () => {
     ]);
     expect(RESUME_CHAT_ACTIONS.every((action) => action.capability.startsWith("resume."))).toBe(true);
     expect(JSON.stringify(RESUME_CHAT_ACTIONS)).not.toMatch(/docx|linkedin|import|tailor|template.choice/i);
+  });
+
+  it("owns Resume chat action conversion before generic host dispatch", () => {
+    const sessionId = crypto.randomUUID();
+    const turnId = crypto.randomUUID();
+    const occurredAt = "2026-08-27T12:00:00.000Z";
+
+    expect(buildResumeProfileReadCapabilityInput()).toEqual({ view: "workspace" });
+    expect(buildResumeProfileUpdateCapabilityInput({
+      profile_markdown: "Maya Torres profile",
+      completed_topics: ["direction", "experience"],
+      current_topic: null,
+    }, { sessionId, turnId, occurredAt })).toMatchObject({
+      kind: "interview_progress",
+      progress: {
+        status: "review_needed",
+        completed_topics: ["direction", "experience"],
+        skipped_topics: [],
+        draft_state: "owner_reviewed",
+        session_id: sessionId,
+        audit_turn: {
+          turn_id: turnId,
+          session_id: sessionId,
+          answer: "Maya Torres profile",
+          occurred_at: occurredAt,
+        },
+      },
+    });
+
+    expect(buildResumeCreateCapabilityInput({
+      title: "Maya Torres - Director of Product Operations",
+      resume_markdown: [
+        "# Maya Torres",
+        "## Summary",
+        "Director of Product Operations candidate with 9 years in SaaS operations.",
+        "## Experience",
+        "- Reduced launch slips by 38% across six product squads.",
+      ].join("\n"),
+    })).toMatchObject({
+      definition_kind: "general",
+      status: "proposed",
+      title: "Maya Torres - Director of Product Operations",
+      section_order: ["summary", "experience"],
+      locale: "en-US",
+      page_intent: "one_page",
+      template_id: "resume.single-column",
+      prompt_policy_version: null,
+      statements: expect.arrayContaining([
+        expect.objectContaining({ section_id: "summary", text: "Summary", display_role: "heading" }),
+        expect.objectContaining({ section_id: "experience", text: "Reduced launch slips by 38% across six product squads.", display_role: "bullet" }),
+      ]),
+    });
   });
 
   it("declares package resources for workspace start, action request, and recovery reference", () => {

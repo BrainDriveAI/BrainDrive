@@ -42,6 +42,40 @@ describe("trusted lifecycle service", () => {
     expect(reinstall.grant?.grant_id).not.toBe(install.grant?.grant_id);
   });
 
+  it("uninstall removes runtime and token authority while retaining manifest-declared owner data for reinstall", async () => {
+    const h = await harness();
+    const install = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    const session = await h.service.issueSession({
+      audience: "app_data",
+      capabilities: ["career.context.read"],
+      operationId: crypto.randomUUID(),
+    });
+    await mkdir(h.ownerDataRoot, { recursive: true });
+    await writeFile(path.join(h.ownerDataRoot, "retained.json"), "{}\n", "utf8");
+
+    const uninstall = await h.service.uninstall({ idempotencyKey: "uninstall-key-001", installationId: install.record.installation_id });
+    expect(uninstall.record.state).toBe("not_installed");
+    expect(h.supervisor.inspect(install.record.installation_id!)).toEqual([]);
+    expect(h.tokenBroker.isRevoked(install.record.installation_id!)).toBe(true);
+    expect(() => h.tokenBroker.consume(session.token, {
+      audience: "app_data",
+      capability: "career.context.read",
+      installationId: install.record.installation_id!,
+      appId: h.service.appId,
+    })).toThrowError(expect.objectContaining({ code: "token_revoked" }));
+    expect(await readFile(path.join(h.ownerDataRoot, "retained.json"), "utf8")).toBe("{}\n");
+    await expect(h.store.readUninstallJournal(uninstall.operation.operation_id)).resolves.toMatchObject({
+      stage: "committed",
+      retained_classes: ["app_storage", "artifact_records", "export_receipts", "owner_exports", "lifecycle_tombstone"],
+      removed_classes: expect.arrayContaining(["runtime_registration", "capability_grant", "package_reference", "package_bytes", "disposable_cache"]),
+    });
+
+    const reinstall = await h.service.install({ version: "1.0.0", idempotencyKey: "reinstall-key-01", approveCapabilities: true });
+    expect(reinstall.record.installation_id).not.toBe(install.record.installation_id);
+    expect(reinstall.grant?.grant_id).not.toBe(install.grant?.grant_id);
+    expect(h.supervisor.inspect(reinstall.record.installation_id!)).toHaveLength(1);
+  });
+
   it("returns one committed result for duplicate retries and rejects conflicting/concurrent identities", async () => {
     const h = await harness();
     const input = { version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true } as const;
@@ -113,5 +147,46 @@ describe("trusted lifecycle service", () => {
     await restarted.disable({ idempotencyKey: "disable-key-00001" });
     await restarted.initialize();
     expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(0);
+  });
+
+  it("fails closed without blocking startup when persisted active package metadata is stale", async () => {
+    const h = await harness();
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    const digest = installed.record.active_package_digest!;
+    const packagePath = path.join(h.store.root, "registry", "packages", `${digest.slice(7)}.json`);
+    const stored = JSON.parse(await readFile(packagePath, "utf8")) as Record<string, unknown>;
+    stored.manifest = {
+      manifest_version: 2,
+      app_id: "ai.braindrive.resume-builder",
+      publisher_id: "ai.braindrive",
+      package_version: "1.0.0",
+      presentations: {
+        presentation_set_version: 1,
+        default_presentation_id: "resume-chat",
+        profiles: [],
+        workspaces: [{
+          workspace_id: "resume-chat",
+          label: "Resume Chat",
+          documents: [],
+          actions: [{
+            action_id: "resume.profile.update",
+            input_schema_id: "resume.profile.update.input.v1",
+            result_schema_id: "resume.profile.update.result.v1",
+          }],
+        }],
+      },
+      retention_policy: "retain_owner_data_remove_runtime_authority",
+    };
+    await writeFile(packagePath, `${JSON.stringify(stored)}\n`, "utf8");
+
+    const restarted = new AppLifecycleService(h.dependencies);
+    await expect(restarted.initialize()).resolves.toBeUndefined();
+    await expect(restarted.ownerDescriptor()).resolves.toMatchObject({
+      record: { state: "failed_recoverable", active_package_digest: digest },
+      storedPackage: null,
+    });
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toEqual([]);
+    expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(true);
+    expect((await h.store.readGrant(installed.grant!.grant_id))?.revoked_at).not.toBeNull();
   });
 });

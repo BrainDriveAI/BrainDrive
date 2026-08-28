@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialBriefWorkflowState, reduceBriefWorkflow } from "../src/workflow.js";
+import { BRIEF_APP_ACTIONS, BRIEF_APP_STORAGE_DOCUMENTS, buildBriefProofWriteActionInput, initialBriefWorkflowState, reduceBriefWorkflow } from "../src/index.js";
 
 describe("Brief Builder workflow", () => {
   it("completes direct source, generation, owner edit, and approval", () => {
@@ -33,5 +33,62 @@ describe("Brief Builder workflow", () => {
       draftTitle: "",
       statements: [],
     });
+  });
+
+  it("declares durable app storage documents without Resume-specific bindings", () => {
+    expect(BRIEF_APP_STORAGE_DOCUMENTS.source).toMatchObject({
+      documentId: "brief.source",
+      bindingId: "brief.source.current",
+      role: "source_document",
+      retentionClass: "durable_owner_data",
+    });
+    expect(BRIEF_APP_STORAGE_DOCUMENTS.actionResult).toMatchObject({
+      role: "action_result_document",
+      retentionClass: "durable_operation_lookup",
+    });
+    expect(BRIEF_APP_STORAGE_DOCUMENTS.previewCache).toMatchObject({
+      documentId: "brief.preview",
+      bindingId: "brief.preview.cache",
+      retentionClass: "transient_abandoned_operation",
+    });
+    expect(JSON.stringify(BRIEF_APP_STORAGE_DOCUMENTS)).not.toMatch(/resume/i);
+  });
+
+  it("declares a proof action that targets the generic capability dispatcher", () => {
+    expect(BRIEF_APP_ACTIONS).toEqual([
+      expect.objectContaining({
+        actionId: "brief.proof.read",
+        capability: "brief.records.read",
+        inputSchemaId: "brief.proof.read.input.v1",
+        resultSchemaId: "brief.proof.read.result.v1",
+        idempotencyPolicy: "optional",
+      }),
+      expect.objectContaining({
+        actionId: "brief.proof.write",
+        capability: "brief.records.write",
+        inputSchemaId: "brief.proof.write.input.v1",
+        resultSchemaId: "brief.proof.write.result.v1",
+        idempotencyPolicy: "required",
+      }),
+    ]);
+    expect(buildBriefProofWriteActionInput({
+      sourceRevisionId: "00000000-0000-4000-8000-000000000001",
+      expectedCatalogRevision: 2,
+      title: "Proof brief",
+      statementText: "Supported statement",
+      supportContext: "Owner source",
+      statementId: "00000000-0000-4000-8000-000000000002",
+    })).toEqual({
+      action: "edit",
+      source_revision_id: "00000000-0000-4000-8000-000000000001",
+      expected_catalog_revision: 2,
+      title: "Proof brief",
+      statements: [{
+        statement_id: "00000000-0000-4000-8000-000000000002",
+        text: "Supported statement",
+        support: { kind: "owner_context", context: "Owner source" },
+      }],
+    });
+    expect(JSON.stringify(BRIEF_APP_ACTIONS)).not.toMatch(/resume/i);
   });
 });

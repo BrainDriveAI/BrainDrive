@@ -5,17 +5,45 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  AppActionJsonSchemaBodySchema,
   AppPresentationSetSchema,
   ChatWorkspaceDescriptorSchema,
+  DEFAULT_APP_RETENTION_POLICY,
   GenericPackageManifestSchema,
   type GenericPackageManifest,
 } from "./app-registry.js";
+import { canonicalInputDigest } from "./common.js";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
 
 async function fixture(path: string): Promise<unknown> {
   return JSON.parse(await readFile(resolve(directory, "fixtures", path), "utf8"));
+}
+
+function actionSchema(schemaId: string, schema: Record<string, unknown>) {
+  return {
+    schema_id: schemaId,
+    schema_version: 1,
+    content_digest: canonicalInputDigest(schema),
+    schema,
+  };
+}
+
+function actionSchemas(inputSchemaId: string, resultSchemaId: string, inputSchema: Record<string, unknown> = emptyObjectSchema()) {
+  return {
+    input_schema: actionSchema(inputSchemaId, inputSchema),
+    result_schema: actionSchema(resultSchemaId, emptyObjectSchema()),
+  };
+}
+
+function emptyObjectSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+    required: [],
+  };
 }
 
 function manifest(overrides: Partial<GenericPackageManifest> = {}): GenericPackageManifest {
@@ -76,7 +104,7 @@ function manifest(overrides: Partial<GenericPackageManifest> = {}): GenericPacka
     requested_inference_purposes: [{ purpose_id: "resume.generate", version: 1 }],
     provenance_path: "provenance/intoto.jsonl",
     sbom_path: "sbom/cyclonedx.json",
-    retention_policy: "retain_owner_data_remove_runtime_authority",
+    retention_policy: DEFAULT_APP_RETENTION_POLICY,
     presentations: {
       presentation_set_version: 1,
       default_presentation_id: "chat",
@@ -185,8 +213,16 @@ function awaitedWorkspace(): unknown {
         kind: "write",
         title: "Update Profile",
         description: "Request an app-owned source document update.",
-        input_schema_id: "resume.profile.update.input.v1",
-        result_schema_id: "resume.profile.update.result.v1",
+        ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            profile_markdown: { type: "string", minLength: 1, maxLength: 65536 },
+            completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
+            current_topic: { type: ["string", "null"], maxLength: 64 },
+          },
+          required: ["profile_markdown", "completed_topics", "current_topic"],
+        }),
         confirmation: "none",
         idempotency_policy: "required",
         model_exposure: "available",
@@ -198,6 +234,99 @@ function awaitedWorkspace(): unknown {
 }
 
 describe("chat workspace descriptor contracts", () => {
+  it("accepts app actions with concrete digest-bound input and result schemas", () => {
+    const parsed = ChatWorkspaceDescriptorSchema.parse(awaitedWorkspace());
+    expect(parsed.actions[0].input_schema.schema.properties).toHaveProperty("profile_markdown");
+    expect(parsed.actions[0].input_schema.content_digest).toBe(canonicalInputDigest(parsed.actions[0].input_schema.schema));
+    expect(parsed.actions[0].result_schema.schema).toEqual(emptyObjectSchema());
+  });
+
+  it("rejects model-visible actions that keep only opaque input/result schema ids", () => {
+    const workspace = awaitedWorkspace() as { actions: Array<Record<string, unknown>> };
+    workspace.actions = [{
+      ...workspace.actions[0],
+      input_schema: undefined,
+      result_schema: undefined,
+      input_schema_id: "resume.profile.update.input.v1",
+      result_schema_id: "resume.profile.update.result.v1",
+    }];
+    expect(ChatWorkspaceDescriptorSchema.safeParse(workspace).success).toBe(false);
+  });
+
+  it("rejects missing schemas, duplicate schema ids, digest mismatches, and unsafe schema bodies", () => {
+    const workspace = ChatWorkspaceDescriptorSchema.parse(awaitedWorkspace());
+    const action = workspace.actions[0];
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      actions: [{ ...action, result_schema: undefined }],
+    }).success).toBe(false);
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      actions: [{ ...action, result_schema: { ...action.result_schema, schema_id: action.input_schema.schema_id } }],
+    }).success).toBe(false);
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      actions: [{ ...action, input_schema: { ...action.input_schema, content_digest: digest("1") } }],
+    }).success).toBe(false);
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      actions: [{
+        ...action,
+        input_schema: actionSchema("resume.profile.unsafe.input.v1", {
+          type: "object",
+          additionalProperties: false,
+          properties: { payload: { $ref: "https://example.invalid/schema.json" } },
+          required: ["payload"],
+        }),
+      }],
+    }).success).toBe(false);
+
+    const oversizedDescription = "x".repeat(20_000);
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      actions: [{
+        ...action,
+        input_schema: actionSchema("resume.profile.oversized.input.v1", {
+          type: "object",
+          additionalProperties: false,
+          properties: { payload: { type: "string", description: oversizedDescription } },
+          required: ["payload"],
+        }),
+      }],
+    }).success).toBe(false);
+  });
+
+  it("rejects app action JSON Schema keywords outside the runtime-enforced subset", () => {
+    const base = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        value: { type: "string", minLength: 1, maxLength: 64 },
+      },
+      required: ["value"],
+    };
+    const unsupportedSchemas: Array<[string, Record<string, unknown>]> = [
+      ["minimum", { ...base, properties: { count: { type: "number", minimum: 1 } }, required: ["count"] }],
+      ["maximum", { ...base, properties: { count: { type: "number", maximum: 5 } }, required: ["count"] }],
+      ["pattern", { ...base, properties: { value: { type: "string", pattern: "^[a-z]+$" } } }],
+      ["oneOf", { ...base, oneOf: [{ required: ["value"] }] }],
+      ["anyOf", { ...base, anyOf: [{ required: ["value"] }] }],
+      ["allOf", { ...base, allOf: [{ required: ["value"] }] }],
+      ["not", { ...base, not: { required: ["blocked"] } }],
+      ["uniqueItems", { ...base, properties: { values: { type: "array", uniqueItems: true } }, required: ["values"] }],
+      ["unsupported format", { ...base, properties: { value: { type: "string", format: "email" } } }],
+      ["remote ref", { ...base, properties: { value: { $ref: "https://example.invalid/action.schema.json" } } }],
+    ];
+
+    for (const [keyword, schema] of unsupportedSchemas) {
+      expect(AppActionJsonSchemaBodySchema.safeParse(schema).success, keyword).toBe(false);
+    }
+  });
+
   it("accepts the positive descriptor fixture and rejects duplicate workspace document ids", async () => {
     expect(ChatWorkspaceDescriptorSchema.safeParse(await fixture("valid/chat-workspace-descriptor.json")).success).toBe(true);
     expect(ChatWorkspaceDescriptorSchema.safeParse(await fixture("invalid/chat-workspace-duplicate-document.json")).success).toBe(false);

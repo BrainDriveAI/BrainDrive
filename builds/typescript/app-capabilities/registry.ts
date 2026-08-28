@@ -8,6 +8,13 @@ export type HostCapabilityContext = {
   appId: string;
   installationId: string;
   packageDigest: `sha256:${string}`;
+  connectionId: string | null;
+  viewId: string | null;
+  sessionId: string | null;
+  lifecycleGeneration?: number;
+  grantId?: string;
+  grantRevision?: number;
+  revocationGeneration?: number;
   operationId: string;
   idempotencyKey: string;
   deadlineAt: number;

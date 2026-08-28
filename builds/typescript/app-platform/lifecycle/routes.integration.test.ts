@@ -45,7 +45,20 @@ describe("owner lifecycle gateway routes", () => {
     expect(repeatedInitialCatalog).toEqual(initialCatalog);
     expect(initialCatalog.apps.map((entry: { route_key: string }) => entry.route_key)).toEqual(["brief-builder", "resume-builder"]);
     expect(initialCatalog.apps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ route_key: "brief-builder", trust: expect.objectContaining({ status: "verified" }), availability: expect.objectContaining({ status: "available", error_code: null }), catalog: expect.objectContaining({ provenance: "verified_first_party_package", primary_resource_uri: "ui://brief-builder/main" }), retention: expect.objectContaining({ retained_data_present: null, compatibility: "not_inspected", uninstall_retains: ["owner data", "owner exports", "lifecycle evidence"] }), available_actions: ["install"] }),
+      expect.objectContaining({
+        route_key: "brief-builder",
+        trust: expect.objectContaining({ status: "verified" }),
+        availability: expect.objectContaining({ status: "available", error_code: null }),
+        catalog: expect.objectContaining({ provenance: "verified_first_party_package", primary_resource_uri: "ui://brief-builder/main" }),
+        retention: expect.objectContaining({
+          retained_data_present: null,
+          compatibility: "not_inspected",
+          uninstall_removes: ["runtime authority", "app code", "disposable cache", "capability grants"],
+          uninstall_retains: ["app storage", "artifact metadata", "export receipts", "owner exports", "lifecycle evidence"],
+          post_uninstall_controls: ["delete", "export", "archive"],
+        }),
+        available_actions: ["install"],
+      }),
     ]));
     const briefInitial = initialCatalog.apps.find((entry: { route_key: string }) => entry.route_key === "brief-builder");
     expect(JSON.stringify(briefInitial).toLowerCase()).not.toMatch(/resume|career data|job history/);

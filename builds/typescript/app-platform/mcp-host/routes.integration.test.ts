@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PermissionSet } from "../../contracts.js";
@@ -38,6 +39,50 @@ function createHost() {
     created_at: "2026-08-26T12:00:00.000Z",
     expires_at: "2026-08-26T12:05:00.000Z",
   };
+  const storageAuthority = {
+    authority_version: 1 as const,
+    owner_id: chatSession.owner_id,
+    actor_id: chatSession.actor_id,
+    app_id: chatSession.app_id,
+    publisher_id: chatSession.publisher_id,
+    installation_id: chatSession.installation_id,
+    package_digest: chatSession.package_digest,
+    lifecycle_generation: chatSession.lifecycle_generation,
+    grant_id: chatSession.grant_id,
+    grant_revision: chatSession.grant_revision,
+    revocation_generation: chatSession.revocation_generation,
+  };
+  const documentRecord = (documentId: string) => ({
+    record_version: 1 as const,
+    record_kind: "document" as const,
+    owner_id: chatSession.owner_id,
+    actor_id: chatSession.actor_id,
+    app_id: chatSession.app_id,
+    publisher_id: chatSession.publisher_id,
+    installation_id: chatSession.installation_id,
+    package_digest: chatSession.package_digest,
+    lifecycle_generation: chatSession.lifecycle_generation,
+    grant_id: chatSession.grant_id,
+    grant_revision: chatSession.grant_revision,
+    revocation_generation: chatSession.revocation_generation,
+    document_id: documentId,
+    document_binding_id: `${documentId}.current`,
+    role: "source_document" as const,
+    retention_class: "durable_owner_data" as const,
+    media_type: "text/markdown" as const,
+    revision: 3,
+    revision_id: crypto.randomUUID(),
+    prior_revision_id: null,
+    operation_id: crypto.randomUUID(),
+    idempotency_key: "document-route-fixture-0001",
+    content_digest: `sha256:${"c".repeat(64)}` as const,
+    content_size_bytes: 9,
+    content: "# Profile",
+    created_at: "2026-08-26T12:00:00.000Z",
+    created_by: storageAuthority,
+    updated_at: "2026-08-26T12:01:00.000Z",
+    updated_by: storageAuthority,
+  });
   return {
     appId: "ai.braindrive.resume-builder",
     routeKey: "resume-builder",
@@ -73,12 +118,148 @@ function createHost() {
       },
     })),
     readChatWorkspaceSession: vi.fn(async () => chatSession),
+    listAppDocuments: vi.fn(async () => ({
+      result_version: 1,
+      owner_id: chatSession.owner_id,
+      app_id: chatSession.app_id,
+      publisher_id: chatSession.publisher_id,
+      installation_id: chatSession.installation_id,
+      records: [documentRecord("resume.profile")],
+      audits: [],
+    })),
+    readAppDocument: vi.fn(async (_sessionId: string, documentId: string) => ({
+      result_version: 1,
+      state: documentId === "missing" ? "missing" : "current",
+      document_id: documentId,
+      document_binding_id: `${documentId}.current`,
+      record: documentId === "missing" ? null : documentRecord(documentId),
+    })),
+    writeAppDocument: vi.fn(async (_sessionId: string, documentId: string, input: unknown) => ({
+      result_version: 1,
+      state: "current",
+      document_id: documentId,
+      document_binding_id: `${documentId}.current`,
+      record: {
+        revision: 4,
+        content: (input as { content?: unknown }).content,
+      },
+    })),
+    deleteAppDocument: vi.fn(async (_sessionId: string, documentId: string, input: Record<string, unknown>) => ({
+      result_version: 1,
+      state: "deleted",
+      delete_mode: input.delete_mode ?? "tombstone",
+      tombstone: {
+        tombstone_version: 1,
+        ...documentRecord(documentId),
+        record_version: undefined,
+        revision: 4,
+        revision_id: crypto.randomUUID(),
+        prior_revision_id: crypto.randomUUID(),
+        operation_id: input.operation_id,
+        idempotency_key: input.idempotency_key,
+        delete_mode: input.delete_mode ?? "tombstone",
+        prior_content_digest: `sha256:${"c".repeat(64)}`,
+        prior_content_size_bytes: 9,
+        deleted_at: "2026-08-26T12:02:00.000Z",
+        deleted_by: storageAuthority,
+        content: undefined,
+        content_digest: undefined,
+        content_size_bytes: undefined,
+        created_at: undefined,
+        created_by: undefined,
+        updated_at: undefined,
+        updated_by: undefined,
+      },
+      audit: {
+        audit_projection_version: 1,
+        event: "app.storage.document.delete",
+        owner_id: chatSession.owner_id,
+        actor_id: chatSession.actor_id,
+        app_id: chatSession.app_id,
+        publisher_id: chatSession.publisher_id,
+        installation_id: chatSession.installation_id,
+        package_digest: chatSession.package_digest,
+        lifecycle_generation: chatSession.lifecycle_generation,
+        grant_id: chatSession.grant_id,
+        grant_revision: chatSession.grant_revision,
+        revocation_generation: chatSession.revocation_generation,
+        document_id: documentId,
+        document_binding_id: `${documentId}.current`,
+        record_kind: "document",
+        role: "source_document",
+        retention_class: "durable_owner_data",
+        revision: 4,
+        revision_id: crypto.randomUUID(),
+        prior_revision_id: crypto.randomUUID(),
+        operation_id: input.operation_id,
+        idempotency_key_digest: `sha256:${"d".repeat(64)}`,
+        content_digest: `sha256:${"c".repeat(64)}`,
+        content_size_bytes: 9,
+        delete_mode: input.delete_mode ?? "tombstone",
+        deleted_at: "2026-08-26T12:02:00.000Z",
+        updated_at: "2026-08-26T12:02:00.000Z",
+      },
+    })),
     handleBridge: vi.fn(async () => ({ status: "ready" })),
     handleAppsBridge: vi.fn(async () => ({ jsonrpc: "2.0", id: "request", result: {} })),
     cancelAppsBridgeRequest: vi.fn(() => true),
     handleServerCapability: vi.fn(async () => ({ status: "completed" })),
     handleOwnerCapability: vi.fn(async () => ({ status: "ok" })),
+    registerAppArtifact: vi.fn(async (input: Record<string, unknown>) => ({
+      result_version: 1,
+      artifact: {
+        record_version: 1,
+        app_id: chatSession.app_id,
+        publisher_id: chatSession.publisher_id,
+        owner_id: chatSession.owner_id,
+        actor_id: chatSession.actor_id,
+        installation_id: chatSession.installation_id,
+        package_digest: chatSession.package_digest,
+        lifecycle_generation: chatSession.lifecycle_generation,
+        grant_id: chatSession.grant_id,
+        grant_revision: chatSession.grant_revision,
+        revocation_generation: chatSession.revocation_generation,
+        artifact_id: crypto.randomUUID(),
+        artifact_revision_id: crypto.randomUUID(),
+        operation_id: input.operation_id,
+        idempotency_key: input.idempotency_key,
+        source: input.source,
+        content_digest: input.content_digest,
+        content_size_bytes: input.content_size_bytes,
+        retention_class: input.retention_class,
+        media_type: input.media_type,
+        owner_visible_label: input.owner_visible_label,
+        created_at: "2026-08-27T12:00:00.000Z",
+        created_by: {},
+      },
+      replayed: false,
+    })),
+    requestAppExport: vi.fn(async (input: Record<string, unknown>) => ({
+      result_version: 1,
+      status: "prepared",
+      artifact: {
+        artifact_revision_id: crypto.randomUUID(),
+        content_digest: input.content_digest,
+        media_type: input.media_type,
+      },
+      filename: input.filename,
+      media_type: input.media_type,
+      bytes_base64: input.bytes_base64,
+      safe_destination_label: input.filename,
+      replayed: false,
+    })),
     placeCareerReturn: vi.fn(async () => ({ placement: "career_journal", committed: true })),
+    finalizeOwnerExport: vi.fn(async (input: Record<string, unknown>) => ({
+      projection_version: 1,
+      status: "completed",
+      receipt_revision_id: crypto.randomUUID(),
+      artifact_revision_id: input.artifact_revision_id,
+      content_digest: input.content_digest,
+      media_type: input.media_type,
+      outcome: input.outcome,
+      safe_destination_label: input.safe_destination_label,
+      replayed: false,
+    })),
     close: vi.fn(() => true),
   } as unknown as AppMcpHost;
 }
@@ -184,6 +365,94 @@ describe("owner MCP Apps host gateway routes", () => {
     expect(readSession.statusCode).toBe(200);
     expect(host.readChatWorkspaceSession).toHaveBeenCalledWith(chat.json().session.session_id);
 
+    const documentList = await app.inject({
+      method: "GET",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/documents`,
+    });
+    expect(documentList.statusCode).toBe(200);
+    expect(documentList.json()).toMatchObject({
+      result_version: 1,
+      records: [{ document_id: "resume.profile", revision: 3, content: "# Profile" }],
+      audits: [],
+    });
+    expect(documentList.body).not.toContain("/home/");
+    expect(documentList.body).not.toContain("authorization");
+    expect(host.listAppDocuments).toHaveBeenCalledWith(chat.json().session.session_id);
+
+    const documentRead = await app.inject({
+      method: "GET",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/documents/resume.profile`,
+    });
+    expect(documentRead.statusCode).toBe(200);
+    expect(documentRead.json()).toMatchObject({
+      result_version: 1,
+      state: "current",
+      document_id: "resume.profile",
+      document_binding_id: "resume.profile.current",
+      record: { revision: 3, content: "# Profile" },
+    });
+    expect(documentRead.body).not.toContain("/home/");
+    expect(documentRead.body).not.toContain("authorization");
+    expect(host.readAppDocument).toHaveBeenCalledWith(chat.json().session.session_id, "resume.profile");
+
+    const writeOperationId = crypto.randomUUID();
+    const documentWrite = await app.inject({
+      method: "PUT",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/documents/resume.profile`,
+      payload: {
+        operation_id: writeOperationId,
+        idempotency_key: "document-route-write-0001",
+        expected_revision: 3,
+        media_type: "text/markdown",
+        content: "# Updated",
+      },
+    });
+    expect(documentWrite.statusCode).toBe(200);
+    expect(documentWrite.json()).toMatchObject({
+      state: "current",
+      document_id: "resume.profile",
+      record: { revision: 4, content: "# Updated" },
+    });
+    expect(host.writeAppDocument).toHaveBeenCalledWith(chat.json().session.session_id, "resume.profile", {
+      operation_id: writeOperationId,
+      idempotency_key: "document-route-write-0001",
+      expected_revision: 3,
+      media_type: "text/markdown",
+      content: "# Updated",
+    });
+
+    const deleteOperationId = crypto.randomUUID();
+    const documentDelete = await app.inject({
+      method: "DELETE",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/documents/resume.profile`,
+      payload: {
+        operation_id: deleteOperationId,
+        idempotency_key: "document-route-delete-0001",
+        expected_revision: 4,
+      },
+    });
+    expect(documentDelete.statusCode).toBe(200);
+    expect(documentDelete.json()).toMatchObject({
+      state: "deleted",
+      delete_mode: "tombstone",
+      tombstone: {
+        document_id: "resume.profile",
+        revision: 4,
+        prior_content_digest: `sha256:${"c".repeat(64)}`,
+      },
+      audit: {
+        event: "app.storage.document.delete",
+        delete_mode: "tombstone",
+      },
+    });
+    expect(documentDelete.body).not.toContain("# Profile");
+    expect(host.deleteAppDocument).toHaveBeenCalledWith(chat.json().session.session_id, "resume.profile", {
+      operation_id: deleteOperationId,
+      idempotency_key: "document-route-delete-0001",
+      expected_revision: 4,
+      delete_mode: "tombstone",
+    });
+
     const envelope = { bridge_envelope_version: 1 };
     const apps = await app.inject({ method: "POST", url: "/apps/resume-builder/apps-bridge", payload: { session_id: sessionId, envelope } });
     expect(apps.json()).toMatchObject({ jsonrpc: "2.0", id: "request" });
@@ -245,6 +514,46 @@ describe("owner MCP Apps host gateway routes", () => {
     await app.close();
   });
 
+  it("projects stale document writes without leaking private storage details", async () => {
+    const host = createHost();
+    vi.mocked(host.writeAppDocument).mockRejectedValueOnce(new AppPlatformError("revision_conflict", "private stale record content", 409, { currentRevision: 7 }));
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+    const sessionId = crypto.randomUUID();
+    const operationId = crypto.randomUUID();
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+      payload: {
+        operation_id: operationId,
+        idempotency_key: "document-stale-route-0001",
+        expected_revision: 4,
+        media_type: "text/markdown",
+        content: "# Draft",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "conflict",
+        current_revision: 7,
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+      },
+      document_state: {
+        state: "conflict",
+        refresh_required: true,
+        current_revision: 7,
+      },
+    });
+    expect(response.body).not.toContain("private stale record content");
+    await app.close();
+  });
+
   it("keeps owner-confirmed data and Career return calls behind owner administration", async () => {
     const host = createHost();
     const app = Fastify();
@@ -285,6 +594,169 @@ describe("owner MCP Apps host gateway routes", () => {
       owner_state: { state: "conflict", current_revision: 4, proposal_preserved: true },
     });
     expect(response.body).not.toContain("private current record content");
+    await app.close();
+  });
+
+  it("mediates generic artifact registration, export requests, and safe receipt finalization", async () => {
+    const host = createHost();
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+    const artifactOperationId = crypto.randomUUID();
+    const bytes = Buffer.from("%PDF-1.4\nroute", "utf8");
+    const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const source = { kind: "app_document", source_id: "resume.document" };
+
+    const artifact = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/artifacts/register",
+      payload: {
+        request_version: 1,
+        operation_id: artifactOperationId,
+        idempotency_key: "route-artifact-register-0001",
+        source,
+        content_digest: digest,
+        content_size_bytes: bytes.length,
+        retention_class: "durable_owner_data",
+        media_type: "application/pdf",
+        owner_visible_label: "resume.pdf",
+      },
+    });
+    expect(artifact.statusCode).toBe(200);
+    expect(host.registerAppArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      operation_id: artifactOperationId,
+      source,
+      owner_visible_label: "resume.pdf",
+    }));
+    expect(artifact.body).not.toMatch(/(?:\/home\/|[A-Za-z]:\\|bytes_base64)/);
+
+    const deniedPath = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/exports/request",
+      payload: {
+        request_version: 1,
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "route-export-denied-path",
+        source,
+        content_digest: digest,
+        content_size_bytes: bytes.length,
+        media_type: "application/pdf",
+        filename: "/home/owner/resume.pdf",
+        destination_intent: "new_download",
+        overwrite_confirmed: false,
+        owner_confirmed: true,
+        bytes_base64: bytes.toString("base64"),
+      },
+    });
+    expect(deniedPath.statusCode).toBe(400);
+    expect(host.requestAppExport).not.toHaveBeenCalled();
+
+    vi.mocked(host.requestAppExport).mockRejectedValueOnce(new AppPlatformError("denied", "private confirmation detail", 403, {
+      confirmation: { title: "Export app artifact?", actionLabel: "Export" },
+    }));
+    const needsConfirmation = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/exports/request",
+      payload: {
+        request_version: 1,
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "route-export-owner-confirm",
+        source,
+        content_digest: digest,
+        content_size_bytes: bytes.length,
+        media_type: "application/pdf",
+        filename: "resume.pdf",
+        destination_intent: "new_download",
+        overwrite_confirmed: false,
+        owner_confirmed: false,
+        bytes_base64: bytes.toString("base64"),
+      },
+    });
+    expect(needsConfirmation.statusCode).toBe(403);
+    expect(needsConfirmation.json()).toMatchObject({
+      error: {
+        code: "confirmation_required",
+        confirmation: { capability: "app.export.request", title: "Export app artifact?", action_label: "Export" },
+      },
+    });
+    expect(needsConfirmation.body).not.toContain("private confirmation detail");
+
+    const overwriteDenied = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/exports/request",
+      payload: {
+        request_version: 1,
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "route-export-overwrite",
+        source,
+        content_digest: digest,
+        content_size_bytes: bytes.length,
+        media_type: "application/pdf",
+        filename: "resume.pdf",
+        destination_intent: "replace_existing",
+        overwrite_confirmed: false,
+        owner_confirmed: true,
+        bytes_base64: bytes.toString("base64"),
+      },
+    });
+    expect(overwriteDenied.statusCode).toBe(400);
+
+    const prepared = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/exports/request",
+      payload: {
+        request_version: 1,
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "route-export-confirmed",
+        source,
+        content_digest: digest,
+        content_size_bytes: bytes.length,
+        media_type: "application/pdf",
+        filename: "resume.pdf",
+        destination_intent: "replace_existing",
+        overwrite_confirmed: true,
+        owner_confirmed: true,
+        bytes_base64: bytes.toString("base64"),
+      },
+    });
+    expect(prepared.statusCode).toBe(200);
+    expect(host.requestAppExport).toHaveBeenLastCalledWith(expect.objectContaining({
+      filename: "resume.pdf",
+      destination_intent: "replace_existing",
+      overwrite_confirmed: true,
+      owner_confirmed: true,
+    }), "owner");
+
+    const finalizeOperationId = crypto.randomUUID();
+    const finalized = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/exports/finalize",
+      payload: {
+        request_version: 1,
+        operation_id: finalizeOperationId,
+        idempotency_key: "route-export-finalize",
+        artifact_revision_id: crypto.randomUUID(),
+        content_digest: digest,
+        media_type: "application/pdf",
+        outcome: "completed",
+        safe_destination_label: "chosen-resume.pdf",
+      },
+    });
+    expect(finalized.statusCode).toBe(200);
+    expect(finalized.json()).toMatchObject({
+      status: "completed",
+      content_digest: digest,
+      safe_destination_label: "chosen-resume.pdf",
+      replayed: false,
+    });
+    expect(finalized.body).not.toMatch(/(?:bytes_base64|%PDF|\/home\/|[A-Za-z]:\\)/);
+    expect(host.finalizeOwnerExport).toHaveBeenCalledWith(expect.objectContaining({
+      request_version: 1,
+      safe_destination_label: "chosen-resume.pdf",
+      outcome: "completed",
+    }), finalizeOperationId);
     await app.close();
   });
 

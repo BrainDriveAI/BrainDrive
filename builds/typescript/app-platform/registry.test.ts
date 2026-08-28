@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_APP_RETENTION_POLICY,
   GenericPackageManifestSchema,
   ResolvedAppDescriptorSchema,
   VerifiedFirstPartyPackageSchema,
@@ -13,6 +14,31 @@ import { LegacyResumePackageManifestSchema, parseLegacyResumePackageManifestForM
 import { FirstPartyAppRegistry } from "./registry.js";
 
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
+
+function emptyActionSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+    required: [],
+  };
+}
+
+function actionSchema(schemaId: string, schema: Record<string, unknown>) {
+  return {
+    schema_id: schemaId,
+    schema_version: 1,
+    content_digest: canonicalInputDigest(schema),
+    schema,
+  };
+}
+
+function actionSchemas(inputSchemaId: string, resultSchemaId: string, inputSchema: Record<string, unknown> = emptyActionSchema()) {
+  return {
+    input_schema: actionSchema(inputSchemaId, inputSchema),
+    result_schema: actionSchema(resultSchemaId, emptyActionSchema()),
+  };
+}
 
 function manifest(input: {
   appId: string;
@@ -80,7 +106,7 @@ function manifest(input: {
     requested_inference_purposes: [{ purpose_id: input.purpose, version: 1 }],
     provenance_path: "provenance/intoto.jsonl",
     sbom_path: "sbom/cyclonedx.json",
-    retention_policy: "retain_owner_data_remove_runtime_authority",
+    retention_policy: DEFAULT_APP_RETENTION_POLICY,
   });
 }
 
@@ -325,8 +351,7 @@ describe("FirstPartyAppRegistry", () => {
             kind: "render",
             title: "Create Resume",
             description: "Request an app-owned render operation.",
-            input_schema_id: "resume.generate.input.v1",
-            result_schema_id: "resume.generate.result.v1",
+            ...actionSchemas("resume.generate.input.v1", "resume.generate.result.v1"),
             confirmation: "owner_confirmation",
             idempotency_policy: "required",
             model_exposure: "available",

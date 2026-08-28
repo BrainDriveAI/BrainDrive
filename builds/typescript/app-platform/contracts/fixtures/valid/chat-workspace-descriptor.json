@@ -78,8 +78,32 @@
       "kind": "write",
       "title": "Update Profile",
       "description": "Request an app-owned source document update.",
-      "input_schema_id": "resume.profile.update.input.v1",
-      "result_schema_id": "resume.profile.update.result.v1",
+      "input_schema": {
+        "schema_id": "resume.profile.update.input.v1",
+        "schema_version": 1,
+        "content_digest": "sha256:a26fe17254e21325ed28662b44b83dd8c487ac6daf99c102aa94c8bba3426001",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "profile_markdown": { "type": "string", "minLength": 1, "maxLength": 65536 },
+            "completed_topics": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "maxItems": 32 },
+            "current_topic": { "type": ["string", "null"], "maxLength": 64 }
+          },
+          "required": ["profile_markdown", "completed_topics", "current_topic"]
+        }
+      },
+      "result_schema": {
+        "schema_id": "resume.profile.update.result.v1",
+        "schema_version": 1,
+        "content_digest": "sha256:d746974fa9afd5e951f76f9af38954b0ad7f436f2120dc974da65e5ee39f856f",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        }
+      },
       "confirmation": "none",
       "idempotency_policy": "required",
       "model_exposure": "available",

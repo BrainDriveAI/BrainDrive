@@ -41,6 +41,7 @@ type ChatPanelProps = {
   emptyStateIntro?: ProjectIntro;
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
+  queuedMessage?: { id: string; content: string } | null;
 };
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
@@ -65,7 +66,8 @@ export default function ChatPanel({
   contentOverride,
   emptyStateIntro,
   onSendMessage,
-  onOpenSettings
+  onOpenSettings,
+  queuedMessage
 }: ChatPanelProps) {
   const [mobileComposerHeight, setMobileComposerHeight] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -77,6 +79,7 @@ export default function ChatPanel({
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
+  const lastQueuedMessageIdRef = useRef<string | null>(null);
 
   const {
     messages,
@@ -95,6 +98,13 @@ export default function ChatPanel({
     draftKey,
     initialMessages: historyMessages
   });
+
+  useEffect(() => {
+    if (!queuedMessage || queuedMessage.id === lastQueuedMessageIdRef.current) return;
+    lastQueuedMessageIdRef.current = queuedMessage.id;
+    append(queuedMessage.content, { metadata: messageMetadata });
+    onSendMessage?.();
+  }, [append, messageMetadata, onSendMessage, queuedMessage]);
 
   useEffect(() => {
     let cancelled = false;

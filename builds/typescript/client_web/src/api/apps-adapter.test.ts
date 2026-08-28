@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceSession, sendAppAppsBridgeMessage, sendAppBridgeMessage, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -30,6 +30,27 @@ describe("Apps gateway adapter", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ operation_id: operationId, idempotency_key: operationId, expected_generation: 0, installation_id: null, version: "3.0.0", approve_capabilities: true });
     expect(result.state).toBe("active");
     expect(result.request_resolution).toBe("confirmed_response");
+  });
+
+  it("uses trusted owner confirmation for post-uninstall retained-data actions", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      operation_id: "10000000-0000-4000-8000-000000000001",
+      app_id: status.identity.app_id,
+      action: "archive",
+      retained: true,
+      result_digest: `sha256:${"a".repeat(64)}`,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const operationId = crypto.randomUUID();
+
+    await expect(runRetainedAppDataAction("resume-builder", "archive", status, operationId)).resolves.toMatchObject({ action: "archive", retained: true });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/apps/resume-builder/data/archive");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      operation_id: operationId,
+      idempotency_key: operationId,
+      confirm_app_id: status.identity.app_id,
+      trusted_owner_confirmation: true,
+    });
   });
 
   it("launches, bridges, closes, and reads status only through authenticated gateway routes", async () => {
@@ -130,6 +151,80 @@ describe("Apps gateway adapter", () => {
       `/api/apps/resume-builder/chat-workspaces/sessions/${chat.session.session_id}`,
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({ presentation_id: "chat", workspace_id: "resume.chat" });
+  });
+
+  it("reads and writes generic app-chat workspace documents without caller-supplied authority", async () => {
+    const sessionId = crypto.randomUUID();
+    const readResult = {
+      result_version: 1,
+      state: "current",
+      document_id: "resume.profile",
+      document_binding_id: "resume.profile.current",
+      record: { revision: 2, media_type: "text/markdown", content: "# Profile" },
+    };
+    const writeResult = {
+      ...readResult,
+      record: { revision: 3, media_type: "text/markdown", content: "# Updated" },
+    };
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(readResult), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(writeResult), { status: 200 }));
+
+    await expect(readAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile")).resolves.toMatchObject({ state: "current", record: { revision: 2 } });
+    await expect(writeAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile", {
+      expectedRevision: 2,
+      content: "# Updated",
+      mediaType: "text/markdown",
+    })).resolves.toMatchObject({ record: { revision: 3, content: "# Updated" } });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+      `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+    ]);
+    const writeBody = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body));
+    expect(writeBody).toMatchObject({
+      expected_revision: 2,
+      media_type: "text/markdown",
+      content: "# Updated",
+    });
+    expect(writeBody.operation_id).toMatch(/[0-9a-f-]{36}/);
+    expect(writeBody.idempotency_key).toBe(writeBody.operation_id);
+    expect(JSON.stringify(writeBody)).not.toContain("grant");
+    expect(JSON.stringify(writeBody)).not.toContain("package_digest");
+  });
+
+  it("projects stale app document writes as typed safe errors", async () => {
+    const sessionId = crypto.randomUUID();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: "conflict",
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+        retryable: false,
+        current_revision: 4,
+      },
+      document_state: {
+        state_version: 1,
+        state: "conflict",
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+        retryable: false,
+        refresh_required: true,
+        current_revision: 4,
+      },
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+
+    const error = await writeAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile", {
+      expectedRevision: 2,
+      content: "# Updated",
+      mediaType: "text/markdown",
+    }).catch((failure) => failure);
+
+    expect(error).toBeInstanceOf(AppDocumentError);
+    expect(error).toMatchObject({
+      code: "conflict",
+      safeMessage: "The saved version changed. Refresh and review before saving again.",
+      currentRevision: 4,
+      refreshRequired: true,
+    });
   });
 
   it("reconnects an app-chat workspace without serializing sandbox bridge credentials or app resources", async () => {

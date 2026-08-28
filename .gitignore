@@ -80,6 +80,9 @@ pnpm-debug.log*
 *.pid.lock
 *.lcov
 
+# Local scratch artifacts from manual verification and agent runs
+.tmp/
+
 # Environment files and local secrets
 .env
 .env.*

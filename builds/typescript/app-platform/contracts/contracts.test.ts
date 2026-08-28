@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { assertContentFreeAudit, AuditEventSchema } from "./audit.js";
-import { AppIdentitySchema, GenericPackageManifestSchema } from "./app-registry.js";
+import { AppIdentitySchema, AppRetentionPolicySchema, DEFAULT_APP_RETENTION_POLICY, GenericPackageManifestSchema } from "./app-registry.js";
 import { canonicalInputDigest, canonicalJson, COMPATIBILITY_MATRIX, CompatibilityMatrixSchema } from "./common.js";
 import {
   ArtifactRecordSchema,
@@ -149,6 +149,33 @@ describe("versioned contract authorities", () => {
     for (const field of corpus.forbidden_manifest_authority_fields) {
       expect(GenericPackageManifestSchema.safeParse({ manifest_version: 2, [field]: "host.internal.execute" }).success).toBe(false);
     }
+  });
+
+  it("validates generic manifest-declared retention policy classes and uninstall controls", () => {
+    expect(AppRetentionPolicySchema.parse(DEFAULT_APP_RETENTION_POLICY)).toEqual(DEFAULT_APP_RETENTION_POLICY);
+    expect(DEFAULT_APP_RETENTION_POLICY.classes.map((entry) => entry.retention_class)).toEqual([
+      "runtime_authority",
+      "verified_package",
+      "disposable_cache",
+      "app_storage",
+      "artifact_records",
+      "export_receipts",
+      "owner_exports",
+      "lifecycle_tombstone",
+    ]);
+    expect(GenericPackageManifestSchema.safeParse({ manifest_version: 2, retention_policy: "retain_owner_data_remove_runtime_authority" }).success).toBe(false);
+    expect(AppRetentionPolicySchema.safeParse({
+      ...DEFAULT_APP_RETENTION_POLICY,
+      classes: DEFAULT_APP_RETENTION_POLICY.classes.map((entry) => entry.retention_class === "app_storage"
+        ? { ...entry, owner_controls: ["delete_after_uninstall"] }
+        : entry),
+    }).success).toBe(false);
+    expect(AppRetentionPolicySchema.safeParse({
+      ...DEFAULT_APP_RETENTION_POLICY,
+      classes: DEFAULT_APP_RETENTION_POLICY.classes.map((entry) => entry.retention_class === "runtime_authority"
+        ? { ...entry, uninstall_behavior: "retain" }
+        : entry),
+    }).success).toBe(false);
   });
 
   it("rejects unknown authority fields while preserving explicit durable extensions", async () => {

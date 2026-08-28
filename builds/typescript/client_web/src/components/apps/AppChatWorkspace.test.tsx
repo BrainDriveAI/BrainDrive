@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
@@ -17,7 +17,13 @@ vi.mock("@/api/auth-adapter", () => ({
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, closeAppSession: vi.fn(async () => undefined), readAppChatWorkspaceSession: vi.fn() };
+  return {
+    ...actual,
+    closeAppSession: vi.fn(async () => undefined),
+    readAppChatWorkspaceSession: vi.fn(),
+    readAppChatWorkspaceDocument: vi.fn(),
+    writeAppChatWorkspaceDocument: vi.fn(),
+  };
 });
 
 vi.mock("@/components/chat/ChatPanel", () => ({
@@ -159,6 +165,13 @@ function launch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): appsAp
 describe("AppChatWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
+      result_version: 1,
+      state: "missing",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: null,
+    });
   });
 
   it("renders loading, then the native conversation workspace after session validation", async () => {
@@ -204,6 +217,151 @@ describe("AppChatWorkspace", () => {
     expect(screen.getByText("Package resource")).toBeInTheDocument();
     expect(screen.getByText("text/markdown")).toBeInTheDocument();
     expect(screen.queryByText("payload/resources/instructions.md")).not.toBeInTheDocument();
+  });
+
+  it("opens, edits, and saves a generic bound workspace document while keeping the composer available", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        record_version: 1,
+        record_kind: "document",
+        owner_id: current.session.owner_id,
+        actor_id: current.session.actor_id,
+        app_id: current.session.app_id,
+        publisher_id: current.session.publisher_id,
+        installation_id: current.session.installation_id,
+        package_digest: current.session.package_digest,
+        lifecycle_generation: current.session.lifecycle_generation,
+        grant_id: current.session.grant_id,
+        grant_revision: current.session.grant_revision,
+        revocation_generation: current.session.revocation_generation,
+        document_id: "profile",
+        document_binding_id: "profile.current",
+        role: "source_document",
+        retention_class: "durable_owner_data",
+        media_type: "text/markdown",
+        revision: 2,
+        revision_id: "00000000-0000-4000-8000-000000000101",
+        prior_revision_id: null,
+        operation_id: "00000000-0000-4000-8000-000000000102",
+        idempotency_key: "profile-write-test-0001",
+        content_digest: `sha256:${"d".repeat(64)}`,
+        content_size_bytes: 9,
+        content: "# Profile",
+        created_at: "2026-08-26T12:00:00.000Z",
+        created_by: {} as never,
+        updated_at: "2026-08-26T12:01:00.000Z",
+        updated_by: {} as never,
+      },
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        revision: 3,
+        media_type: "text/markdown",
+        content: "# Updated profile",
+      } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    const editor = await screen.findByRole("textbox", { name: "Profile content" });
+    expect(editor).toHaveValue("# Profile");
+    expect(screen.getByText("Revision 2")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
+
+    await user.clear(editor);
+    await user.type(editor, "# Updated profile");
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledWith("test-builder", current.session.session_id, "profile", {
+      expectedRevision: 2,
+      content: "# Updated profile",
+      mediaType: "text/markdown",
+    }));
+    expect(await screen.findByText("Revision 3")).toBeInTheDocument();
+  });
+
+  it("shows stale revision errors and keeps the owner draft available for review", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        revision: 2,
+        media_type: "text/markdown",
+        content: "# Profile",
+      } as appsApi.AppDocumentRecord,
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockRejectedValueOnce(new appsApi.AppDocumentError(
+      "The saved version changed. Refresh and review before saving again.",
+      409,
+      "conflict",
+      {
+        state_version: 1,
+        state: "conflict",
+        safe_message: "The saved version changed. Refresh and review before saving again.",
+        retryable: false,
+        refresh_required: true,
+        current_revision: 4,
+      },
+    ));
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    const editor = await screen.findByRole("textbox", { name: "Profile content" });
+    await user.clear(editor);
+    await user.type(editor, "# Owner draft");
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The saved version changed");
+    expect(screen.getByRole("alert")).toHaveTextContent("current revision is 4");
+    expect(screen.getByRole("textbox", { name: "Profile content" })).toHaveValue("# Owner draft");
+    expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
+  });
+
+  it("shows unavailable binding errors at document level", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockRejectedValueOnce(new appsApi.AppDocumentError(
+      "This workspace document binding is unavailable.",
+      403,
+      "denied",
+      {
+        state_version: 1,
+        state: "unavailable",
+        safe_message: "This workspace document binding is unavailable.",
+        retryable: false,
+        refresh_required: false,
+        current_revision: null,
+      },
+    ));
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This workspace document binding is unavailable.");
+    expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
   });
 
   it("supports arrow-key navigation within one workspace nav model", async () => {

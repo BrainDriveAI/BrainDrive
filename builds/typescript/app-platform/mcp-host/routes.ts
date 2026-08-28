@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { AppPlatformError } from "../lifecycle/errors.js";
 import type { AppMcpHost } from "./app-host.js";
+import { AppArtifactRegistrationRequestSchema, AppArtifactSafeMediaTypeSchema, AppExportDestinationIntentSchema } from "../contracts/app-artifacts.js";
+import { AppDocumentDeleteModeSchema, AppDocumentMediaTypeSchema, AppStorageRetentionClassSchema } from "../contracts/app-storage.js";
 import { AppRouteKeySchema, CanonicalAppIdSchema, CapabilityIdentifierSchema, HostBindingIdSchema } from "../contracts/app-registry.js";
 
 const bridgeRequestSchema = z.object({
@@ -44,6 +46,24 @@ const chatWorkspaceLaunchRequestSchema = z.object({
     session_generation: z.number().int().positive(),
   }).strict().optional(),
 }).strict();
+const chatDocumentParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+  documentId: HostBindingIdSchema,
+}).passthrough();
+const chatDocumentWriteRequestSchema = z.object({
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  expected_revision: z.number().int().positive().nullable(),
+  content: z.unknown(),
+  media_type: AppDocumentMediaTypeSchema.optional(),
+  retention_class: AppStorageRetentionClassSchema.optional(),
+}).strict();
+const chatDocumentDeleteRequestSchema = z.object({
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  expected_revision: z.number().int().positive(),
+  delete_mode: AppDocumentDeleteModeSchema.default("tombstone"),
+}).strict();
 const finalizeExportRequestSchema = z.object({
   operation_id: z.string().uuid(),
   artifact_revision_id: z.string().uuid(),
@@ -51,6 +71,48 @@ const finalizeExportRequestSchema = z.object({
   safe_destination_label: z.string().min(1).max(256).regex(/^[^/\\]+$/),
   outcome: z.enum(["completed", "cancelled", "failed"]),
 }).strict();
+const genericArtifactRegistrationRouteSchema = AppArtifactRegistrationRequestSchema.omit({ authority: true });
+const appArtifactSourceRouteSchema = z.object({
+  kind: z.enum(["app_document", "app_operation", "runtime_output"]),
+  source_id: z.string().min(1).max(256).regex(/^[a-zA-Z0-9_.:@-]+$/),
+}).strict();
+const safeOwnerLabelRouteSchema = z.string().min(1).max(256).regex(/^[^/\\\u0000-\u001f\u007f]+$/).refine((value) => !/^\.+$/.test(value) && !value.includes(".."));
+const genericExportPrepareRouteSchema = z.object({
+  request_version: z.literal(1),
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  source: appArtifactSourceRouteSchema,
+  content_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  content_size_bytes: z.number().int().positive().max(2_097_152),
+  retention_class: AppStorageRetentionClassSchema.default("durable_owner_data"),
+  media_type: AppArtifactSafeMediaTypeSchema,
+  filename: safeOwnerLabelRouteSchema,
+  destination_intent: AppExportDestinationIntentSchema,
+  overwrite_confirmed: z.boolean(),
+  owner_confirmed: z.boolean(),
+  bytes_base64: z.string().min(1).max(2_796_204).regex(/^[A-Za-z0-9+/]*={0,2}$/),
+  artifact_id: z.string().uuid().optional(),
+  artifact_revision_id: z.string().uuid().optional(),
+  is_cancelled: z.boolean().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.destination_intent === "replace_existing" && !value.overwrite_confirmed) context.addIssue({ code: "custom", path: ["overwrite_confirmed"], message: "replacement requires explicit overwrite confirmation" });
+  if (value.media_type === "application/pdf" && !value.filename.toLowerCase().endsWith(".pdf")) context.addIssue({ code: "custom", path: ["filename"], message: "PDF exports require a .pdf filename" });
+  if (value.media_type === "text/plain" && !value.filename.toLowerCase().endsWith(".txt")) context.addIssue({ code: "custom", path: ["filename"], message: "Text exports require a .txt filename" });
+});
+const genericFinalizeExportRouteSchema = z.object({
+  request_version: z.literal(1),
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  artifact_revision_id: z.string().uuid(),
+  content_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  media_type: AppArtifactSafeMediaTypeSchema,
+  outcome: z.enum(["completed", "cancelled", "failed"]),
+  safe_destination_label: safeOwnerLabelRouteSchema,
+}).strict().superRefine((value, context) => {
+  if (value.media_type === "application/pdf" && !value.safe_destination_label.toLowerCase().endsWith(".pdf")) context.addIssue({ code: "custom", path: ["safe_destination_label"], message: "PDF receipts require a .pdf label" });
+  if (value.media_type === "text/plain" && !value.safe_destination_label.toLowerCase().endsWith(".txt")) context.addIssue({ code: "custom", path: ["safe_destination_label"], message: "Text receipts require a .txt label" });
+});
+const finalizeExportRouteSchema = z.union([genericFinalizeExportRouteSchema, finalizeExportRequestSchema]);
 const serverCapabilityRequestSchema = z.object({
   request_version: z.literal(1),
   capability: CapabilityIdentifierSchema,
@@ -158,6 +220,44 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     catch (error) { return sendSafeError(reply, error); }
   });
 
+  app.get("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.listAppDocuments(parsed.data.sessionId)); }
+    catch (error) { return sendDocumentError(reply, error); }
+  });
+
+  app.get("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents/:documentId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = chatDocumentParamsSchema.safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.readAppDocument(parsed.data.sessionId, parsed.data.documentId)); }
+    catch (error) { return sendDocumentError(reply, error); }
+  });
+
+  app.put("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents/:documentId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsedParams = chatDocumentParamsSchema.safeParse(request.params);
+    const parsedBody = chatDocumentWriteRequestSchema.safeParse(request.body);
+    if (!parsedParams.success || !parsedBody.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.writeAppDocument(parsedParams.data.sessionId, parsedParams.data.documentId, parsedBody.data)); }
+    catch (error) { return sendDocumentError(reply, error); }
+  });
+
+  app.delete("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents/:documentId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsedParams = chatDocumentParamsSchema.safeParse(request.params);
+    const parsedBody = chatDocumentDeleteRequestSchema.safeParse(request.body);
+    if (!parsedParams.success || !parsedBody.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.deleteAppDocument(parsedParams.data.sessionId, parsedParams.data.documentId, parsedBody.data)); }
+    catch (error) { return sendDocumentError(reply, error); }
+  });
+
   app.post("/apps/:appKey/bridge", async (request, reply) => {
     const selected = resolveHost(request, reply, platform); if (!selected) return;
     if (!authorizeOwner(request, reply)) return;
@@ -215,6 +315,24 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     catch (error) { return sendOwnerDataError(reply, error, parsed.data.operation_id, parsed.data.capability); }
   });
 
+  app.post("/apps/:appKey/artifacts/register", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = genericArtifactRegistrationRouteSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.registerAppArtifact(parsed.data)); }
+    catch (error) { return sendOwnerExportError(reply, error, parsed.data.operation_id); }
+  });
+
+  app.post("/apps/:appKey/exports/request", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = genericExportPrepareRouteSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.requestAppExport(parsed.data, request.authContext!.actorId)); }
+    catch (error) { return sendOwnerExportError(reply, error, parsed.data.operation_id); }
+  });
+
   app.post("/apps/:appKey/career-return", async (request, reply) => {
     const selected = resolveHost(request, reply, platform); if (!selected) return;
     if (!authorizeOwner(request, reply)) return;
@@ -227,11 +345,11 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
   app.post("/apps/:appKey/exports/finalize", async (request, reply) => {
     const selected = resolveHost(request, reply, platform); if (!selected) return;
     if (!authorizeOwner(request, reply)) return;
-    const parsed = finalizeExportRequestSchema.safeParse(request.body);
+    const parsed = finalizeExportRouteSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     const { operation_id, ...input } = parsed.data;
     try { return reply.send(await selected.host.finalizeOwnerExport(input, operation_id)); }
-    catch (error) { return sendSafeError(reply, error); }
+    catch (error) { return sendOwnerExportError(reply, error, operation_id); }
   });
 }
 
@@ -259,6 +377,34 @@ function sendSafeError(reply: FastifyReply, error: unknown) {
   return reply.code(failure.statusCode).send({ error: failure.code, retryable: failure.statusCode >= 500 });
 }
 
+function sendDocumentError(reply: FastifyReply, error: unknown) {
+  const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app document operation failed", 500);
+  const code = platform.code === "revision_conflict" ? "conflict" : platform.code;
+  const currentRevision = typeof platform.details.currentRevision === "number" ? platform.details.currentRevision : null;
+  const safeMessage = code === "conflict"
+    ? "The saved version changed. Refresh and review before saving again."
+    : code === "denied" || code === "not_found_within_scope" || code === "session_closed"
+      ? "This workspace document binding is unavailable."
+      : "The app document could not be loaded safely.";
+  const retryable = platform.statusCode >= 500;
+  return reply.code(platform.statusCode).send({
+    error: {
+      code,
+      safe_message: safeMessage,
+      retryable,
+      current_revision: currentRevision,
+    },
+    document_state: {
+      state_version: 1,
+      state: code === "conflict" ? "conflict" : "unavailable",
+      safe_message: safeMessage,
+      retryable,
+      refresh_required: code === "conflict" || code === "session_closed",
+      current_revision: currentRevision,
+    },
+  });
+}
+
 function sendOwnerDataError(reply: FastifyReply, error: unknown, correlationId: string, capability: string) {
   const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app host operation failed", 500);
   const confirmation = safeConfirmationProjection(platform.details?.confirmation, capability);
@@ -270,6 +416,31 @@ function sendOwnerDataError(reply: FastifyReply, error: unknown, correlationId: 
   const code = platform.code === "validation_failed" ? safeAppErrorCode(platform.details?.safeCode) ?? platformCode : platformCode;
   const failure = ownerSafeCapabilityFailure({ code, details: platform.details, confirmation }, correlationId);
   return reply.code(platform.statusCode).send(failure);
+}
+
+function sendOwnerExportError(reply: FastifyReply, error: unknown, correlationId: string) {
+  const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app export operation failed", 500);
+  const confirmation = safeConfirmationProjection(platform.details?.confirmation, "app.export.request");
+  const safeCode = confirmation ? "confirmation_required" : platform.code === "idempotency_conflict" || platform.code === "cancelled" || platform.code === "not_found_within_scope"
+    ? platform.code
+    : platform.code === "validation_failed" || platform.code === "invalid_input"
+      ? platform.code
+      : "recoverable_internal_failure";
+  return reply.code(platform.statusCode).send({
+    error: {
+      code: safeCode,
+      safe_message: safeCode === "confirmation_required"
+        ? "Review this export in BrainDrive before continuing."
+        : safeCode === "idempotency_conflict"
+          ? "This export request was already used for a different result."
+          : safeCode === "cancelled"
+            ? "The export was cancelled before completion."
+            : "The app export could not be completed safely.",
+      correlation_id: correlationId,
+      retryable: safeCode === "recoverable_internal_failure",
+      ...(confirmation ? { confirmation } : {}),
+    },
+  });
 }
 
 function sendServerCapabilityError(reply: FastifyReply, error: unknown, correlationId: string) {
