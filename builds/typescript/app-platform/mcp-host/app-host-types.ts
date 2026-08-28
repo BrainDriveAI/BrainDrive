@@ -17,6 +17,7 @@ import type {
   AppExportPrepareRequest,
   AppSafeExportReceiptProjection,
 } from "../contracts/app-artifacts.js";
+import type { ChatWorkspaceEmptyState } from "../contracts/app-registry.js";
 import type { AppChatModelMetadata } from "./app-chat-model.js";
 import type { McpAppResourceSchema } from "../contracts/mcp-app.js";
 import type { AppChatContextProjection, AppChatSessionResumeRequest } from "./app-chat-session.js";
@@ -79,6 +80,7 @@ export type AppChatWorkspaceLaunch = {
     title: string;
     description: string;
     default_document_id: string;
+    empty_state?: ChatWorkspaceEmptyState | null;
     documents: readonly unknown[];
     resources: readonly unknown[];
     actions: readonly unknown[];
@@ -112,6 +114,19 @@ export type AppDocumentReadResult = {
   document_id: string;
   document_binding_id: string;
   record: AppDocumentRecord | null;
+};
+
+export type AppResourceReadResult = {
+  result_version: 1;
+  resource_id: string;
+  title: string;
+  description: string;
+  role: string;
+  media_type: "text/markdown" | "text/plain" | "application/json";
+  content_digest: `sha256:${string}`;
+  owner_editable: boolean;
+  prompt_inclusion: "never" | "workspace_start" | "document_open" | "action_request";
+  content: string;
 };
 
 export type AppDocumentWriteInput = {

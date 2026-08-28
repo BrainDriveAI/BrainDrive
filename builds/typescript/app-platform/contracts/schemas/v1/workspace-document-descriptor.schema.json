@@ -81,6 +81,58 @@
         }
       ]
     },
+    "initial_content": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "initial_content_version": {
+              "type": "number",
+              "const": 1
+            },
+            "source": {
+              "type": "string",
+              "const": "package_file"
+            },
+            "package_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "media_type": {
+              "type": "string",
+              "enum": [
+                "text/markdown",
+                "text/plain",
+                "application/json"
+              ]
+            },
+            "content_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "seed_policy": {
+              "type": "string",
+              "enum": [
+                "when_missing"
+              ]
+            }
+          },
+          "required": [
+            "initial_content_version",
+            "source",
+            "package_path",
+            "media_type",
+            "content_digest",
+            "seed_policy"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "presentation": {
       "anyOf": [
         {

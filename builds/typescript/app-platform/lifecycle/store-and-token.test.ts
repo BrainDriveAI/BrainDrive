@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CapabilityTokenBroker } from "./capability-token.js";
 import { AppPlatformErrorCodeSchema } from "./errors.js";
+import { createFixtureRepository, MODERN_FIXTURE_VERSION } from "./fixture-repository.js";
+import { PackageVerifier } from "./package-verifier.js";
 import { AppLifecycleStore, initialLifecycleRecord } from "./store.js";
 import { makeGrant } from "./test-helpers.js";
 
@@ -46,6 +48,33 @@ describe("durable lifecycle store", () => {
     const before = await store.readLifecycle();
     await expect(store.compareAndSwapLifecycle(0, { ...before, generation: 1 })).rejects.toThrow("disk fault");
     expect((await store.readLifecycle()).generation).toBe(0);
+  });
+
+  it("returns normalized manifests when stored packages used the historical v2 retention string", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-store-transitional-manifest-"));
+    roots.push(root);
+    const repository = await createFixtureRepository(path.join(root, "source"));
+    const verified = await new PackageVerifier("26.7.23").verifyAndExtract(
+      repository,
+      MODERN_FIXTURE_VERSION,
+      path.join(root, "stage"),
+      "candidate_install_or_update",
+    );
+    const store = new AppLifecycleStore(path.join(root, "state"));
+    await store.initialize();
+    await store.savePackage({
+      store_version: 1,
+      package_digest: verified.packageDigest,
+      package_version: verified.manifest.package_version,
+      package_root: verified.packageRoot,
+      entrypoint: verified.entrypoint,
+      manifest: { ...verified.manifest, retention_policy: "retain_owner_data_remove_runtime_authority" } as typeof verified.manifest,
+      trust: verified.trust,
+    });
+
+    const stored = await store.readPackage(verified.packageDigest);
+    if (!stored || typeof stored.manifest.retention_policy === "string") throw new Error("expected normalized retention policy");
+    expect(stored?.manifest.retention_policy.classes.map((entry) => entry.retention_class)).toContain("app_storage");
   });
 });
 

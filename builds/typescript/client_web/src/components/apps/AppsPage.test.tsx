@@ -125,6 +125,13 @@ function chatLaunch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): ap
       title: "Resume Workspace",
       description: "Native app-chat workspace.",
       default_document_id: "conversation",
+      empty_state: {
+        empty_state_version: 1,
+        heading: "Let's build your resume",
+        description: "Tell me the role you want, paste an existing resume, or describe your experience.",
+        cta_label: "Let's get started",
+        cta_message: "I want to build my resume.",
+      },
       documents: [
         {
           document_version: 1,
@@ -326,15 +333,15 @@ describe("manifest-driven Apps surface", () => {
     expect(screen.getByText("Disabled — your saved data is retained")).toBeInTheDocument();
   });
 
-  it("returns keyboard focus to Launch after the sandbox session closes and preserves Career entry", async () => {
+  it("returns keyboard focus to Launch after the sandbox session closes through the generic direct launch path", async () => {
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
-    vi.mocked(appsApi.launchApp).mockResolvedValue({ ...launch, entry_point: "career" });
+    vi.mocked(appsApi.launchApp).mockResolvedValue(launch);
     const user = userEvent.setup(); renderApps(<AppsPage entryPoint="career" />);
-    const launchButton = await screen.findByRole("button", { name: "Continue from Career" });
+    const launchButton = await screen.findByRole("button", { name: /^Launch$/ });
     await user.click(launchButton);
-    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "career");
+    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "direct");
     await user.click(await screen.findByRole("button", { name: "Close app" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue from Career" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Launch$/ })).toHaveFocus());
   });
 
   it("routes a primary chat workspace presentation to the native shell and restores focus after close", async () => {
@@ -353,7 +360,8 @@ describe("manifest-driven Apps surface", () => {
     expect(appsApi.launchApp).not.toHaveBeenCalled();
     expect(await screen.findByRole("region", { name: "Resume Builder native app workspace" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Profile" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Agent Instructions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agent Instructions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show advanced" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Your Profile" }));
     expect(await screen.findByRole("heading", { name: "Your Profile" })).toHaveFocus();

@@ -290,6 +290,293 @@ function digest(value) {
   return `sha256:${createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
 }
 
+function digestBytes(bytes) {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+export function planResumeAction(request) {
+  if (!request || !request.session || typeof request.action_id !== "string") throw new Error("action_plan_request_invalid");
+  const context = { sessionId: request.session.session_id, turnId: request.operation_id, occurredAt: request.occurred_at };
+  if (request.action_id === "resume.profile.read") {
+    return actionPlan(request.action_id, [
+      documentReadStep("read-profile-document", "resume.profile"),
+    ]);
+  }
+  if (request.action_id === "career.fact.propose") {
+    return actionPlan(request.action_id, [
+      capabilityStep("propose-career-fact", "career.facts.propose", request.action_input, "none"),
+    ]);
+  }
+  if (request.action_id === "career.fact.confirm") {
+    return actionPlan(request.action_id, [
+      capabilityStep("confirm-career-facts", "career.facts.confirm", request.action_input, "inherit"),
+    ]);
+  }
+  if (request.action_id === "resume.profile.update") {
+    const input = request.action_input;
+    if (!input || typeof input.profile_markdown !== "string" || !input.profile_markdown.trim()) throw new Error("resume_profile_markdown_required");
+    const profileMarkdown = normalizeResumeMarkdown(input.profile_markdown);
+    return actionPlan(request.action_id, [
+      capabilityStep("write-profile-capability", "resume.definitions.write", buildResumeProfileUpdateCapabilityInput({ ...input, profile_markdown: profileMarkdown }, context), "none"),
+      documentWriteStep("write-profile-document", "resume.profile", profileMarkdown, "text/markdown", "durable_owner_data"),
+    ], "write-profile-capability");
+  }
+  if (request.action_id === "resume.create") {
+    const input = request.action_input;
+    const capabilityInput = buildResumeCreateCapabilityInput(input, context);
+    return actionPlan(request.action_id, [
+      capabilityStep("write-resume-capability", "resume.definitions.write", capabilityInput, "inherit"),
+      documentWriteStep("write-resume-document", "resume.document", renderResumeMarkdown(input), "text/markdown", "durable_owner_data"),
+    ], "write-resume-capability");
+  }
+  if (request.action_id === "resume.export.pdf.request") {
+    const input = request.action_input ?? {};
+    const markdown = currentDocumentText(request, "resume.document");
+    if (!markdown) throw new Error("resume_document_required");
+    const bytes = renderResumeMarkdownPdf(markdown);
+    return actionPlan(request.action_id, [
+      {
+        step_id: "prepare-pdf-export",
+        type: "export.prepare",
+        source: { kind: "app_document", source_id: "resume.document" },
+        content_digest: digestBytes(bytes),
+        content_size_bytes: bytes.length,
+        retention_class: "durable_owner_data",
+        media_type: "application/pdf",
+        filename: normalizePdfFilename(input.safe_filename),
+        destination_intent: input.destination_intent ?? "new_download",
+        overwrite_confirmed: input.overwrite_confirmed ?? false,
+        bytes_base64: bytes.toString("base64"),
+      },
+    ]);
+  }
+  if (request.action_id === "resume.state.read") {
+    return actionPlan(request.action_id, [
+      capabilityStep("read-state", "resume.operations.read", request.action_input, "none"),
+    ]);
+  }
+  throw new Error("resume_action_unknown");
+}
+
+function buildResumeProfileUpdateCapabilityInput(input, context) {
+  return {
+    kind: "interview_progress",
+    progress: {
+      expected_revision: null,
+      status: "review_needed",
+      current_topic: input.current_topic ?? null,
+      completed_topics: [...(input.completed_topics ?? ["direction", "experience", "education", "credentials", "skills"])],
+      skipped_topics: [...(input.skipped_topics ?? [])],
+      draft_state: "owner_reviewed",
+      session_id: context.sessionId,
+      audit_turn: {
+        transcript_version: 1,
+        turn_id: context.turnId,
+        session_id: context.sessionId,
+        prompt_version: "resume-builder-chat-profile-v1",
+        topic: "resume_profile",
+        question: "Capture the owner-reviewed Resume Profile from the app chat.",
+        answer: input.profile_markdown,
+        follow_up: null,
+        action: "answered",
+        occurred_at: context.occurredAt,
+      },
+    },
+  };
+}
+
+function buildResumeCreateCapabilityInput(input, context) {
+  const parsed = parseResumeChatContent(input, context);
+  if (parsed.statements.length === 0 || parsed.sectionOrder.length === 0) throw new Error("resume_create_requires_statement");
+  return {
+    definition_kind: "general",
+    status: "proposed",
+    title: parsed.title,
+    statements: parsed.statements,
+    section_order: parsed.sectionOrder,
+    presentation_preferences: {},
+    locale: input.locale ?? "en-US",
+    page_intent: input.page_intent ?? "one_page",
+    template_id: "resume.single-column",
+    template_version: "1",
+    parent_definition_revision_id: null,
+    job_revision_id: null,
+    policy_version: "owner-authored-v1",
+    prompt_policy_version: null,
+    variant: null,
+  };
+}
+
+function parseResumeChatContent(input, context) {
+  if (!input || (typeof input.resume_markdown !== "string" && !Array.isArray(input.sections))) throw new Error("resume_create_input_invalid");
+  const sectionOrder = [], statements = [];
+  let title = normalizeStatementText(input.title ?? "") || null;
+  const addSection = (sectionId) => { if (!sectionOrder.includes(sectionId)) sectionOrder.push(sectionId); };
+  const addStatement = (sectionId, text, displayRole) => {
+    const normalizedText = normalizeStatementText(text);
+    if (!normalizedText) return;
+    addSection(sectionId);
+    statements.push({
+      statement_id: stableId(`${context.turnId}:${sectionId}:${displayRole}:${statements.length}:${normalizedText}`),
+      section_id: sectionId,
+      kind: "presentation",
+      display_role: displayRole,
+      text: normalizedText,
+      supporting_confirmed_fact_revision_ids: [],
+    });
+  };
+  if (Array.isArray(input.sections)) {
+    for (const section of input.sections) {
+      const sectionTitle = normalizeStatementText(section.title ?? section.section_id ?? "resume");
+      const sectionId = sectionIdFor(section.section_id ?? sectionTitle);
+      addSection(sectionId);
+      if (section.title) addStatement(sectionId, sectionTitle, "heading");
+      for (const statement of section.statements ?? []) addStatement(sectionId, statement, "bullet");
+    }
+  }
+  const normalizedMarkdown = typeof input.resume_markdown === "string" ? normalizeResumeMarkdown(input.resume_markdown) : "";
+  if (normalizedMarkdown) {
+    let currentSection = "summary";
+    for (const rawLine of normalizedMarkdown.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const h1 = /^#\s+(.+)$/.exec(line);
+      if (h1) { title ??= normalizeStatementText(h1[1]); continue; }
+      const h2 = /^#{2,6}\s+(.+)$/.exec(line);
+      if (h2) {
+        const heading = normalizeStatementText(h2[1]);
+        currentSection = sectionIdFor(heading);
+        addStatement(currentSection, heading, "heading");
+        continue;
+      }
+      const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+      if (bullet) { addStatement(currentSection, bullet[1], "bullet"); continue; }
+      addStatement(currentSection, line, "line");
+    }
+  }
+  if (statements.length > 500) throw new Error("resume_create_statement_limit");
+  return { title: title ?? "General Resume", statements, sectionOrder: sectionOrder.length > 0 ? sectionOrder : ["summary"] };
+}
+
+function actionPlan(actionId, steps, finalStepId = steps.at(-1)?.step_id) {
+  return {
+    action_plan_version: 1,
+    action_id: actionId,
+    steps,
+    ...(typeof finalStepId === "string" ? { final_result: { kind: "step_result", step_id: finalStepId } } : {}),
+  };
+}
+
+function capabilityStep(stepId, capability, input, ownerConfirmation) {
+  return { step_id: stepId, type: "capability.call", capability, capability_version: 1, input, owner_confirmation: ownerConfirmation };
+}
+
+function documentWriteStep(stepId, documentId, content, mediaType, retentionClass) {
+  return { step_id: stepId, type: "document.write", document_id: documentId, expected_revision: "current", media_type: mediaType, retention_class: retentionClass, content };
+}
+
+function documentReadStep(stepId, documentId) {
+  return { step_id: stepId, type: "document.read", document_id: documentId };
+}
+
+function renderResumeMarkdown(input) {
+  if (typeof input?.resume_markdown === "string" && input.resume_markdown.trim()) return normalizeResumeMarkdown(input.resume_markdown);
+  const lines = typeof input?.title === "string" && input.title.trim() ? [`# ${input.title.trim()}`, ""] : [];
+  for (const section of input?.sections ?? []) {
+    const title = normalizeStatementText(section.title ?? section.section_id ?? "");
+    if (title) lines.push(`## ${title}`);
+    for (const statement of section.statements ?? []) lines.push(`- ${normalizeStatementText(statement)}`);
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+function normalizeResumeMarkdown(markdown) {
+  return String(markdown ?? "")
+    .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
+    .replace(/\s+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function currentDocumentText(request, documentId) {
+  const document = (request.documents ?? []).find((candidate) => candidate.document_id === documentId);
+  return typeof document?.content === "string" && document.content.trim() ? document.content : null;
+}
+
+function normalizePdfFilename(value) {
+  const candidate = String(value ?? "resume.pdf").replace(/[\/\\\u0000-\u001f\u007f]/g, "").trim().slice(0, 128);
+  if (!candidate) return "resume.pdf";
+  return candidate.toLowerCase().endsWith(".pdf") ? candidate : `${candidate}.pdf`;
+}
+
+function renderResumeMarkdownPdf(markdown) {
+  const lines = markdownToPdfLines(markdown);
+  const textCommands = lines.map((line, index) => `BT /F1 10 Tf 72 ${760 - (index * 16)} Td (${escapePdfText(line)}) Tj ET`).join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(textCommands, "utf8")} >>\nstream\n${textCommands}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(pdf, "utf8"));
+    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, "utf8");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "utf8");
+}
+
+function markdownToPdfLines(markdown) {
+  const lines = [];
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const text = normalizeStatementText(rawLine.replace(/^#{1,6}\s+/, "").replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
+    if (!text) {
+      if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+      continue;
+    }
+    for (const part of wrapPdfLine(text, 92)) lines.push(part);
+    if (lines.length >= 42) break;
+  }
+  return lines.length > 0 ? lines.slice(0, 42) : ["Resume"];
+}
+
+function wrapPdfLine(value, width) {
+  const lines = [];
+  let current = "";
+  for (const word of value.split(/\s+/)) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= width) { current = next; continue; }
+    if (current) lines.push(current);
+    current = word.slice(0, width);
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function escapePdfText(value) {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function sectionIdFor(value) {
+  const normalized = String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return normalized || "section";
+}
+
+function normalizeStatementText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 function selectedFacts(input) {
   const factsById = new Map(input.facts.filter((fact) => fact?.state === "confirmed").map((fact) => [fact.revision_id, fact]));
   return input.strategy.fact_revision_ids.map((id) => factsById.get(id)).filter(Boolean);

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 
@@ -40,7 +40,7 @@ import {
   ResumeRecoveryReconciliationQuerySchema,
   type ResumeRecoveryOperationLifecycleProjection,
 } from "../../app-capabilities/recovery-reconciliation.js";
-import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
+import { AppActionPlanRequestSchema } from "../contracts/app-action-plan.js";
 import { AppArtifactExportService } from "../../app-capabilities/artifact-export.js";
 import { InstalledAppInferenceExecutor, InstalledAppInferenceInvocationSchema } from "../../app-inference/installed-program.js";
 import { createInstalledAppInferenceProgramClient } from "../../app-inference/installed-program-mcp.js";
@@ -55,8 +55,6 @@ import {
   type AppChatSessionRecord,
 } from "./app-chat-session.js";
 import {
-  AppDocumentRecordSchema,
-  type AppDocumentRecord,
   type AppDocumentRole,
   type AppDocumentStorageAuthority,
   type AppStorageRetentionClass,
@@ -68,7 +66,10 @@ import {
   buildAppChatModelContext,
   type AppChatActionExecutionRequest,
 } from "./app-chat-model.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch } from "./app-host-types.js";
+import { readVerifiedPackageResource } from "./app-package-resource.js";
+import { readOrSeedAppDocument } from "./app-document-content.js";
+import { executeAppActionPlan } from "./app-action-plan-executor.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 import { CurrentProcessRecoveryBindingRegistry } from "./recovery-binding-registry.js";
 import type { ResumeDataCapability as AppDataCapability } from "../../resume-domain/capability-policy.js";
 
@@ -125,35 +126,6 @@ const RESUME_GENERIC_CAPABILITY_SPECS: readonly ResumeCapabilityRegistrationSpec
   { name: "resume.operations.read", audience: "app_data", effect: "read", confirmation: "none", idempotencyPolicy: "optional", ownerComponentId: "resume-domain" },
   { name: "app.inference.request", audience: "app_inference", effect: "inference", confirmation: "none", idempotencyPolicy: "required", ownerComponentId: "resume-inference" },
 ]);
-
-const ResumeProfileUpdateChatInputSchema = z.object({
-  profile_markdown: z.string().min(1).max(131_072),
-  completed_topics: z.array(z.string().min(1).max(64)).max(32).optional(),
-  skipped_topics: z.array(z.string().min(1).max(64)).max(32).optional(),
-  current_topic: z.string().max(64).nullable().optional(),
-}).strict();
-
-const ResumeCreateChatSectionInputSchema = z.object({
-  section_id: z.string().min(1).max(128).optional(),
-  title: z.string().min(1).max(128).optional(),
-  statements: z.array(z.string().min(1).max(8192)).min(1).max(64),
-}).strict();
-
-const ResumeCreateChatInputSchema = z.object({
-  title: z.string().min(1).max(256).optional(),
-  resume_markdown: z.string().min(1).max(262_144).optional(),
-  sections: z.array(ResumeCreateChatSectionInputSchema).min(1).max(64).optional(),
-  locale: z.string().min(2).max(35).optional(),
-  page_intent: z.enum(["one_page", "two_pages", "concise", "detailed"]).optional(),
-}).strict().refine((value) => Boolean(value.resume_markdown || value.sections), "Resume create requires resume_markdown or sections");
-
-const ResumeExportPdfChatInputSchema = z.object({
-  format: z.literal("pdf"),
-  definition_revision_id: z.string().uuid().optional(),
-  safe_filename: z.string().min(1).max(128).optional(),
-  destination_intent: z.enum(["new_download", "replace_existing"]).optional(),
-  overwrite_confirmed: z.boolean().optional(),
-}).strict();
 type SessionRecord = {
   sessionId: string;
   viewId: string;
@@ -406,6 +378,7 @@ export class ResumeAppHostAdapter {
         title: selection.workspace.title,
         description: selection.workspace.description,
         default_document_id: selection.workspace.default_document_id,
+        empty_state: selection.workspace.empty_state ?? null,
         documents: selection.workspace.documents,
         resources: selection.workspace.resources,
         actions: selection.workspace.actions,
@@ -442,7 +415,15 @@ export class ResumeAppHostAdapter {
     const authority = this.storageAuthority(session, descriptor.grant!);
     await this.documentStorage.bindActiveAuthority(authority);
     const record = await this.documentStorage.readDocument(authority, document.document_id)
-      ?? await this.projectBoundResumeDocument(session, descriptor.grant!, document, authority);
+      ?? await readOrSeedAppDocument({
+        documentStorage: this.documentStorage,
+        authority,
+        storedPackage: descriptor.storedPackage!,
+        document,
+        operationId: randomUUID(),
+        idempotencyKey: `document-seed-${randomUUID()}`,
+        audit: this.audit,
+      });
     return {
       result_version: 1,
       state: record ? "current" : "missing",
@@ -452,85 +433,23 @@ export class ResumeAppHostAdapter {
     };
   }
 
-  private async projectBoundResumeDocument(
-    session: AppChatSessionRecord,
-    grant: CapabilityGrant,
-    document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number],
-    storageAuthority: AppDocumentStorageAuthority,
-  ): Promise<AppDocumentRecord | null> {
-    if (!this.capabilityRouter || !document.data_binding_id || !grant.capabilities.includes("resume.definitions.read")) return null;
-    if (document.data_binding_id !== "resume.profile.current" && document.data_binding_id !== "resume.definition.current.general") return null;
-
-    const operationId = randomUUID();
-    let workspace: unknown;
-    try {
-      workspace = await this.capabilityRouter.execute("resume.definitions.read", { view: "workspace" }, {
-        authority: this.restrictedAuthorityForDocumentProjection(session, grant, operationId),
-        operationId,
-        correlationId: operationId,
-        idempotencyKey: `document-projection-${operationId}`,
-        connectionId: session.viewId,
-        viewId: session.viewId,
-      });
-    } catch (error) {
-      throw this.asHostError(error);
-    }
-
-    const source = document.data_binding_id === "resume.definition.current.general"
-      ? latestResumeRecord(workspace, "definitions", (record) => record.record_type === "resume_definition" && record.definition_kind === "general" && record.lifecycle_state !== "retired")
-      : latestResumeRecord(workspace, "interview", (record) => record.record_type === "interview_progress" && record.lifecycle_state !== "retired");
-    if (!source) return null;
-
-    const content = document.data_binding_id === "resume.definition.current.general"
-      ? formatResumeDefinitionMarkdown(source)
-      : formatResumeProfileMarkdown(source);
-    return projectAppDocumentRecord({
-      authority: storageAuthority,
-      document,
-      bindingId: document.data_binding_id,
-      source,
-      mediaType: "text/markdown",
-      content,
-    });
-  }
-
-  private restrictedAuthorityForDocumentProjection(
-    session: AppChatSessionRecord,
-    grant: CapabilityGrant,
-    operationId: string,
-  ): CapabilityExecutionContext["authority"] {
-    return RestrictedCapabilityAuthoritySchema.parse({
-      authority_version: 1,
-      context: {
-        context_version: 1,
-        owner_id: grant.owner_id,
-        actor_id: grant.actor_id,
-        app_id: session.appId,
-        publisher_id: grant.publisher_id,
-        package_digest: session.packageDigest,
-        installation_id: session.installationId,
-        grant_id: grant.grant_id,
-        audience: "resume_data",
-        granted_capabilities: ["resume.definitions.read"],
-        record_scope_ids: grant.record_scopes,
-        issued_at: new Date(this.now()).toISOString(),
-        expires_at: grant.expires_at,
-      },
-      grant_revision: grant.grant_revision,
-      revocation_generation: grant.revocation_generation,
-      token_audience: "app_data",
-      connection_id: session.viewId,
-      view_id: session.viewId,
-      operation_id: operationId,
-    });
-  }
-
   async listAppDocuments(sessionId: string): Promise<AppDocumentListResult> {
     const { session, descriptor } = await this.requireChatSessionForStorage(sessionId);
     await this.documentStorage.initialize();
     const authority = this.storageAuthority(session, descriptor.grant!);
     await this.documentStorage.bindActiveAuthority(authority);
     return this.documentStorage.listDocuments(authority);
+  }
+
+  async readAppResource(sessionId: string, resourceId: string): Promise<AppResourceReadResult> {
+    const { session, descriptor } = await this.requireChatSessionForStorage(sessionId);
+    const selection = selectAppChatWorkspace(descriptor.storedPackage!.manifest, {
+      presentationId: session.presentationId,
+      workspaceId: session.workspaceId,
+    });
+    const resource = selection.workspace.resources.find((candidate) => candidate.resource_id === resourceId);
+    if (!resource) throw new AppPlatformError("not_found_within_scope", "App package resource is not declared for this workspace", 404);
+    return readVerifiedPackageResource(descriptor.storedPackage!, resource);
   }
 
   async writeAppDocument(sessionId: string, documentId: string, input: AppDocumentWriteInput): Promise<AppDocumentReadResult> {
@@ -1482,28 +1401,49 @@ export class ResumeAppHostAdapter {
     if (!action || action.model_exposure !== "available") {
       throw new AppPlatformError("denied", "App action is not declared for model use", 403);
     }
-    if (action.required_capabilities.length !== 1) {
-      throw new AppPlatformError("incompatible_schema", "App action must declare exactly one host capability for model execution", 409);
+    const grantedCapabilities = new Set(descriptor.grant?.capabilities ?? []);
+    for (const capability of action.required_capabilities) {
+      if (capability.version !== 1 || !grantedCapabilities.has(capability.name)) {
+        throw new AppPlatformError("denied", "App action required capability is not granted", 403);
+      }
     }
     const manifest = descriptor.storedPackage!.manifest;
-    const manifestRequests = manifest.manifest_version === 2 ? manifest.requested_capabilities : [];
+    const manifestRequests = manifestCapabilityRequests(manifest);
     const requestedPurposes = manifest.manifest_version === 2 ? manifest.requested_inference_purposes : [];
-    const requiredCapability = action.required_capabilities[0]!;
     if (action.idempotency_policy === "required" && request.idempotencyKey.length < 16) {
       throw new AppPlatformError("invalid_input", "App action requires a stable idempotency key", 400);
     }
-    this.rememberChatAction(session.sessionId, session.installationId, requiredCapability.name, request.idempotencyKey);
+    for (const capability of action.required_capabilities) {
+      this.rememberChatAction(session.sessionId, session.installationId, capability.name, request.idempotencyKey);
+    }
     try {
-      const appOwnedResumeResult = await this.executeAppOwnedResumeChatAction({
-        request,
-        session,
-        workspace,
-        grant: descriptor.grant!,
-        capability: requiredCapability.name,
-        manifestRequests,
-        requestedPurposes,
-      });
-      if (appOwnedResumeResult.handled) return appOwnedResumeResult.result;
+      const plan = await this.planChatWorkspaceActionWithRuntime(request, session, descriptor, workspace);
+      if (plan) {
+        return await executeAppActionPlan({
+          rawPlan: plan,
+          action,
+          session,
+          workspace,
+          grant: descriptor.grant!,
+          storedPackage: descriptor.storedPackage!,
+          manifestRequests,
+          requestedPurposes,
+          operationId: request.operationId,
+          idempotencyKey: request.idempotencyKey,
+          ownerConfirmed: request.ownerConfirmed,
+          now: this.now,
+          capabilityDispatcher: this.capabilityDispatcher,
+          documentStorage: this.documentStorage,
+          artifactExports: this.artifactExports,
+          storageAuthority: this.storageAuthority(session, descriptor.grant!),
+          artifactAuthority: this.artifactAuthority(descriptor.grant!, session.installationId, session.packageDigest, session.lifecycleGeneration),
+          audit: this.audit,
+        });
+      }
+      if (action.required_capabilities.length !== 1) {
+        throw new AppPlatformError("incompatible_schema", "App action requires a runtime action planner or exactly one host capability", 409);
+      }
+      const requiredCapability = action.required_capabilities[0]!;
       return await this.capabilityDispatcher.execute(requiredCapability.name, requiredCapability.version, request.actionInput, {
         appId: session.appId,
         installationId: session.installationId,
@@ -1526,229 +1466,72 @@ export class ResumeAppHostAdapter {
         },
       });
     } finally {
-      this.forgetChatAction(session.sessionId, requiredCapability.name, request.idempotencyKey);
+      for (const capability of action.required_capabilities) {
+        this.forgetChatAction(session.sessionId, capability.name, request.idempotencyKey);
+      }
     }
   }
 
-  private async executeAppOwnedResumeChatAction(input: {
-    request: AppChatActionExecutionRequest;
-    session: AppChatSessionRecord;
-    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"];
-    grant: CapabilityGrant;
-    capability: string;
-    manifestRequests: readonly { name: string; version: number }[];
-    requestedPurposes: readonly { purpose_id: string; version: number }[];
-  }): Promise<{ handled: false } | { handled: true; result: unknown }> {
-    if (input.session.appId !== "ai.braindrive.resume-builder") return { handled: false };
-    const actionId = input.request.action.action_id;
-    if (actionId === "resume.profile.update" && input.capability === "resume.definitions.write") {
-      const parsed = ResumeProfileUpdateChatInputSchema.safeParse(input.request.actionInput);
-      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume Profile update input does not match the app-owned schema", 400);
-      const capabilityInput = buildResumeProfileUpdateInput(parsed.data, input.session, input.request.operationId);
-      const result = await this.dispatchResumeChatCapability(input, capabilityInput);
-      await this.writeAppOwnedDocumentProjection(input.session, input.grant, input.workspace, "resume.profile.current", parsed.data.profile_markdown, "text/markdown", input.request.operationId, input.request.idempotencyKey);
-      return { handled: true, result };
-    }
-    if (actionId === "resume.create" && input.capability === "resume.definitions.write") {
-      const parsed = ResumeCreateChatInputSchema.safeParse(input.request.actionInput);
-      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume create input does not match the app-owned schema", 400);
-      const capabilityInput = buildResumeDefinitionWriteInput(parsed.data);
-      const result = await this.dispatchResumeChatCapability(input, capabilityInput);
-      await this.writeAppOwnedDocumentProjection(input.session, input.grant, input.workspace, "resume.definition.current.general", parsed.data.resume_markdown ?? formatResumeDefinitionInputMarkdown(capabilityInput), "text/markdown", input.request.operationId, input.request.idempotencyKey);
-      return { handled: true, result };
-    }
-    if (actionId === "resume.export.pdf.request" && input.capability === "resume.export.request") {
-      const parsed = ResumeExportPdfChatInputSchema.safeParse(input.request.actionInput);
-      if (!parsed.success) throw new AppPlatformError("invalid_input", "Resume PDF export input does not match the app-owned schema", 400);
-      return { handled: true, result: await this.executeAppOwnedResumePdfExport(input.session, input.grant, input.workspace, input.request, parsed.data) };
-    }
-    return { handled: false };
-  }
-
-  private async dispatchResumeChatCapability(input: {
-    request: AppChatActionExecutionRequest;
-    session: AppChatSessionRecord;
-    grant: CapabilityGrant;
-    capability: string;
-    manifestRequests: readonly { name: string; version: number }[];
-    requestedPurposes: readonly { purpose_id: string; version: number }[];
-  }, capabilityInput: unknown): Promise<unknown> {
-    return this.capabilityDispatcher.execute(input.capability, 1, capabilityInput, {
-      appId: input.session.appId,
-      installationId: input.session.installationId,
-      packageDigest: input.session.packageDigest,
-      sessionId: input.session.sessionId,
-      viewId: input.session.viewId,
-      lifecycleGeneration: input.session.lifecycleGeneration,
-      grantId: input.session.grantId,
-      grantRevision: input.session.grantRevision,
-      revocationGeneration: input.session.revocationGeneration,
-      manifestRequests: input.manifestRequests,
-      requestedPurposes: input.requestedPurposes,
-      grant: input.grant,
-      operationId: input.request.operationId,
-      idempotencyKey: input.request.idempotencyKey,
-      deadlineAt: this.now() + 120_000,
-      ownerConfirmation: {
-        confirmed: input.request.ownerConfirmed,
-        proofId: input.request.ownerConfirmed ? randomUUID() : undefined,
-      },
-    });
-  }
-
-  private async executeAppOwnedResumePdfExport(
-    session: AppChatSessionRecord,
-    grant: CapabilityGrant,
-    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+  private async planChatWorkspaceActionWithRuntime(
     request: AppChatActionExecutionRequest,
-    rawInput: z.infer<typeof ResumeExportPdfChatInputSchema>,
-  ): Promise<unknown> {
-    if (!request.ownerConfirmed) throw new AppPlatformError("denied", "PDF export requires owner confirmation", 403);
-    if (!rawInput.definition_revision_id) {
-      return this.exportCurrentAppOwnedResumeDocument(session, grant, workspace, request, rawInput);
-    }
-    if (!this.exportBroker) throw new AppPlatformError("denied", "PDF export is unavailable", 403);
-    const exportInput = {
-      action: "export" as const,
-      format: "pdf" as const,
-      definition_revision_id: rawInput.definition_revision_id,
-      safe_filename: rawInput.safe_filename ?? "resume.pdf",
-      destination_intent: rawInput.destination_intent ?? "new_download",
-      overwrite_confirmed: rawInput.overwrite_confirmed ?? false,
-    };
-    const issued = await this.lifecycle.issueSession({
-      audience: "app_export",
-      capabilities: ["resume.export.request"],
-      operationId: request.operationId,
-      idempotencyKey: request.idempotencyKey,
-      viewId: session.viewId,
-    });
-    const claims = this.consumeIssuedAuthority(issued, grant, "resume.export.request", {
-      connectionId: issued.claims.connection_id,
-      viewId: session.viewId,
-      operationId: request.operationId,
-      idempotencyKey: request.idempotencyKey,
-    });
-    const resumePrepared = await this.capabilityOperations.execute({
-      appId: grant.app_id,
-      installationId: session.installationId,
-      connectionId: claims.connection_id,
-      viewId: session.viewId,
-      capability: "resume.export.request",
-      capabilityVersion: 1,
-      operationId: request.operationId,
-      idempotencyKey: request.idempotencyKey,
-      input: exportInput,
-      deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
-    }, ({ isCancelled }) => this.exportBroker!.export(exportInput, { grant, capability: "resume.export.request", operationId: request.operationId, idempotencyKey: request.idempotencyKey, isCancelled }));
-    const prepared = await this.adoptResumePreparedExport(resumePrepared, grant, session.installationId, session.packageDigest, session.lifecycleGeneration, {
-      operationId: request.operationId,
-      idempotencyKey: request.idempotencyKey,
-      sourceId: exportInput.definition_revision_id,
-      ownerConfirmed: true,
-      destinationIntent: exportInput.destination_intent,
-      overwriteConfirmed: exportInput.overwrite_confirmed,
-    });
-    return { status: "completed", result: prepared };
-  }
-
-  private async exportCurrentAppOwnedResumeDocument(
     session: AppChatSessionRecord,
-    grant: CapabilityGrant,
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>,
     workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
-    request: AppChatActionExecutionRequest,
-    rawInput: z.infer<typeof ResumeExportPdfChatInputSchema>,
-  ): Promise<unknown> {
-    const document = workspace.documents.find((candidate) => candidate.data_binding_id === "resume.definition.current.general");
-    if (!document) throw new AppPlatformError("invalid_input", "The current resume document is not declared for this workspace", 400);
-    await this.documentStorage.initialize();
-    const authority = this.storageAuthority(session, grant);
-    const record = await this.documentStorage.readDocument(authority, document.document_id);
-    if (!record || record.document_binding_id !== "resume.definition.current.general") {
-      throw new AppPlatformError("invalid_input", "There is no current app-owned resume document to export", 400);
+  ): Promise<unknown | null> {
+    const connection = this.lifecycle.dependencies.supervisor.connectionFor(session.installationId);
+    if (connection.runtime.package_digest !== session.packageDigest) {
+      throw new AppPlatformError("runtime_conflict", "Active app runtime does not match the chat workspace package", 409);
     }
-    if (typeof record.content !== "string") throw new AppPlatformError("validation_failed", "Current resume document content is not exportable text", 409);
-    const bytes = renderAppOwnedResumeMarkdownPdf(record.content);
-    const filename = normalizeAppOwnedResumePdfFilename(rawInput.safe_filename);
-    const contentDigest = digestBuffer(bytes);
-    const prepared = await this.artifactExports.prepareExport({
-      request_version: 1,
-      authority: this.artifactAuthority(grant, session.installationId, session.packageDigest, session.lifecycleGeneration),
-      operation_id: request.operationId,
-      idempotency_key: `${request.idempotencyKey}:app-owned-pdf`,
-      source: { kind: "app_document", source_id: record.revision_id },
-      content_digest: contentDigest,
-      content_size_bytes: bytes.length,
-      retention_class: record.retention_class,
-      media_type: "application/pdf",
-      filename,
-      destination_intent: rawInput.destination_intent ?? "new_download",
-      overwrite_confirmed: rawInput.overwrite_confirmed ?? false,
-      owner_confirmed: true,
-      bytes_base64: bytes.toString("base64"),
-    });
-    return {
-      status: "completed",
-      result: {
-        format: "pdf",
-        filename: prepared.filename,
-        mime_type: prepared.media_type,
-        bytes_base64: prepared.bytes_base64,
-        artifact_revision_id: prepared.artifact.artifact_revision_id,
-        artifact_digest: prepared.artifact.content_digest,
-        safe_destination_label: prepared.safe_destination_label,
-        source_document_revision_id: record.revision_id,
-        generic_artifact: prepared.artifact,
-        replayed: prepared.replayed,
-      },
-    };
-  }
-
-  private async currentGeneralResumeRevisionId(session: AppChatSessionRecord, grant: CapabilityGrant, operationId: string): Promise<string | null> {
-    if (!this.capabilityRouter) return null;
-    const workspace = await this.capabilityRouter.execute("resume.definitions.read", { view: "workspace" }, {
-      authority: this.restrictedAuthorityForDocumentProjection(session, grant, operationId),
-      operationId,
-      correlationId: operationId,
-      idempotencyKey: `resume-export-current-${operationId}`,
-      connectionId: session.viewId,
-      viewId: session.viewId,
-    });
-    const source = latestResumeRecord(workspace, "definitions", (record) => record.record_type === "resume_definition" && record.definition_kind === "general" && record.lifecycle_state !== "retired");
-    return source?.metadata.revision_id ?? null;
-  }
-
-  private async writeAppOwnedDocumentProjection(
-    session: AppChatSessionRecord,
-    grant: CapabilityGrant,
-    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
-    bindingId: string,
-    content: string,
-    mediaType: AppDocumentRecord["media_type"],
-    operationId: string,
-    idempotencyKey: string,
-  ): Promise<void> {
-    const document = workspace.documents.find((candidate) => candidate.data_binding_id === bindingId);
-    if (!document) return;
+    const client = this.clientFactory(connection);
+    const mcp = await client.negotiate();
+    if (!mcp.tools?.some((tool) => tool.name === "app.actions.plan")) return null;
+    const authority = this.storageAuthority(session, descriptor.grant!);
     await this.documentStorage.initialize();
-    const authority = this.storageAuthority(session, grant);
     await this.documentStorage.bindActiveAuthority(authority);
-    const current = await this.documentStorage.readDocument(authority, document.document_id);
-    const result = await this.documentStorage.writeDocument({
-      request_version: 1,
-      authority,
-      document_id: document.document_id,
-      document_binding_id: bindingId,
-      record_kind: "document",
-      role: documentStorageRole(document),
-      retention_class: defaultRetentionClassForDocument(document),
-      media_type: mediaType,
-      expected_revision: current?.revision ?? null,
-      operation_id: operationId,
-      idempotency_key: `app-chat-action-doc-${idempotencyKey}`,
-      content,
+    const documents = [];
+    for (const document of workspace.documents) {
+      if (!document.data_binding_id) continue;
+      const record = await readOrSeedAppDocument({
+        documentStorage: this.documentStorage,
+        authority,
+        storedPackage: descriptor.storedPackage!,
+        document,
+        operationId: request.operationId,
+        idempotencyKey: request.idempotencyKey,
+        audit: this.audit,
+      });
+      if (!record) continue;
+      documents.push({
+        document_id: record.document_id,
+        document_binding_id: record.document_binding_id,
+        media_type: record.media_type,
+        revision: record.revision,
+        revision_id: record.revision_id,
+        content: record.content,
+      });
+    }
+    const planRequest = AppActionPlanRequestSchema.parse({
+      action_planning_contract_version: 1,
+      action_id: request.action.action_id,
+      action_input: request.actionInput,
+      owner_confirmed: request.ownerConfirmed,
+      operation_id: request.operationId,
+      idempotency_key: request.idempotencyKey,
+      occurred_at: session.createdAt,
+      session: {
+        session_id: session.sessionId,
+        view_id: session.viewId,
+        app_id: session.appId,
+        installation_id: session.installationId,
+      },
+      documents,
     });
-    this.audit(result.audit.event, result.audit);
+    const complete = await client.callTool(mcp, "app.actions.plan", planRequest, request.operationId, "model");
+    const projected = projectMcpResult(complete, "model");
+    if (projected.isError || !projected.structuredContent) {
+      throw new AppPlatformError("validation_failed", "Installed app action planner returned no structured plan", 409);
+    }
+    return projected.structuredContent;
   }
 
   private rememberChatAction(sessionId: string, installationId: string, capability: string, idempotencyKey: string): void {
@@ -2075,434 +1858,13 @@ export class ResumeAppHostAdapter {
 
 function inferenceIdempotencyKey(operationId: string): string { return `m5-inference-${operationId}`; }
 
-type ResumeChatStatement = {
-  statement_id: string;
-  section_id: string;
-  kind: "presentation";
-  display_role: "heading" | "bullet" | "line";
-  text: string;
-  supporting_confirmed_fact_revision_ids: [];
-};
-
-function buildResumeProfileUpdateInput(
-  input: z.infer<typeof ResumeProfileUpdateChatInputSchema>,
-  session: AppChatSessionRecord,
-  operationId: string,
-) {
-  return {
-    kind: "interview_progress",
-    progress: {
-      expected_revision: null,
-      status: "review_needed",
-      current_topic: input.current_topic ?? null,
-      completed_topics: [...(input.completed_topics ?? ["direction", "experience", "education", "credentials", "skills"])],
-      skipped_topics: [...(input.skipped_topics ?? [])],
-      draft_state: "owner_reviewed",
-      session_id: session.sessionId,
-      audit_turn: {
-        transcript_version: 1,
-        turn_id: operationId,
-        session_id: session.sessionId,
-        prompt_version: "resume-builder-chat-profile-v1",
-        topic: "resume_profile",
-        question: "Capture the owner-reviewed Resume Profile from the app chat.",
-        answer: input.profile_markdown,
-        follow_up: null,
-        action: "answered",
-        occurred_at: new Date().toISOString(),
-      },
-    },
-  } as const;
-}
-
-function buildResumeDefinitionWriteInput(input: z.infer<typeof ResumeCreateChatInputSchema>) {
-  const parsed = parseResumeMarkdownInput(input);
-  if (parsed.statements.length === 0) throw new AppPlatformError("invalid_input", "Resume create requires at least one statement", 400);
-  return {
-    definition_kind: "general",
-    status: "proposed",
-    title: parsed.title,
-    statements: parsed.statements,
-    section_order: parsed.sectionOrder,
-    presentation_preferences: {},
-    locale: input.locale ?? "en-US",
-    page_intent: input.page_intent ?? "one_page",
-    template_id: "resume.single-column",
-    template_version: "1",
-    parent_definition_revision_id: null,
-    job_revision_id: null,
-    policy_version: "owner-authored-v1",
-    prompt_policy_version: null,
-    variant: null,
-  } as const;
-}
-
-function parseResumeMarkdownInput(input: z.infer<typeof ResumeCreateChatInputSchema>): { title: string; statements: ResumeChatStatement[]; sectionOrder: string[] } {
-  const sectionOrder: string[] = [];
-  const statements: ResumeChatStatement[] = [];
-  let title = normalizeResumeText(input.title ?? "") || null;
-
-  const addSection = (sectionId: string) => {
-    if (!sectionOrder.includes(sectionId)) sectionOrder.push(sectionId);
-  };
-  const addStatement = (sectionId: string, text: string, displayRole: ResumeChatStatement["display_role"]) => {
-    const normalized = normalizeResumeText(text);
-    if (!normalized) return;
-    addSection(sectionId);
-    statements.push({
-      statement_id: randomUUID(),
-      section_id: sectionId,
-      kind: "presentation",
-      display_role: displayRole,
-      text: normalized,
-      supporting_confirmed_fact_revision_ids: [],
-    });
-  };
-
-  for (const section of input.sections ?? []) {
-    const sectionTitle = normalizeResumeText(section.title ?? section.section_id ?? "resume");
-    const sectionId = sectionIdForResume(section.section_id ?? sectionTitle);
-    if (section.title) addStatement(sectionId, sectionTitle, "heading");
-    for (const statement of section.statements) addStatement(sectionId, statement, "bullet");
-  }
-
-  if (input.resume_markdown) {
-    let currentSection = "summary";
-    for (const rawLine of input.resume_markdown.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      const h1 = /^#\s+(.+)$/.exec(line);
-      if (h1?.[1]) {
-        title ??= normalizeResumeText(h1[1]);
-        continue;
-      }
-      const h2 = /^#{2,6}\s+(.+)$/.exec(line);
-      if (h2?.[1]) {
-        const heading = normalizeResumeText(h2[1]);
-        currentSection = sectionIdForResume(heading);
-        addStatement(currentSection, heading, "heading");
-        continue;
-      }
-      const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
-      if (bullet?.[1]) {
-        addStatement(currentSection, bullet[1], "bullet");
-        continue;
-      }
-      addStatement(currentSection, line, "line");
-    }
-  }
-
-  return {
-    title: title ?? "General Resume",
-    statements,
-    sectionOrder: sectionOrder.length > 0 ? sectionOrder : ["summary"],
-  };
-}
-
-function formatResumeDefinitionInputMarkdown(input: ReturnType<typeof buildResumeDefinitionWriteInput>): string {
-  const timestamp = new Date().toISOString();
-  return formatResumeDefinitionMarkdown({
-    record_type: "resume_definition",
-    definition_kind: "general",
-    lifecycle_state: "active",
-    status: "proposed",
-    title: input.title,
-    statements: [...input.statements],
-    section_order: [...input.section_order],
-    updated_at: timestamp,
-    metadata: {
-      revision: 1,
-      revision_id: randomUUID(),
-      prior_revision_id: null,
-      created_at: timestamp,
-    },
-  });
-}
-
-function normalizeResumeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function sectionIdForResume(value: string): string {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
-  return normalized || `section-${randomUUID()}`;
-}
-
-type ResumeRecordProjection = Record<string, unknown> & {
-  record_type: string;
-  lifecycle_state?: string;
-  updated_at?: string;
-  title?: string;
-  definition_kind?: string;
-  statements?: unknown[];
-  section_order?: unknown[];
-  metadata: {
-    revision: number;
-    revision_id: string;
-    prior_revision_id: string | null;
-    created_at: string;
-  };
-};
-
-function latestResumeRecord(
-  workspace: unknown,
-  key: "definitions" | "interview",
-  predicate: (record: ResumeRecordProjection) => boolean,
-): ResumeRecordProjection | null {
-  if (!isRecordValue(workspace) || !Array.isArray(workspace[key])) return null;
-  const records = workspace[key].filter(isResumeRecordProjection).filter(predicate);
-  records.sort((left, right) => {
-    const leftTime = Date.parse(left.updated_at ?? left.metadata.created_at);
-    const rightTime = Date.parse(right.updated_at ?? right.metadata.created_at);
-    if (rightTime !== leftTime) return rightTime - leftTime;
-    return right.metadata.revision - left.metadata.revision;
-  });
-  return records[0] ?? null;
-}
-
-function isResumeRecordProjection(value: unknown): value is ResumeRecordProjection {
-  return isRecordValue(value)
-    && typeof value.record_type === "string"
-    && isRecordValue(value.metadata)
-    && typeof value.metadata.revision === "number"
-    && typeof value.metadata.revision_id === "string"
-    && typeof value.metadata.created_at === "string"
-    && (value.metadata.prior_revision_id === null || typeof value.metadata.prior_revision_id === "string");
-}
-
-function projectAppDocumentRecord(input: {
-  authority: AppDocumentStorageAuthority;
-  document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number];
-  bindingId: string;
-  source: ResumeRecordProjection;
-  mediaType: AppDocumentRecord["media_type"];
-  content: unknown;
-}): AppDocumentRecord {
-  return AppDocumentRecordSchema.parse({
-    record_version: 1,
-    record_kind: documentStorageRole(input.document) === "app_state" ? "state" : "document",
-    owner_id: input.authority.owner_id,
-    actor_id: input.authority.actor_id,
-    app_id: input.authority.app_id,
-    publisher_id: input.authority.publisher_id,
-    installation_id: input.authority.installation_id,
-    package_digest: input.authority.package_digest,
-    lifecycle_generation: input.authority.lifecycle_generation,
-    grant_id: input.authority.grant_id,
-    grant_revision: input.authority.grant_revision,
-    revocation_generation: input.authority.revocation_generation,
-    document_id: input.document.document_id,
-    document_binding_id: input.bindingId,
-    role: documentStorageRole(input.document),
-    retention_class: "durable_owner_data",
-    media_type: input.mediaType,
-    revision: input.source.metadata.revision,
-    revision_id: input.source.metadata.revision_id,
-    prior_revision_id: input.source.metadata.prior_revision_id,
-    operation_id: input.source.metadata.revision_id,
-    idempotency_key: `projection-${input.source.metadata.revision_id}`,
-    content_digest: canonicalInputDigest(input.content),
-    content_size_bytes: Buffer.byteLength(canonicalJson(input.content), "utf8"),
-    content: input.content,
-    created_at: input.source.metadata.created_at,
-    created_by: input.authority,
-    updated_at: input.source.updated_at ?? input.source.metadata.created_at,
-    updated_by: input.authority,
-  });
-}
-
-function formatResumeDefinitionMarkdown(record: ResumeRecordProjection): string {
-  const title = typeof record.title === "string" && record.title.trim() ? record.title.trim() : "Resume";
-  const statements = Array.isArray(record.statements) ? record.statements.filter(isResumeStatementProjection) : [];
-  const sectionOrder = Array.isArray(record.section_order)
-    ? record.section_order.filter((section): section is string => typeof section === "string")
-    : [...new Set(statements.map((statement) => statement.section_id))];
-  const lines = [`# ${title}`];
-  for (const sectionId of sectionOrder) {
-    const sectionStatements = statements.filter((statement) => statement.section_id === sectionId);
-    if (sectionStatements.length === 0) continue;
-    if (sectionId !== "header") {
-      lines.push("", `## ${formatResumeSectionTitle(sectionId)}`);
-    } else {
-      lines.push("");
-    }
-    for (const statement of sectionStatements) {
-      const text = statement.text.trim();
-      if (!text) continue;
-      if (statement.display_role === "bullet") lines.push(`- ${text}`);
-      else if (statement.display_role === "heading" && sectionId !== "header") lines.push(`### ${text}`);
-      else lines.push(text);
-    }
-  }
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function formatResumeProfileMarkdown(record: ResumeRecordProjection): string {
-  const answer = readProfileAuditAnswer(record);
-  if (answer) return answer;
-  const completed = Array.isArray(record.completed_topics)
-    ? record.completed_topics.filter((item): item is string => typeof item === "string")
-    : [];
-  const skipped = Array.isArray(record.skipped_topics)
-    ? record.skipped_topics.filter((item): item is string => typeof item === "string")
-    : [];
-  const currentTopic = typeof record.current_topic === "string" && record.current_topic.trim()
-    ? record.current_topic.trim()
-    : null;
-  const status = typeof record.status === "string" && record.status.trim() ? record.status.trim() : "review needed";
-  const lines = [
-    "# Resume Profile",
-    "",
-    `Status: ${roleLabelForMarkdown(status)}`,
-  ];
-  if (currentTopic) lines.push(`Current topic: ${roleLabelForMarkdown(currentTopic)}`);
-  if (completed.length > 0) {
-    lines.push("", "## Completed Topics", ...completed.map((topic) => `- ${roleLabelForMarkdown(topic)}`));
-  }
-  if (skipped.length > 0) {
-    lines.push("", "## Skipped Topics", ...skipped.map((topic) => `- ${roleLabelForMarkdown(topic)}`));
-  }
-  lines.push("", "## Notes", "Resume Builder has captured interview progress. Add or regenerate a richer profile from chat when ready.");
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function readProfileAuditAnswer(record: ResumeRecordProjection): string | null {
-  const auditTurn = isRecordValue(record.audit_turn) ? record.audit_turn : null;
-  const answer = typeof auditTurn?.answer === "string" ? auditTurn.answer.trim() : "";
-  return answer.length > 0 ? answer : null;
-}
-
-function roleLabelForMarkdown(value: string): string {
-  return value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function normalizeAppOwnedResumePdfFilename(value?: string): string {
-  const base = (value?.trim() || "resume.pdf")
-    .replace(/[\/\\\u0000-\u001f\u007f]+/g, "-")
-    .replace(/\.\.+/g, ".")
-    .replace(/^\.+$/, "")
-    .slice(0, 128)
-    .trim();
-  const withExtension = base.toLowerCase().endsWith(".pdf") ? base : `${base || "resume"}.pdf`;
-  return withExtension || "resume.pdf";
-}
-
-function renderAppOwnedResumeMarkdownPdf(markdown: string): Buffer {
-  const lines = markdownToPdfLines(markdown);
-  const pages = chunkValues(lines, 48);
-  const objects: string[] = [];
-  const pageObjectIds = pages.map((_, index) => 3 + index * 2);
-  const contentObjectIds = pages.map((_, index) => 4 + index * 2);
-  const regularFontObjectId = 3 + pages.length * 2;
-  const boldFontObjectId = regularFontObjectId + 1;
-  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objects[2] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
-  pages.forEach((pageLines, index) => {
-    const stream = ["BT", "72 760 Td", ...pageLines.flatMap((entry) => {
-      const font = entry.weight === "bold" ? "F2" : "F1";
-      return [`/${font} ${entry.size} Tf`, `(${escapeAppOwnedPdfText(entry.text)}) Tj`, `0 -${entry.leading} Td`];
-    }), "ET"].join("\n");
-    objects[pageObjectIds[index]!] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
-    objects[contentObjectIds[index]!] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
-  });
-  objects[regularFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
-  objects[boldFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
-  let output = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
-  const offsets = [0];
-  for (let id = 1; id < objects.length; id += 1) {
-    offsets[id] = Buffer.byteLength(output, "latin1");
-    output += `${id} 0 obj\n${objects[id]}\nendobj\n`;
-  }
-  const xrefOffset = Buffer.byteLength(output, "latin1");
-  output += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
-  for (let id = 1; id < objects.length; id += 1) output += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
-  output += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(output, "latin1");
-}
-
-function markdownToPdfLines(markdown: string): Array<{ text: string; weight: "regular" | "bold"; size: number; leading: number }> {
-  const entries: Array<{ text: string; weight: "regular" | "bold"; size: number; leading: number }> = [];
-  const sourceLines = markdown.split(/\r?\n/);
-  for (const sourceLine of sourceLines) {
-    const parsed = parseAppOwnedMarkdownLine(sourceLine);
-    if (!parsed) continue;
-    for (const text of wrapAppOwnedPdfLine(parsed.text, parsed.maxLength)) {
-      entries.push({ text, weight: parsed.weight, size: parsed.size, leading: parsed.leading });
-    }
-  }
-  if (entries.length === 0) throw new AppPlatformError("validation_failed", "Resume document is empty and cannot be exported", 409);
-  return entries.slice(0, 96);
-}
-
-function parseAppOwnedMarkdownLine(line: string): { text: string; weight: "regular" | "bold"; size: number; leading: number; maxLength: number } | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("# ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(2)), weight: "bold", size: 18, leading: 24, maxLength: 58 };
-  if (trimmed.startsWith("## ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(3).toUpperCase()), weight: "bold", size: 11, leading: 18, maxLength: 76 };
-  if (trimmed.startsWith("### ")) return { text: sanitizeAppOwnedPdfText(trimmed.slice(4)), weight: "bold", size: 10.5, leading: 14, maxLength: 82 };
-  if (trimmed.startsWith("- ")) return { text: sanitizeAppOwnedPdfText(`- ${trimmed.slice(2)}`), weight: "regular", size: 10.5, leading: 14, maxLength: 86 };
-  return { text: sanitizeAppOwnedPdfText(trimmed.replace(/^\*\*(.+)\*\*$/, "$1")), weight: trimmed.startsWith("**") ? "bold" : "regular", size: 10.5, leading: 14, maxLength: 86 };
-}
-
-function sanitizeAppOwnedPdfText(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function wrapAppOwnedPdfLine(text: string, maxLength: number): string[] {
-  if (text.length <= maxLength) return [text];
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length > maxLength && current) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = next;
-    }
-  }
-  if (current) lines.push(current);
-  return lines;
-}
-
-function escapeAppOwnedPdfText(value: string): string {
-  return [...Buffer.from(value, "utf8")].map((byte) => {
-    const character = String.fromCharCode(byte);
-    if (character === "\\" || character === "(" || character === ")") return `\\${character}`;
-    if (byte >= 0x20 && byte <= 0x7e) return character;
-    return `\\${byte.toString(8).padStart(3, "0")}`;
-  }).join("");
-}
-
-function chunkValues<T>(values: readonly T[], size: number): T[][] {
-  return Array.from({ length: Math.max(1, Math.ceil(values.length / size)) }, (_, index) => values.slice(index * size, (index + 1) * size));
-}
-
-function digestBuffer(value: Buffer): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-
-function isResumeStatementProjection(value: unknown): value is { section_id: string; text: string; display_role?: string } {
-  return isRecordValue(value)
-    && typeof value.section_id === "string"
-    && typeof value.text === "string"
-    && (value.display_role === undefined || typeof value.display_role === "string");
-}
-
-function formatResumeSectionTitle(sectionId: string): string {
-  return sectionId
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
+function manifestCapabilityRequests(manifest: {
+  manifest_version: number;
+  requested_capabilities: readonly (string | { name: string; version: number })[];
+}): readonly { name: string; version: number }[] {
+  return manifest.requested_capabilities.map((capability) => (
+    typeof capability === "string" ? { name: capability, version: 1 } : capability
+  ));
 }
 
 function documentStorageRole(document: ReturnType<typeof selectAppChatWorkspace>["workspace"]["documents"][number]): AppDocumentRole {

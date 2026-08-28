@@ -15,10 +15,10 @@ import { z } from "zod";
 
 import { canonicalJson, canonicalJsonDocumentDigest, OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "../contracts/common.js";
 import { ContractViolation } from "../contracts/errors.js";
-import { CanonicalAppIdSchema, CanonicalPublisherIdSchema, GenericPackageManifestSchema } from "../contracts/app-registry.js";
-import { PackageManifestSchema } from "../contracts/package.js";
+import { CanonicalAppIdSchema, CanonicalPublisherIdSchema } from "../contracts/app-registry.js";
 import { syncDirectoryEntry } from "./filesystem-durability.js";
 import type { RuntimePackageManifest } from "./package-verifier.js";
+import { parseStoredRuntimePackageManifestWithDigest } from "./runtime-manifest.js";
 
 export type PromotableVerifiedPackage = {
   manifest: RuntimePackageManifest;
@@ -346,18 +346,21 @@ export class ImmutablePackageStore {
     let manifestCandidate: unknown;
     try { manifestCandidate = JSON.parse(manifestBytes.toString("utf8")); }
     catch { throw new ContractViolation("package_file_mismatch", "Stored package manifest is malformed"); }
-    const manifest = manifestCandidate && typeof manifestCandidate === "object" && (manifestCandidate as { manifest_version?: unknown }).manifest_version === 2
-      ? GenericPackageManifestSchema.safeParse(manifestCandidate)
-      : PackageManifestSchema.safeParse(manifestCandidate);
+    let parsedManifest;
+    try {
+      parsedManifest = parseStoredRuntimePackageManifestWithDigest(manifestCandidate);
+    } catch {
+      throw new ContractViolation("package_file_mismatch", "Stored package manifest differs from promoted authority");
+    }
+    const manifest = parsedManifest.manifest;
     if (
-      !manifest.success
-      || canonicalJsonDocumentDigest(manifest.data) !== metadata.manifest_digest
-      || manifest.data.package_version !== metadata.package_version
-      || manifest.data.platform_artifacts.find((artifact) => artifact.target === metadata.target)?.entrypoint !== metadata.entrypoint
+      parsedManifest.manifestDigest !== metadata.manifest_digest
+      || manifest.package_version !== metadata.package_version
+      || manifest.platform_artifacts.find((artifact) => artifact.target === metadata.target)?.entrypoint !== metadata.entrypoint
     ) {
       throw new ContractViolation("package_file_mismatch", "Stored package manifest differs from promoted authority");
     }
-    const expected = new Map(manifest.data.files.map((file) => [file.path, file]));
+    const expected = new Map(manifest.files.map((file) => [file.path, file]));
     const observed: string[] = [];
     const visit = async (directory: string): Promise<void> => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {

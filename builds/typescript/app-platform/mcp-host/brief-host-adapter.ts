@@ -15,7 +15,7 @@ import { McpConnectionManager } from "../../mcp/host/connection-manager.js";
 import { SdkMcpPeer } from "../../mcp/host/sdk-peer.js";
 import { ModernMcpAppsClient, appVisibleToolNames, identityForRuntime, type ModernMcpSession } from "./modern-client.js";
 import { AppViewRegistry, type AppViewResumeRequest } from "./app-view-registry.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppMcpHostAdapter } from "./app-host.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppMcpHostAdapter, AppResourceReadResult } from "./app-host.js";
 import type { CapabilityGrant } from "../lifecycle/store.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
 import {
@@ -31,6 +31,7 @@ import {
   buildAppChatModelContext,
   type AppChatActionExecutionRequest,
 } from "./app-chat-model.js";
+import { readVerifiedPackageResource } from "./app-package-resource.js";
 import type { AppDocumentRole, AppDocumentStorageAuthority, AppStorageRetentionClass } from "../contracts/app-storage.js";
 
 type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
@@ -172,6 +173,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
         title: selection.workspace.title,
         description: selection.workspace.description,
         default_document_id: selection.workspace.default_document_id,
+        empty_state: selection.workspace.empty_state ?? null,
         documents: selection.workspace.documents,
         resources: selection.workspace.resources,
         actions: selection.workspace.actions,
@@ -206,6 +208,17 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
       document_binding_id: bindingId,
       record,
     };
+  }
+
+  async readAppResource(sessionId: string, resourceId: string): Promise<AppResourceReadResult> {
+    const { session, descriptor } = await this.requireChatSessionForStorage(sessionId);
+    const selection = selectAppChatWorkspace(descriptor.storedPackage!.manifest, {
+      presentationId: session.presentationId,
+      workspaceId: session.workspaceId,
+    });
+    const resource = selection.workspace.resources.find((candidate) => candidate.resource_id === resourceId);
+    if (!resource) throw new AppPlatformError("not_found_within_scope", "App package resource is not declared for this workspace", 404);
+    return readVerifiedPackageResource(descriptor.storedPackage!, resource);
   }
 
   async writeAppDocument(sessionId: string, documentId: string, input: AppDocumentWriteInput): Promise<AppDocumentReadResult> {

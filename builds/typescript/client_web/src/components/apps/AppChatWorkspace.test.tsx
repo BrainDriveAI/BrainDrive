@@ -22,6 +22,7 @@ vi.mock("@/api/apps-adapter", async () => {
     closeAppSession: vi.fn(async () => undefined),
     readAppChatWorkspaceSession: vi.fn(),
     readAppChatWorkspaceDocument: vi.fn(),
+    readAppChatWorkspaceResource: vi.fn(),
     writeAppChatWorkspaceDocument: vi.fn(),
   };
 });
@@ -90,6 +91,7 @@ function launch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): appsAp
       title: "Test Workspace",
       description: "Native app-chat workspace.",
       default_document_id: "conversation",
+      empty_state: null,
       documents: [
         {
           document_version: 1,
@@ -172,6 +174,18 @@ describe("AppChatWorkspace", () => {
       document_binding_id: "profile.current",
       record: null,
     });
+    vi.mocked(appsApi.readAppChatWorkspaceResource).mockResolvedValue({
+      result_version: 1,
+      resource_id: "instructions",
+      title: "Agent Instructions",
+      description: "Read-only app package resource.",
+      role: "agent_instructions",
+      media_type: "text/markdown",
+      content_digest: `sha256:${"c".repeat(64)}`,
+      owner_editable: false,
+      prompt_inclusion: "workspace_start",
+      content: "# Agent Instructions\n\n- Use the package-owned instructions.",
+    });
   });
 
   it("renders loading, then the native conversation workspace after session validation", async () => {
@@ -187,16 +201,26 @@ describe("AppChatWorkspace", () => {
     expect(screen.getByTestId("app-chat-workspace-pane")).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
   });
 
-  it("uses Resume Builder-specific empty-state copy for the conversation start", async () => {
-    const current = launch();
-    current.session.app_id = "ai.braindrive.resume-builder";
+  it("uses app-declared empty-state copy for the conversation start", async () => {
+    const current = launch({
+      workspace: {
+        ...launch().workspace,
+        empty_state: {
+          empty_state_version: 1,
+          heading: "Let's build your resume",
+          description: "Tell me the role you want, paste an existing resume, or describe your experience.",
+          cta_label: "Let's get started",
+          cta_message: "I want to build my resume.",
+        },
+      },
+    });
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
 
     render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
 
     expect(await screen.findByRole("heading", { name: "Let's build your resume" })).toBeInTheDocument();
     expect(screen.getByText(/Tell me the role you want/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start my resume" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Let's get started" })).toBeInTheDocument();
   });
 
   it("navigates documents and advanced resources with focus moving to the selected heading", async () => {
@@ -212,11 +236,16 @@ describe("AppChatWorkspace", () => {
     expect(screen.getByText("profile.current")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
 
+    expect(screen.queryByRole("button", { name: "Agent Instructions" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
     await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
-    expect(await screen.findByRole("heading", { name: "Agent Instructions" })).toHaveFocus();
+    expect(await screen.findByRole("heading", { level: 2, name: "Agent Instructions" })).toHaveFocus();
     expect(screen.getByText("Package resource")).toBeInTheDocument();
-    expect(screen.getByText("text/markdown")).toBeInTheDocument();
+    expect(await screen.findByText("Use the package-owned instructions.")).toBeInTheDocument();
+    expect(screen.getByText(/text\/markdown/)).toBeInTheDocument();
+    expect(screen.queryByText("Declared actions")).not.toBeInTheDocument();
     expect(screen.queryByText("payload/resources/instructions.md")).not.toBeInTheDocument();
+    expect(appsApi.readAppChatWorkspaceResource).toHaveBeenCalledWith("test-builder", current.session.session_id, "instructions");
   });
 
   it("opens, edits, and saves a generic bound workspace document while keeping the composer available", async () => {

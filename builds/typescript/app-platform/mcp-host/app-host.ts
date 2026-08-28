@@ -1,8 +1,8 @@
 import type { AppViewResumeRequest } from "./app-view-registry.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch } from "./app-host-types.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 
-export type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch } from "./app-host-types.js";
+export type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 
 export interface AppMcpHostAdapter {
   readonly appId: string;
@@ -12,6 +12,7 @@ export interface AppMcpHostAdapter {
   readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]>;
   listAppDocuments(sessionId: string): Promise<AppDocumentListResult>;
   readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult>;
+  readAppResource(sessionId: string, resourceId: string): Promise<AppResourceReadResult>;
   writeAppDocument(sessionId: string, documentId: string, input: AppDocumentWriteInput): Promise<AppDocumentReadResult>;
   deleteAppDocument(sessionId: string, documentId: string, input: AppDocumentDeleteInput): Promise<AppDocumentDeleteResult>;
   registerAppArtifact(input: AppArtifactRegistrationInput): Promise<AppArtifactRegistrationResult>;
@@ -40,6 +41,7 @@ export class AppMcpHost implements AppMcpHostAdapter {
   readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> { return this.adapter.readChatWorkspaceSession(sessionId); }
   listAppDocuments(sessionId: string): Promise<AppDocumentListResult> { return this.adapter.listAppDocuments(sessionId); }
   readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult> { return this.adapter.readAppDocument(sessionId, documentId); }
+  readAppResource(sessionId: string, resourceId: string): Promise<AppResourceReadResult> { return this.adapter.readAppResource(sessionId, resourceId); }
   writeAppDocument(sessionId: string, documentId: string, input: AppDocumentWriteInput): Promise<AppDocumentReadResult> { return this.adapter.writeAppDocument(sessionId, documentId, input); }
   deleteAppDocument(sessionId: string, documentId: string, input: AppDocumentDeleteInput): Promise<AppDocumentDeleteResult> { return this.adapter.deleteAppDocument(sessionId, documentId, input); }
   registerAppArtifact(input: AppArtifactRegistrationInput): Promise<AppArtifactRegistrationResult> { return this.adapter.registerAppArtifact(input); }

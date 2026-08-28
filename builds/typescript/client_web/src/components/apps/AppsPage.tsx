@@ -18,7 +18,6 @@ import AppChatWorkspace from "./AppChatWorkspace";
 import AppCatalogCard from "./AppCatalogCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
 
-const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder";
 type RetainedDataAction = "delete" | "export" | "archive";
 type BusyState = AppLifecycleAction | "launch" | `retained-data:${RetainedDataAction}`;
 type SelectedSession = { appKey: string; appId: string; appName: string; launch: AppLaunch };
@@ -42,7 +41,7 @@ function isChatWorkspaceLaunch(launch: AppLaunch): launch is Extract<AppLaunch, 
 }
 
 export default function AppsPage({
-  entryPoint = "direct",
+  entryPoint: _entryPoint = "direct",
   onOpenSettings,
   onSessionClosed,
   onWorkspaceActiveChange,
@@ -127,12 +126,11 @@ export default function AppsPage({
   const open = async (app: AppStatus) => {
     if (busyByApp[app.route_key]) return;
     setAppBusy(app.route_key, "launch"); setAppError(app.route_key); setAppNotice(app.route_key);
-    const trustedEntryPoint = app.identity.app_id === RESUME_BUILDER_APP_ID ? entryPoint : "direct";
     try {
       const chatPresentation = primaryChatPresentation(app);
       const launch = chatPresentation
         ? await launchAppChatWorkspace(app.route_key, { presentationId: chatPresentation.presentation_id, workspaceId: chatPresentation.workspace_id })
-        : await launchApp(app.route_key, trustedEntryPoint);
+        : await launchApp(app.route_key, "direct");
       setSelected({ appKey: app.route_key, appId: app.identity.app_id, appName: app.identity.display_name, launch });
     } catch {
       setAppError(app.route_key, `${app.identity.display_name} could not connect. Check its status and try again.`);
@@ -154,9 +152,9 @@ export default function AppsPage({
           workspaceId: selected.launch.workspace.workspace_id,
           resume: selected.launch,
         })
-      : await launchApp(selected.appKey, selected.appId === RESUME_BUILDER_APP_ID ? entryPoint : "direct", selected.launch);
+      : await launchApp(selected.appKey, "direct", selected.launch);
     setSelected((current) => current ? { ...current, launch } : current);
-  }, [entryPoint, selected]);
+  }, [selected]);
 
   const closeConfirmation = () => {
     const appKey = confirmUninstallKey;
@@ -173,7 +171,7 @@ export default function AppsPage({
 
   if (selected) return isChatWorkspaceLaunch(selected.launch)
     ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
-    : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={selected.appId === RESUME_BUILDER_APP_ID ? onOpenSettings : undefined} />;
+    : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8" data-testid="apps-page">
@@ -202,7 +200,7 @@ export default function AppsPage({
               error={errorsByApp[app.route_key]}
               notice={noticesByApp[app.route_key]}
               compact={compactCards}
-              launchLabel={primaryChatPresentation(app)?.label ?? (app.identity.app_id === RESUME_BUILDER_APP_ID && entryPoint === "career" ? "Continue from Career" : undefined)}
+              launchLabel={primaryChatPresentation(app)?.label}
               launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
               uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
               onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}

@@ -72,6 +72,7 @@ function manifest(overrides: Partial<GenericPackageManifest> = {}): GenericPacka
     },
     files: [
       { path: "payload/resources/agent-instructions.md", kind: "file", mode: "read_only", size_bytes: 321, digest: digest("f") },
+      { path: "payload/resources/profile-template.md", kind: "file", mode: "read_only", size_bytes: 654, digest: digest("d") },
       { path: "payload/server/dist/index.js", kind: "file", mode: "executable", size_bytes: 123, digest: digest("a") },
       { path: "payload/ui/main.html", kind: "file", mode: "read_only", size_bytes: 789, digest: digest("e") },
       { path: "provenance/intoto.jsonl", kind: "file", mode: "read_only", size_bytes: 456, digest: digest("b") },
@@ -141,6 +142,13 @@ function awaitedWorkspace(): unknown {
     title: "Resume Workspace",
     description: "Chat with the app and inspect app-owned documents.",
     default_document_id: "conversation",
+    empty_state: {
+      empty_state_version: 1,
+      heading: "Let's build your resume",
+      description: "Tell me the role you want, paste an existing resume, or describe your experience.",
+      cta_label: "Let's get started",
+      cta_message: "I want to build my resume.",
+    },
     documents: [
       {
         document_version: 1,
@@ -165,6 +173,14 @@ function awaitedWorkspace(): unknown {
         model_access: "read_write_draft",
         resource_id: null,
         data_binding_id: "resume.profile",
+        initial_content: {
+          initial_content_version: 1,
+          source: "package_file",
+          package_path: "payload/resources/profile-template.md",
+          media_type: "text/markdown",
+          content_digest: digest("d"),
+          seed_policy: "when_missing",
+        },
       },
       {
         document_version: 1,
@@ -236,9 +252,42 @@ function awaitedWorkspace(): unknown {
 describe("chat workspace descriptor contracts", () => {
   it("accepts app actions with concrete digest-bound input and result schemas", () => {
     const parsed = ChatWorkspaceDescriptorSchema.parse(awaitedWorkspace());
+    expect(parsed.empty_state).toMatchObject({ cta_label: "Let's get started" });
+    expect(parsed.documents.find((document) => document.document_id === "profile")?.initial_content).toMatchObject({
+      package_path: "payload/resources/profile-template.md",
+      content_digest: digest("d"),
+    });
     expect(parsed.actions[0].input_schema.schema.properties).toHaveProperty("profile_markdown");
     expect(parsed.actions[0].input_schema.content_digest).toBe(canonicalInputDigest(parsed.actions[0].input_schema.schema));
     expect(parsed.actions[0].result_schema.schema).toEqual(emptyObjectSchema());
+  });
+
+  it("rejects initial document content that does not bind a declared immutable package file", () => {
+    const parsed = manifest();
+    const workspace = parsed.presentations!.workspaces[0]!;
+    const documents = workspace.documents.map((document) => document.document_id === "profile"
+      ? { ...document, initial_content: { ...document.initial_content!, content_digest: digest("0") } }
+      : document);
+
+    expect(GenericPackageManifestSchema.safeParse({
+      ...parsed,
+      presentations: {
+        ...parsed.presentations!,
+        workspaces: [{ ...workspace, documents }],
+      },
+    }).success).toBe(false);
+  });
+
+  it("rejects unsafe app-declared empty-state copy before it reaches the client", () => {
+    const workspace = ChatWorkspaceDescriptorSchema.parse(awaitedWorkspace());
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      empty_state: {
+        ...workspace.empty_state!,
+        cta_message: "https://example.invalid/start",
+      },
+    }).success).toBe(false);
   });
 
   it("rejects model-visible actions that keep only opaque input/result schema ids", () => {

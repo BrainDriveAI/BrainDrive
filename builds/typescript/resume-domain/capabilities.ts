@@ -13,7 +13,7 @@ import { ResumeDomainService, type DataAuthority } from "./service.js";
 import type { ResumeExportBroker } from "../resume-renderer/export-broker.js";
 import type { HostOwnerDecisionEvidence } from "./career-data.js";
 import { ResumeRecoveryReconciliationQuerySchema } from "../app-capabilities/recovery-reconciliation.js";
-import { FactDecisionInputSchema } from "./career-data.js";
+import { FactDecisionInputSchema, issueHostOwnerDecisionEvidence } from "./career-data.js";
 import { CRAFT_EVIDENCE_LIMITED_POLICY, craftDefinitionDigest } from "../resume-inference/craft-evaluator.js";
 import { adjudicateResumeQualityState, projectResumeOwnerReview } from "./quality-state.js";
 import {
@@ -174,11 +174,16 @@ export class ResumeCapabilityRouter {
         case "career.facts.propose":
           result = await this.domain.proposeFact(input, authority);
           break;
-        case "career.facts.confirm":
-          result = GroupFactConfirmationCapabilityInputSchema.safeParse(input).success
-            ? await this.domain.confirmFacts(input, authority, context.ownerDecisions ?? [])
-            : await this.domain.confirmFact(input, authority, context.ownerDecision!);
+        case "career.facts.confirm": {
+          const groupedInput = GroupFactConfirmationCapabilityInputSchema.safeParse(input);
+          if (groupedInput.success) {
+            result = await this.domain.confirmFacts(groupedInput.data, authority, context.ownerDecisions ?? this.ownerDecisionEvidenceForFacts(groupedInput.data.decisions, context));
+          } else {
+            const factDecision = FactDecisionInputSchema.parse(input);
+            result = await this.domain.confirmFact(factDecision, authority, context.ownerDecision ?? this.ownerDecisionEvidenceForFact(factDecision, context));
+          }
           break;
+        }
         case "resume.definitions.read":
           result = await this.readDefinitions(DefinitionReadInputSchema.parse(input), authority);
           break;
@@ -327,6 +332,30 @@ export class ResumeCapabilityRouter {
       return record;
     }
     return this.domain.readRecords(recordType, authority);
+  }
+
+  private ownerDecisionEvidenceForFacts(
+    decisions: readonly z.infer<typeof FactDecisionInputSchema>[],
+    context: CapabilityExecutionContext,
+  ): readonly HostOwnerDecisionEvidence[] {
+    return decisions.map((decision) => this.ownerDecisionEvidenceForFact(decision, context));
+  }
+
+  private ownerDecisionEvidenceForFact(
+    decision: z.infer<typeof FactDecisionInputSchema>,
+    context: CapabilityExecutionContext,
+  ): HostOwnerDecisionEvidence {
+    if (context.hostOwnerConfirmed !== true) {
+      throw new ResumeDomainError("denied", "This action requires host owner confirmation", 403);
+    }
+    return issueHostOwnerDecisionEvidence({
+      ownerId: context.authority.context.owner_id,
+      actorId: context.authority.context.actor_id,
+      operationId: context.operationId,
+      inputRevisionId: decision.fact_revision_id,
+      decision: decision.decision,
+      confirmedAt: new Date().toISOString(),
+    });
   }
 
   private async readDefinitions(input: z.infer<typeof DefinitionReadInputSchema>, authority: DataAuthority): Promise<unknown> {

@@ -283,6 +283,10 @@ describe("live signed modern MCP Apps fixture", () => {
         workspace: {
           workspace_id: "resume.chat",
           default_document_id: "conversation",
+          empty_state: {
+            heading: "Let's build your resume",
+            cta_label: "Let's get started",
+          },
         },
       });
       expect(launch.workspace.documents).toEqual(expect.arrayContaining([
@@ -301,6 +305,8 @@ describe("live signed modern MCP Apps fixture", () => {
       ]);
       expect(actions.map((action) => action.action_id)).toEqual([
         "resume.profile.read",
+        "career.fact.propose",
+        "career.fact.confirm",
         "resume.profile.update",
         "resume.create",
         "resume.export.pdf.request",

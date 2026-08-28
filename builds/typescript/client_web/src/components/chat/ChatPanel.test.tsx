@@ -124,20 +124,20 @@ describe("ChatPanel typing indicator behavior", () => {
         activeConversationId={null}
         isEmpty
         emptyStateIntro={{
-          heading: "Let's build your resume",
-          description: "Tell me the role you want, paste an existing resume, or describe your experience.",
-          cta: "Start my resume",
-          ctaMessage: "I want to build my resume.",
+          heading: "Start a focused app conversation",
+          description: "Use the app-declared prompt to begin this workspace.",
+          cta: "Let's get started",
+          ctaMessage: "Begin the app workflow.",
         }}
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Let's build your resume" })).toBeInTheDocument();
-    expect(screen.getByText("Tell me the role you want, paste an existing resume, or describe your experience.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Start a focused app conversation" })).toBeInTheDocument();
+    expect(screen.getByText("Use the app-declared prompt to begin this workspace.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Start my resume" }));
+    await user.click(screen.getByRole("button", { name: "Let's get started" }));
 
-    expect(hookState.append).toHaveBeenCalledWith("I want to build my resume.", { metadata: undefined });
+    expect(hookState.append).toHaveBeenCalledWith("Begin the app workflow.", { metadata: undefined });
   });
 
   it("treats provider timeout messages as provider errors regardless of casing", () => {

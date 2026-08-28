@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
 
 import {
   RESUME_CHAT_ACTIONS,
   RESUME_CHAT_DOCUMENTS,
+  RESUME_CHAT_EMPTY_STATE,
   RESUME_CHAT_PRESENTATION_ID,
   RESUME_CHAT_RESOURCES,
   RESUME_CHAT_WORKSPACE_ID,
@@ -16,6 +19,7 @@ import {
   buildResumeProfileUpdateCapabilityInput,
   describeResumeChatStateConvergence,
   describeResumeExportMediation,
+  planResumeAction,
   projectResumeStorageDocuments,
   projectResumeDocument,
   projectResumeProfile,
@@ -50,6 +54,11 @@ describe("Resume Builder chat workspace contract", () => {
     expect(RESUME_STRUCTURED_RESOURCE_URI).toBe("ui://resume-builder/main");
     expect(RESUME_CHAT_DOCUMENTS.profile).toBe("resume.profile");
     expect(RESUME_CHAT_DOCUMENTS.resume).toBe("resume.document");
+    expect(RESUME_CHAT_EMPTY_STATE).toMatchObject({
+      heading: "Let's build your resume",
+      cta_label: "Let's get started",
+      cta_message: "I want to build my resume.",
+    });
   });
 
   it("keeps Profile and Resume bound to one Resume-domain state source", () => {
@@ -191,12 +200,22 @@ describe("Resume Builder chat workspace contract", () => {
   it("keeps app actions Resume-owned and excludes non-scope workflows", () => {
     expect(RESUME_CHAT_ACTIONS.map((action) => action.actionId)).toEqual([
       "resume.profile.read",
+      "career.fact.propose",
+      "career.fact.confirm",
       "resume.profile.update",
       "resume.create",
       "resume.export.pdf.request",
       "resume.state.read",
     ]);
-    expect(RESUME_CHAT_ACTIONS.every((action) => action.capability.startsWith("resume."))).toBe(true);
+    expect(RESUME_CHAT_ACTIONS.map((action) => action.capability)).toEqual([
+      null,
+      "career.facts.propose",
+      "career.facts.confirm",
+      "resume.definitions.write",
+      "resume.definitions.write",
+      "resume.export.request",
+      "resume.operations.read",
+    ]);
     expect(JSON.stringify(RESUME_CHAT_ACTIONS)).not.toMatch(/docx|linkedin|import|tailor|template.choice/i);
   });
 
@@ -205,7 +224,7 @@ describe("Resume Builder chat workspace contract", () => {
     const turnId = crypto.randomUUID();
     const occurredAt = "2026-08-27T12:00:00.000Z";
 
-    expect(buildResumeProfileReadCapabilityInput()).toEqual({ view: "workspace" });
+    expect(buildResumeProfileReadCapabilityInput()).toEqual({});
     expect(buildResumeProfileUpdateCapabilityInput({
       profile_markdown: "Maya Torres profile",
       completed_topics: ["direction", "experience"],
@@ -250,6 +269,184 @@ describe("Resume Builder chat workspace contract", () => {
         expect.objectContaining({ section_id: "experience", text: "Reduced launch slips by 38% across six product squads.", display_role: "bullet" }),
       ]),
     });
+
+    expect(planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.profile.read",
+      action_input: {},
+      owner_confirmed: false,
+      operation_id: turnId,
+      idempotency_key: `read-${turnId}`,
+      occurred_at: occurredAt,
+      session: {
+        session_id: sessionId,
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    }).steps).toEqual([
+      { step_id: "read-profile-document", type: "document.read", document_id: "resume.profile" },
+    ]);
+
+    expect(planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "career.fact.propose",
+      action_input: { source: { source_kind: "owner_interview" }, fact: { fact_kind: "skill", state: "suggested", value: "TypeScript", sensitivity: "standard" } },
+      owner_confirmed: false,
+      operation_id: turnId,
+      idempotency_key: `propose-${turnId}`,
+      occurred_at: occurredAt,
+      session: {
+        session_id: sessionId,
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    }).steps).toEqual([
+      { step_id: "propose-career-fact", type: "capability.call", capability: "career.facts.propose", capability_version: 1, input: { source: { source_kind: "owner_interview" }, fact: { fact_kind: "skill", state: "suggested", value: "TypeScript", sensitivity: "standard" } }, owner_confirmation: "none" },
+    ]);
+
+    expect(planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "career.fact.confirm",
+      action_input: { decisions: [] },
+      owner_confirmed: true,
+      operation_id: turnId,
+      idempotency_key: `confirm-${turnId}`,
+      occurred_at: occurredAt,
+      session: {
+        session_id: sessionId,
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    }).steps).toEqual([
+      { step_id: "confirm-career-facts", type: "capability.call", capability: "career.facts.confirm", capability_version: 1, input: { decisions: [] }, owner_confirmation: "inherit" },
+    ]);
+  });
+
+  it("plans Resume chat actions into generic host-executable steps", () => {
+    const sessionId = crypto.randomUUID();
+    const operationId = crypto.randomUUID();
+    const request = {
+      action_id: "resume.create",
+      action_input: {
+        title: "Maya Torres - Director of Product Operations",
+        resume_markdown: "## Experience\n- Reduced launch slips by 38% across six product squads.",
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: sessionId,
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    };
+
+    const first = planResumeAction(request);
+    const second = planResumeAction(request);
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      action_plan_version: 1,
+      action_id: "resume.create",
+      steps: [
+        {
+          step_id: "write-resume-capability",
+          type: "capability.call",
+          capability: "resume.definitions.write",
+          owner_confirmation: "inherit",
+        },
+        {
+          step_id: "write-resume-document",
+          type: "document.write",
+          document_id: "resume.document",
+          expected_revision: "current",
+          media_type: "text/markdown",
+          content: request.action_input.resume_markdown,
+        },
+      ],
+      final_result: { kind: "step_result", step_id: "write-resume-capability" },
+    });
+    expect(JSON.stringify(first)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
+  });
+
+  it("normalizes model-flattened Resume markdown before planning a create action", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: {
+        title: "Maya Ortiz - Director of Customer Operations Resume",
+        resume_markdown: "# Maya Ortiz Austin, Texas ## Professional Summary Customer operations leader. ## Experience - Reduced first response time from 9.4 hours to 1.8 hours. - Improved gross retention from 86% to 93%.",
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    const capabilityInput = plan.steps.find((step) => step.step_id === "write-resume-capability")?.input as { statements?: Array<{ text: string }> };
+    const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(capabilityInput.statements?.map((statement) => statement.text)).toEqual(expect.arrayContaining([
+      "Professional Summary Customer operations leader.",
+      "Experience",
+      "Reduced first response time from 9.4 hours to 1.8 hours.",
+      "Improved gross retention from 86% to 93%.",
+    ]));
+    expect(documentWrite?.content).toContain("\n\n## Professional Summary");
+    expect(documentWrite?.content).toContain("\n- Reduced first response time");
+  });
+
+  it("plans PDF export from the current app-owned Resume document", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", safe_filename: "maya-torres", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.",
+      }],
+    });
+
+    expect(plan.steps[0]).toMatchObject({
+      step_id: "prepare-pdf-export",
+      type: "export.prepare",
+      source: { kind: "app_document", source_id: "resume.document" },
+      media_type: "application/pdf",
+      retention_class: "durable_owner_data",
+      filename: "maya-torres.pdf",
+      destination_intent: "new_download",
+      overwrite_confirmed: false,
+    });
+    expect(plan.steps[0].content_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(Buffer.from(String(plan.steps[0].bytes_base64), "base64").subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
   });
 
   it("declares package resources for workspace start, action request, and recovery reference", () => {
@@ -267,5 +464,22 @@ describe("Resume Builder chat workspace contract", () => {
       "action_request",
       "document_open",
     ]);
+  });
+
+  it("keeps Dave W's proven interview and profile guardrails in app-owned resources", async () => {
+    const [agent, interview, quality] = await Promise.all([
+      readFile(new URL("../resources/agent-instructions.md", import.meta.url), "utf8"),
+      readFile(new URL("../resources/interview-guide.md", import.meta.url), "utf8"),
+      readFile(new URL("../resources/resume-quality-standard.md", import.meta.url), "utf8"),
+    ]);
+
+    expect(agent).toContain("No appended effects");
+    expect(agent).toContain("No wording upgrades");
+    expect(agent).toContain("Your Resume Profile is ready to review in the sidebar");
+    expect(interview).toContain("Resume dates are absolute");
+    expect(interview).toContain("An owner's hedge stays hedged");
+    expect(interview).toContain("Do not use this as a checklist");
+    expect(quality).toContain("The Resume Profile is the editable source of truth");
+    expect(quality).toContain("[gap: ...]");
   });
 });

@@ -1,4 +1,5 @@
 export * from "./audit.js";
+export * from "./app-action-plan.js";
 export * from "./app-artifacts.js";
 export * from "./app-registry.js";
 export * from "./app-storage.js";

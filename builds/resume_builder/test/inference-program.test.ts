@@ -5,6 +5,7 @@ import {
   RESUME_INFERENCE_PROGRAMS,
   adjudicateResumeInference,
   adjudicateResumeGeneralDraft,
+  planResumeAction,
   prepareResumeInference,
   prepareResumeGeneralDraft,
 } from "../resources/inference-program.js";
@@ -51,6 +52,108 @@ function providerCandidateFor(sourceInput: any) {
 }
 
 describe("Resume Builder-owned General draft inference program", () => {
+  it("exposes runtime-owned action planning for host-generic app chat execution", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.profile.update",
+      action_input: {
+        profile_markdown: "# Maya Torres\n\nProduct operations leader.",
+        completed_topics: ["direction", "experience"],
+        current_topic: null,
+      },
+      owner_confirmed: false,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    expect(plan).toMatchObject({
+      action_plan_version: 1,
+      action_id: "resume.profile.update",
+      steps: [
+        { type: "capability.call", capability: "resume.definitions.write", owner_confirmation: "none" },
+        { type: "document.write", document_id: "resume.profile", media_type: "text/markdown" },
+      ],
+    });
+    expect(JSON.stringify(plan)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
+  });
+
+  it("plans document reads and Career memory actions without host-specific action semantics", () => {
+    const operationId = crypto.randomUUID();
+    const baseRequest = {
+      action_planning_contract_version: 1,
+      owner_confirmed: false,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    };
+
+    expect(planResumeAction({
+      ...baseRequest,
+      action_id: "resume.profile.read",
+      action_input: {},
+    }).steps).toEqual([
+      { step_id: "read-profile-document", type: "document.read", document_id: "resume.profile" },
+    ]);
+    expect(planResumeAction({
+      ...baseRequest,
+      action_id: "career.fact.propose",
+      action_input: { source: { source_kind: "owner_interview" }, fact: { fact_kind: "skill", state: "suggested", value: "TypeScript", sensitivity: "standard" } },
+    }).steps).toEqual([
+      { step_id: "propose-career-fact", type: "capability.call", capability: "career.facts.propose", capability_version: 1, input: { source: { source_kind: "owner_interview" }, fact: { fact_kind: "skill", state: "suggested", value: "TypeScript", sensitivity: "standard" } }, owner_confirmation: "none" },
+    ]);
+    expect(planResumeAction({
+      ...baseRequest,
+      action_id: "career.fact.confirm",
+      action_input: { decisions: [] },
+      owner_confirmed: true,
+    }).steps).toEqual([
+      { step_id: "confirm-career-facts", type: "capability.call", capability: "career.facts.confirm", capability_version: 1, input: { decisions: [] }, owner_confirmation: "inherit" },
+    ]);
+  });
+
+  it("runtime planner accepts model-flattened Resume markdown", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.create",
+      action_input: {
+        title: "Maya Ortiz - Director of Customer Operations Resume",
+        resume_markdown: "# Maya Ortiz Austin, Texas ## Professional Summary Customer operations leader. ## Experience - Reduced first response time from 9.4 hours to 1.8 hours. - Improved gross retention from 86% to 93%.",
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    const documentWrite = plan.steps.find((step: any) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(documentWrite?.content).toContain("\n\n## Professional Summary");
+    expect(documentWrite?.content).toContain("\n- Improved gross retention");
+  });
+
   it("assembles exact evidence slots in the app and asks the provider for text only", () => {
     const dimensions = ["responsibilities", "responsibilities", "accomplishments", "outcomes", "tools", "scope", "progression"];
     const evidenceFacts = dimensions.map((dimension, index) => ({

@@ -134,6 +134,18 @@ function createHost() {
       document_binding_id: `${documentId}.current`,
       record: documentId === "missing" ? null : documentRecord(documentId),
     })),
+    readAppResource: vi.fn(async (_sessionId: string, resourceId: string) => ({
+      result_version: 1,
+      resource_id: resourceId,
+      title: "Agent Instructions",
+      description: "Read-only package resource.",
+      role: "agent_instructions",
+      media_type: "text/markdown",
+      content_digest: `sha256:${"d".repeat(64)}`,
+      owner_editable: false,
+      prompt_inclusion: "workspace_start",
+      content: "# Agent Instructions\nUse the declared app resource.",
+    })),
     writeAppDocument: vi.fn(async (_sessionId: string, documentId: string, input: unknown) => ({
       result_version: 1,
       state: "current",
@@ -394,6 +406,22 @@ describe("owner MCP Apps host gateway routes", () => {
     expect(documentRead.body).not.toContain("/home/");
     expect(documentRead.body).not.toContain("authorization");
     expect(host.readAppDocument).toHaveBeenCalledWith(chat.json().session.session_id, "resume.profile");
+
+    const resourceRead = await app.inject({
+      method: "GET",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/resources/agent.instructions`,
+    });
+    expect(resourceRead.statusCode).toBe(200);
+    expect(resourceRead.json()).toMatchObject({
+      result_version: 1,
+      resource_id: "agent.instructions",
+      media_type: "text/markdown",
+      content: "# Agent Instructions\nUse the declared app resource.",
+    });
+    expect(resourceRead.body).not.toContain("payload/resources");
+    expect(resourceRead.body).not.toContain("/home/");
+    expect(resourceRead.body).not.toContain("authorization");
+    expect(host.readAppResource).toHaveBeenCalledWith(chat.json().session.session_id, "agent.instructions");
 
     const writeOperationId = crypto.randomUUID();
     const documentWrite = await app.inject({

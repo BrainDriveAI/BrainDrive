@@ -4,6 +4,13 @@
   "title": "Resume Workspace",
   "description": "Chat with the app and inspect app-owned documents.",
   "default_document_id": "conversation",
+  "empty_state": {
+    "empty_state_version": 1,
+    "heading": "Let's build your resume",
+    "description": "Tell me the role you want, paste an existing resume, or describe your experience.",
+    "cta_label": "Let's get started",
+    "cta_message": "I want to build my resume."
+  },
   "documents": [
     {
       "document_version": 1,

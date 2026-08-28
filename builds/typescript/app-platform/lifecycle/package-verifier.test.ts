@@ -4,8 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
+import { canonicalJsonDocumentDigest } from "../contracts/common.js";
 import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
+import { parseStoredRuntimePackageManifestWithDigest } from "./runtime-manifest.js";
 
 const roots: string[] = [];
 
@@ -106,6 +109,51 @@ describe("signed fixture package verification", () => {
     await expect(access(path.join(authorityRoot, "source-index.json"))).resolves.toBeUndefined();
     expect(repository.packages[MODERN_FIXTURE_VERSION]?.archivePath).toBe(path.join(authorityRoot, `${MODERN_FIXTURE_VERSION}.bdapp`));
     expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
+  });
+
+  it("declares the PDF export action result as a prepared artifact export result", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-export-result-schema-"));
+    roots.push(root);
+    const repository = await createFixtureRepository(path.join(root, "source"));
+    const verified = await new PackageVerifier("26.7.23").verifyForCatalog(repository, MODERN_FIXTURE_VERSION, {
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+    });
+    const workspace = verified.manifest.manifest_version === 2
+      ? verified.manifest.presentations?.workspaces.find((candidate) => candidate.workspace_id === "resume.chat")
+      : null;
+    const action = workspace?.actions.find((candidate) => candidate.action_id === "resume.export.pdf.request");
+
+    expect(action?.result_schema.schema).toMatchObject({
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["prepared"] },
+        artifact: { type: "object" },
+        safe_destination_label: { type: "string" },
+      },
+    });
+    expect((action?.result_schema.schema as { required?: string[] }).required).toEqual(expect.arrayContaining([
+      "artifact",
+      "bytes_base64",
+      "safe_destination_label",
+    ]));
+  });
+
+  it("normalizes historical stored v2 manifests without accepting them as new package candidates", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-transitional-retention-"));
+    roots.push(root);
+    const repository = await createFixtureRepository(path.join(root, "source"));
+    const descriptor = JSON.parse(await readFile(repository.packages[MODERN_FIXTURE_VERSION].descriptorPath, "utf8"));
+    const transitionalManifest = {
+      ...descriptor.payload.manifest,
+      retention_policy: "retain_owner_data_remove_runtime_authority",
+    };
+
+    expect(GenericPackageManifestSchema.safeParse(transitionalManifest).success).toBe(false);
+    const parsed = parseStoredRuntimePackageManifestWithDigest(transitionalManifest);
+    if (typeof parsed.manifest.retention_policy === "string") throw new Error("expected normalized retention policy");
+    expect(parsed.manifest.retention_policy.classes.map((entry) => entry.retention_class)).toContain("app_storage");
+    expect(parsed.manifestDigest).toBe(canonicalJsonDocumentDigest(transitionalManifest));
   });
 
   it("republishes the current mounted Resume package with fresh verification metadata after a host restart", async () => {

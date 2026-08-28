@@ -550,6 +550,8 @@
     { "path": "builds/resume_builder/resources/agent-instructions.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/interview-guide.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/recovery-guidance.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
+    { "path": "builds/resume_builder/resources/resume-profile-template.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
+    { "path": "builds/resume_builder/resources/resume-template.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/resume-quality-standard.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/resume-template-standard.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/typescript/Getting-Started-OpenRouter.md", "classification": "legacy-developer-entry", "status": "legacy", "ownerRole": "runtime-maintainers" },

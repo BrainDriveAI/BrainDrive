@@ -5,12 +5,14 @@ import { getSession } from "@/api/auth-adapter";
 import {
   closeAppSession,
   readAppChatWorkspaceDocument,
+  readAppChatWorkspaceResource,
   readAppChatWorkspaceSession,
   writeAppChatWorkspaceDocument,
   AppDocumentError,
   type AppChatWorkspaceLaunch,
   type AppDocumentReadResult,
   type AppDocumentRecord,
+  type AppResourceReadResult,
   type AppResourceDescriptor,
   type AppWorkspaceDocumentHeaderAction,
   type AppWorkspaceDocumentDescriptor,
@@ -55,15 +57,6 @@ const FALLBACK_CONVERSATION: AppWorkspaceDocumentDescriptor = {
   data_binding_id: null,
 };
 
-const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder";
-
-const RESUME_BUILDER_EMPTY_STATE = {
-  heading: "Let's build your resume",
-  description: "Tell me the role you want, paste an existing resume, or describe your experience. I'll help shape it into a focused resume profile and draft.",
-  cta: "Start my resume",
-  ctaMessage: "I want to build my resume.",
-};
-
 function itemKey(item: WorkspaceItem): string {
   return item.key;
 }
@@ -92,6 +85,17 @@ function defaultItemKey(launch: AppChatWorkspaceLaunch, items: WorkspaceItem[]):
   const defaultDocument = items.find((item) => item.kind === "document" && item.document.document_id === launch.workspace.default_document_id);
   const conversation = items.find((item) => item.kind === "document" && item.document.role === "conversation");
   return itemKey(defaultDocument ?? conversation ?? items[0] ?? { key: "document:conversation", kind: "document", document: FALLBACK_CONVERSATION });
+}
+
+function workspaceEmptyStateIntro(launch: AppChatWorkspaceLaunch) {
+  const emptyState = launch.workspace.empty_state;
+  if (!emptyState) return undefined;
+  return {
+    heading: emptyState.heading,
+    description: emptyState.description,
+    cta: emptyState.cta_label ?? undefined,
+    ctaMessage: emptyState.cta_message ?? undefined,
+  };
 }
 
 export function buildAppChatMessageMetadata(launch: AppChatWorkspaceLaunch): Record<string, unknown> {
@@ -128,6 +132,7 @@ export default function AppChatWorkspace({
   const [sessionState, setSessionState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [isReloading, setIsReloading] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [queuedChatMessage, setQueuedChatMessage] = useState<{ id: string; content: string } | null>(null);
   const activeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const navButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -147,6 +152,7 @@ export default function AppChatWorkspace({
       : null;
   const isConversation = activeDocument?.role === "conversation";
   const messageMetadata = useMemo(() => buildAppChatMessageMetadata(launch), [launch]);
+  const emptyStateIntro = useMemo(() => workspaceEmptyStateIntro(launch), [launch]);
 
   const closeSessionById = useCallback((sessionId: string) => {
     if (closedSessionIdsRef.current.has(sessionId)) return;
@@ -228,7 +234,8 @@ export default function AppChatWorkspace({
   }
 
   function moveNavigationFocus(event: KeyboardEvent<HTMLButtonElement>, currentKey: string) {
-    const keys = items.map(itemKey);
+    const visibleItems = advancedOpen ? items : items.filter((item) => item.kind !== "resource" && item.document.default_visibility !== "advanced");
+    const keys = visibleItems.map(itemKey);
     const currentIndex = keys.indexOf(currentKey);
     if (currentIndex < 0) return;
     const keyActions: Record<string, number | "first" | "last"> = {
@@ -254,7 +261,7 @@ export default function AppChatWorkspace({
       draftKey={`app-chat:${launch.session.app_id}:${launch.session.view_id}`}
       isEmpty
       messageMetadata={messageMetadata}
-      emptyStateIntro={launch.session.app_id === RESUME_BUILDER_APP_ID ? RESUME_BUILDER_EMPTY_STATE : undefined}
+      emptyStateIntro={emptyStateIntro}
       contentOverride={isConversation ? undefined : (
         <WorkspaceDetail
           appKey={appKey}
@@ -282,7 +289,7 @@ export default function AppChatWorkspace({
           Back to Apps
         </Button>
 
-        <p className="px-1 text-[13px] uppercase tracking-[0.24em] text-bd-text-muted">{appName}</p>
+        <p className="px-1 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
         {sessionError ? (
           <div role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
             <AlertCircle size={15} className="mt-0.5 shrink-0" />
@@ -300,14 +307,27 @@ export default function AppChatWorkspace({
             onMoveFocus={moveNavigationFocus}
           />
           {advancedItems.length > 0 ? (
-            <WorkspaceNavGroup
-              label="Show advanced"
-              items={advancedItems}
-              activeKey={activeItemKey}
-              navButtonRefs={navButtonRefs}
-              onSelect={setActiveItemKey}
-              onMoveFocus={moveNavigationFocus}
-            />
+            <div className="shrink-0 md:pt-4">
+              <button
+                type="button"
+                aria-expanded={advancedOpen}
+                onClick={() => setAdvancedOpen((current) => !current)}
+                className="flex min-w-44 items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber md:min-w-0"
+              >
+                <span>{advancedOpen ? "Hide advanced" : "Show advanced"}</span>
+                <SlidersHorizontal size={15} aria-hidden="true" />
+              </button>
+              {advancedOpen ? (
+                <WorkspaceNavGroup
+                  label={null}
+                  items={advancedItems}
+                  activeKey={activeItemKey}
+                  navButtonRefs={navButtonRefs}
+                  onSelect={setActiveItemKey}
+                  onMoveFocus={moveNavigationFocus}
+                />
+              ) : null}
+            </div>
           ) : null}
         </div>
 
@@ -363,7 +383,7 @@ function WorkspaceNavGroup({
   return (
     <section className="flex shrink-0 gap-2 md:flex-col" aria-label={label ?? "Workspace"}>
       {label ? (
-        <div className="hidden items-center justify-between px-2 pb-1 pt-5 text-sm text-bd-text-muted md:flex">
+        <div className="hidden items-center justify-between px-2 pb-1 pt-5 text-xs text-bd-text-muted md:flex">
           <span>{label}</span>
           <SlidersHorizontal size={15} aria-hidden="true" />
         </div>
@@ -380,11 +400,11 @@ function WorkspaceNavGroup({
             onClick={() => onSelect(item.key)}
             onKeyDown={(event) => onMoveFocus(event, item.key)}
             className={cn(
-              "flex min-w-44 items-center gap-3 rounded-md px-3 py-2.5 text-left text-base transition-colors hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber md:min-w-0",
-              activeKey === item.key ? "bg-bd-bg-tertiary text-bd-text-heading" : "text-bd-text-secondary",
+              "flex min-w-44 items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-all duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber md:min-w-0",
+              activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
             )}
           >
-            <Icon size={18} aria-hidden="true" />
+            <Icon size={17} strokeWidth={1.7} aria-hidden="true" />
             <span className="truncate">{title}</span>
           </button>
         );
@@ -513,10 +533,13 @@ function WorkspaceDetail({
   const isDocumentChrome = presentation?.chrome === "document";
   const exposedActions = actions.filter((action) => action.model_exposure === "available");
   const [documentResult, setDocumentResult] = useState<AppDocumentReadResult | null>(null);
+  const [resourceResult, setResourceResult] = useState<AppResourceReadResult | null>(null);
   const [draftContent, setDraftContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [documentStatus, setDocumentStatus] = useState<"idle" | "loading" | "ready" | "saving" | "error">("idle");
+  const [resourceStatus, setResourceStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
   const boundDocument = item.kind === "document" && Boolean(item.document.data_binding_id) ? item.document : null;
   const documentRecord = documentResult?.record ?? null;
@@ -555,9 +578,33 @@ function WorkspaceDetail({
     }
   }, [appKey, boundDocument, sessionId]);
 
+  const loadResource = useCallback(async () => {
+    if (!resource) {
+      setResourceResult(null);
+      setResourceStatus("idle");
+      setResourceError(null);
+      return;
+    }
+    setResourceStatus("loading");
+    setResourceError(null);
+    try {
+      const result = await readAppChatWorkspaceResource(appKey, sessionId, resource.resource_id);
+      setResourceResult(result);
+      setResourceStatus("ready");
+    } catch {
+      setResourceResult(null);
+      setResourceStatus("error");
+      setResourceError("This app package resource could not be loaded safely.");
+    }
+  }, [appKey, resource, sessionId]);
+
   useEffect(() => {
     void loadDocument();
   }, [loadDocument]);
+
+  useEffect(() => {
+    void loadResource();
+  }, [loadResource]);
 
   async function saveDocument() {
     if (!boundDocument || documentStatus === "saving") return;
@@ -653,7 +700,7 @@ function WorkspaceDetail({
           </div>
         </div>
 
-        {!isDocumentChrome ? (
+        {!isDocumentChrome && !resource ? (
           <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
             <DescriptorFact label="State" value={editable ? "Owner editable" : "Read only"} />
             <DescriptorFact label="Role" value={item.kind === "document" ? roleLabel(item.document.role) : roleLabel(item.resource.role)} />
@@ -721,18 +768,40 @@ function WorkspaceDetail({
 
         {resource ? (
           <section className="mt-6 border-t border-bd-border pt-5" aria-labelledby="app-workspace-resource-title">
-            <h3 id="app-workspace-resource-title" className="font-heading text-base text-bd-text-heading">Package resource</h3>
-            <p className="mt-1 text-sm text-bd-text-secondary">{resource.description}</p>
-            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-              <DescriptorFact label="Resource" value={resource.title} />
-              <DescriptorFact label="Media type" value={resource.media_type} />
-              <DescriptorFact label="Prompt inclusion" value={roleLabel(resource.prompt_inclusion)} />
-              <DescriptorFact label="Digest" value={descriptorDigestLabel(resource.content_digest)} />
-            </dl>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 id="app-workspace-resource-title" className="font-heading text-base text-bd-text-heading">Package resource</h3>
+                <p className="mt-1 text-sm text-bd-text-secondary">
+                  {resource.owner_editable ? "Editable package resource declaration" : "Read-only package resource"} · {resource.media_type} · digest {descriptorDigestLabel(resource.content_digest)}
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void loadResource()} disabled={resourceStatus === "loading"} className="gap-2">
+                {resourceStatus === "loading" ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                Refresh
+              </Button>
+            </div>
+
+            {resourceError ? (
+              <div role="alert" className="mt-4 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
+                {resourceError}
+              </div>
+            ) : null}
+
+            {resourceStatus === "loading" ? (
+              <div className="mt-4 flex items-center gap-2 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-secondary" role="status">
+                <LoaderCircle size={16} className="animate-spin" />
+                Loading package resource...
+              </div>
+            ) : (
+              <ResourceContentView
+                mediaType={resourceResult?.media_type ?? resource.media_type}
+                content={resourceResult?.content ?? ""}
+              />
+            )}
           </section>
         ) : null}
 
-        {!isDocumentChrome && exposedActions.length > 0 ? (
+        {item.kind === "document" && !resource && !isDocumentChrome && exposedActions.length > 0 ? (
           <section className="mt-6 border-t border-bd-border pt-5" aria-labelledby="app-workspace-actions-title">
             <h3 id="app-workspace-actions-title" className="font-heading text-base text-bd-text-heading">Declared actions</h3>
             <ul className="mt-3 space-y-2 text-sm text-bd-text-secondary">
@@ -763,6 +832,26 @@ function DescriptorFact({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 break-words text-bd-text-primary">{value}</dd>
     </div>
   );
+}
+
+function ResourceContentView({ mediaType, content }: { mediaType: AppResourceDescriptor["media_type"]; content: string }) {
+  if (mediaType === "text/markdown") {
+    return <MarkdownDocumentView markdown={content || "No package resource content available."} />;
+  }
+  const formatted = mediaType === "application/json" ? formatJsonResource(content) : content;
+  return (
+    <pre className="mt-4 max-h-[60vh] overflow-auto rounded-md border border-bd-border bg-bd-bg-primary px-3 py-3 font-mono text-sm leading-6 text-bd-text-primary">
+      {formatted || "No package resource content available."}
+    </pre>
+  );
+}
+
+function formatJsonResource(content: string): string {
+  try {
+    return JSON.stringify(JSON.parse(content), null, 2);
+  } catch {
+    return content;
+  }
 }
 
 function HeaderActionIcon({ action }: { action: AppWorkspaceDocumentHeaderAction }) {

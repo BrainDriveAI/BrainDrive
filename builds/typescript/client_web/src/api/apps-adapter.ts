@@ -140,7 +140,7 @@ export type AppSurfaceLaunch = {
 export type AppWorkspaceDocumentDescriptor = {
   document_version: 1;
   document_id: string;
-  role: "conversation" | "source_document" | "derived_document" | "advanced_resource" | "recovery";
+  role: "conversation" | "source_document" | "derived_document" | "advanced_resource" | "recovery" | "recovery_document" | "action_result_document";
   title: string;
   description: string;
   editable: boolean;
@@ -149,6 +149,14 @@ export type AppWorkspaceDocumentDescriptor = {
   resource_id: string | null;
   data_binding_id: string | null;
   presentation?: AppWorkspaceDocumentPresentation | null;
+};
+
+export type AppChatWorkspaceEmptyState = {
+  empty_state_version: 1;
+  heading: string;
+  description: string;
+  cta_label: string | null;
+  cta_message: string | null;
 };
 
 export type AppWorkspaceDocumentHeaderAction =
@@ -176,6 +184,19 @@ export type AppResourceDescriptor = {
   content_digest: `sha256:${string}`;
   owner_editable: boolean;
   prompt_inclusion: "never" | "workspace_start" | "document_open" | "action_request";
+};
+
+export type AppResourceReadResult = {
+  result_version: 1;
+  resource_id: string;
+  title: string;
+  description: string;
+  role: AppResourceDescriptor["role"];
+  media_type: AppResourceDescriptor["media_type"];
+  content_digest: `sha256:${string}`;
+  owner_editable: boolean;
+  prompt_inclusion: AppResourceDescriptor["prompt_inclusion"];
+  content: string;
 };
 
 export type AppActionDescriptor = {
@@ -248,6 +269,7 @@ export type AppChatWorkspaceLaunch = {
     title: string;
     description: string;
     default_document_id: string;
+    empty_state?: AppChatWorkspaceEmptyState | null;
     documents: AppWorkspaceDocumentDescriptor[];
     resources: AppResourceDescriptor[];
     actions: AppActionDescriptor[];
@@ -633,6 +655,10 @@ export function readAppChatWorkspaceSession(appKey: string, sessionId: string): 
 
 export function readAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
   return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`);
+}
+
+export function readAppChatWorkspaceResource(appKey: string, sessionId: string, resourceId: string): Promise<AppResourceReadResult> {
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/resources/${encodeURIComponent(resourceId)}`);
 }
 
 export function writeAppChatWorkspaceDocument(appKey: string, sessionId: string, documentId: string, input: {

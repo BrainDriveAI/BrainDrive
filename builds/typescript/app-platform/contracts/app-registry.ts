@@ -343,6 +343,27 @@ export const WorkspaceDocumentPresentationSchema = z
   })
   .strict();
 
+export const WorkspaceDocumentInitialContentSchema = z
+  .object({
+    initial_content_version: z.literal(1),
+    source: z.literal("package_file"),
+    package_path: PackagePathSchema,
+    media_type: z.enum(["text/markdown", "text/plain", "application/json"]),
+    content_digest: Sha256DigestSchema,
+    seed_policy: z.enum(["when_missing"]),
+  })
+  .strict();
+
+export const ChatWorkspaceEmptyStateSchema = z
+  .object({
+    empty_state_version: z.literal(1),
+    heading: safePresentationText(80),
+    description: safePresentationText(512),
+    cta_label: safePresentationText(40).nullable(),
+    cta_message: safePresentationText(512).nullable(),
+  })
+  .strict();
+
 export const WorkspaceDocumentDescriptorSchema = z
   .object({
     document_version: z.literal(1),
@@ -355,6 +376,7 @@ export const WorkspaceDocumentDescriptorSchema = z
     model_access: z.enum(["none", "read_reference", "read_write_draft", "action_result"]),
     resource_id: DescriptorResourceIdSchema.nullable(),
     data_binding_id: HostBindingIdSchema.nullable(),
+    initial_content: WorkspaceDocumentInitialContentSchema.nullable().optional(),
     presentation: WorkspaceDocumentPresentationSchema.nullable().optional(),
   })
   .strict();
@@ -407,6 +429,7 @@ export const ChatWorkspaceDescriptorSchema = z
     title: safePresentationText(80),
     description: safePresentationText(512),
     default_document_id: DescriptorDocumentIdSchema,
+    empty_state: ChatWorkspaceEmptyStateSchema.nullable().optional(),
     documents: z.array(WorkspaceDocumentDescriptorSchema).min(1).max(16),
     resources: z.array(AppResourceDescriptorSchema).max(32),
     context_requests: z.array(AppContextRequestDescriptorSchema).max(16),
@@ -428,6 +451,11 @@ export const ChatWorkspaceDescriptorSchema = z
     for (const [index, document] of value.documents.entries()) {
       if (document.resource_id !== null && !resourceIds.has(document.resource_id)) {
         context.addIssue({ code: "custom", path: ["documents", index, "resource_id"], message: "document resource must reference a declared app resource" });
+      }
+      if (document.initial_content) {
+        if (!document.data_binding_id || document.role === "conversation" || document.role === "advanced_resource") {
+          context.addIssue({ code: "custom", path: ["documents", index, "initial_content"], message: "initial document content requires a bound app document" });
+        }
       }
       const headerActions = document.presentation?.header_actions ?? [];
       for (const [actionIndex, headerAction] of headerActions.entries()) {
@@ -675,6 +703,13 @@ export const GenericPackageManifestSchema = z
         }
       }
       for (const [workspaceIndex, workspace] of value.presentations.workspaces.entries()) {
+        for (const [documentIndex, document] of workspace.documents.entries()) {
+          if (!document.initial_content) continue;
+          const seedFile = files.get(document.initial_content.package_path);
+          if (!seedFile || seedFile.mode !== "read_only" || seedFile.digest !== document.initial_content.content_digest) {
+            context.addIssue({ code: "custom", path: ["presentations", "workspaces", workspaceIndex, "documents", documentIndex, "initial_content"], message: "initial document content must bind a declared immutable package file" });
+          }
+        }
         for (const [resourceIndex, resource] of workspace.resources.entries()) {
           const file = files.get(resource.package_path);
           if (!file || file.mode !== "read_only" || file.digest !== resource.content_digest) {
@@ -936,7 +971,9 @@ export type AppRetentionPolicy = z.infer<typeof AppRetentionPolicySchema>;
 export type AppRetentionClass = z.infer<typeof AppRetentionClassSchema>;
 export type AppPresentationProfile = z.infer<typeof AppPresentationProfileSchema>;
 export type AppPresentationSet = z.infer<typeof AppPresentationSetSchema>;
+export type ChatWorkspaceEmptyState = z.infer<typeof ChatWorkspaceEmptyStateSchema>;
 export type ChatWorkspaceDescriptor = z.infer<typeof ChatWorkspaceDescriptorSchema>;
+export type WorkspaceDocumentInitialContent = z.infer<typeof WorkspaceDocumentInitialContentSchema>;
 export type WorkspaceDocumentDescriptor = z.infer<typeof WorkspaceDocumentDescriptorSchema>;
 export type AppResourceDescriptor = z.infer<typeof AppResourceDescriptorSchema>;
 export type AppContextRequestDescriptor = z.infer<typeof AppContextRequestDescriptorSchema>;

@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.1.0" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.6" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -285,6 +285,17 @@ const RESUME_CHAT_RESOURCE_FILES = [
   },
 ] as const;
 
+const RESUME_CHAT_INITIAL_DOCUMENT_FILES = {
+  profile: {
+    packagePath: "payload/resources/resume-profile-template.md",
+    fileName: "resume-profile-template.md",
+  },
+  resume: {
+    packagePath: "payload/resources/resume-template.md",
+    fileName: "resume-template.md",
+  },
+} as const;
+
 function loadResumeBuilderResource(fileName: string): Buffer {
   const candidates = [
     path.resolve(process.cwd(), "../resume_builder/resources", fileName),
@@ -330,60 +341,128 @@ function profileReadInputSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
-    properties: {
-      view: { type: "string", enum: ["workspace"], description: "Workspace projection to read." },
-    },
-    required: ["view"],
+    properties: {},
+    required: [],
   };
 }
 
-function workspaceRecordArraySchema(): Record<string, unknown> {
-  return { type: "array", items: {}, maxItems: 4096 };
-}
-
 function profileReadResultSchema(): Record<string, unknown> {
-  const records = workspaceRecordArraySchema();
   return {
     type: "object",
     additionalProperties: false,
     properties: {
-      workspace_version: { type: "number" },
-      definitions: records,
-      definition_history: records,
-      variants: records,
-      artifacts: records,
-      exports: records,
-      interview: records,
-      jobs: records,
-      job_history: records,
-      revision_requests: records,
-      coverage: records,
-      strategies: records,
-      target_fit_analyses: records,
-      craft_quality_reports: records,
-      craft_repair_operations: records,
-      artifact_parity_reports: records,
-      quality_reviews: records,
+      result_version: { type: "number", enum: [1] },
+      state: { type: "string", enum: ["current", "missing"] },
+      document_id: { type: "string", enum: ["resume.profile"] },
+      document_binding_id: { type: "string", enum: ["resume.profile.current"] },
+      record: {
+        type: ["object", "null"],
+        additionalProperties: true,
+        properties: {
+          document_id: { type: "string", enum: ["resume.profile"] },
+          document_binding_id: { type: "string", enum: ["resume.profile.current"] },
+          media_type: { type: "string", enum: ["text/markdown"] },
+          content: { type: "string" },
+          revision: { type: "number" },
+        },
+        required: [],
+      },
     },
-    required: [
-      "workspace_version",
-      "definitions",
-      "definition_history",
-      "variants",
-      "artifacts",
-      "exports",
-      "interview",
-      "jobs",
-      "job_history",
-      "revision_requests",
-      "coverage",
-      "strategies",
-      "target_fit_analyses",
-      "craft_quality_reports",
-      "craft_repair_operations",
-      "artifact_parity_reports",
-      "quality_reviews",
-    ],
+    required: ["result_version", "state", "document_id", "document_binding_id", "record"],
+  };
+}
+
+function careerFactProposeInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      source: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          source_kind: { type: "string", enum: ["owner_interview", "accepted_import", "career_handoff", "owner_edit"] },
+          safe_label: { type: "string", minLength: 1, maxLength: 256 },
+          content_digest: { type: "string", minLength: 71, maxLength: 71 },
+          captured_at: { type: "string", minLength: 20, maxLength: 35 },
+        },
+        required: ["source_kind", "safe_label", "content_digest", "captured_at"],
+      },
+      fact: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          fact_kind: { type: "string", enum: ["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference", "job_evidence"] },
+          state: { type: "string", enum: ["imported", "suggested"] },
+          value: { type: "string", minLength: 1, maxLength: 16384 },
+          sensitivity: { type: "string", enum: ["standard", "sensitive", "highly_sensitive"] },
+        },
+        required: ["fact_kind", "state", "value", "sensitivity"],
+      },
+    },
+    required: ["source", "fact"],
+  };
+}
+
+function careerFactProposeResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      source: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      fact: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      classification: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", enum: ["new", "duplicate", "conflict"] },
+          related_fact_revision_ids: { type: "array", items: { type: "string", format: "uuid" }, maxItems: 128 },
+        },
+        required: ["kind", "related_fact_revision_ids"],
+      },
+      reused: { type: "boolean" },
+    },
+    required: ["source", "fact", "classification", "reused"],
+  };
+}
+
+function careerFactConfirmInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      decisions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 100,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            fact_record_id: { type: "string", format: "uuid" },
+            fact_revision_id: { type: "string", format: "uuid" },
+            expected_revision: { type: "integer" },
+            decision: { type: "string", enum: ["accept", "edit_and_accept", "reject"] },
+            edited_value: { type: ["string", "null"], minLength: 1, maxLength: 16384 },
+            review_note: { type: ["string", "null"], maxLength: 512 },
+          },
+          required: ["fact_record_id", "fact_revision_id", "expected_revision", "decision", "edited_value", "review_note"],
+        },
+      },
+    },
+    required: ["decisions"],
+  };
+}
+
+function careerFactConfirmResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      facts: { type: "array", items: { type: "object", additionalProperties: true, properties: {}, required: [] }, maxItems: 100 },
+      reused: { type: "boolean" },
+    },
+    required: ["facts", "reused"],
   };
 }
 
@@ -442,6 +521,35 @@ function exportRequestInputSchema(): Record<string, unknown> {
       overwrite_confirmed: { type: "boolean" },
     },
     required: ["format"],
+  };
+}
+
+function exportPreparedResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      status: { type: "string", enum: ["prepared"] },
+      artifact: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          artifact_revision_id: { type: "string", format: "uuid" },
+          content_digest: { type: "string", minLength: 71, maxLength: 71 },
+          content_size_bytes: { type: "number" },
+          media_type: { type: "string", enum: ["application/pdf"] },
+          owner_visible_label: { type: "string", minLength: 1, maxLength: 256 },
+        },
+        required: ["artifact_revision_id", "content_digest", "content_size_bytes", "media_type", "owner_visible_label"],
+      },
+      filename: { type: "string", minLength: 1, maxLength: 256 },
+      media_type: { type: "string", enum: ["application/pdf"] },
+      bytes_base64: { type: "string", minLength: 1 },
+      safe_destination_label: { type: "string", minLength: 1, maxLength: 256 },
+      replayed: { type: "boolean" },
+    },
+    required: ["result_version", "status", "artifact", "filename", "media_type", "bytes_base64", "safe_destination_label", "replayed"],
   };
 }
 
@@ -523,6 +631,13 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
       title: "Resume Builder",
       description: "Chat-first Resume Builder workspace with Profile and Resume documents.",
       default_document_id: "conversation",
+      empty_state: {
+        empty_state_version: 1,
+        heading: "Let's build your resume",
+        description: "Tell me the role you want, paste an existing resume, or describe your experience. I'll help shape it into a focused resume profile and draft.",
+        cta_label: "Let's get started",
+        cta_message: "I want to build my resume.",
+      },
       documents: [
         {
           document_version: 1,
@@ -548,6 +663,14 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "read_write_draft",
           resource_id: null,
           data_binding_id: "resume.profile.current",
+          initial_content: {
+            initial_content_version: 1,
+            source: "package_file",
+            package_path: RESUME_CHAT_INITIAL_DOCUMENT_FILES.profile.packagePath,
+            media_type: "text/markdown",
+            content_digest: digest(files.get(RESUME_CHAT_INITIAL_DOCUMENT_FILES.profile.packagePath)!),
+            seed_policy: "when_missing",
+          },
           presentation: {
             presentation_version: 1,
             renderer: "markdown_document",
@@ -572,6 +695,14 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           model_access: "action_result",
           resource_id: null,
           data_binding_id: "resume.definition.current.general",
+          initial_content: {
+            initial_content_version: 1,
+            source: "package_file",
+            package_path: RESUME_CHAT_INITIAL_DOCUMENT_FILES.resume.packagePath,
+            media_type: "text/markdown",
+            content_digest: digest(files.get(RESUME_CHAT_INITIAL_DOCUMENT_FILES.resume.packagePath)!),
+            seed_policy: "when_missing",
+          },
           presentation: {
             presentation_version: 1,
             renderer: "paper_document",
@@ -629,12 +760,38 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_id: "resume.profile.read",
           kind: "read",
           title: "Read Resume Profile",
-          description: "Read the current Resume Profile projection from Resume-domain records.",
+          description: "Read the current app-owned Resume Profile document.",
           ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema(), profileReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",
-          required_capabilities: [cap("resume.definitions.read")],
+          required_capabilities: [],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "career.fact.propose",
+          kind: "write",
+          title: "Propose Career Fact",
+          description: "Propose a durable Career memory fact from owner-provided resume interview information.",
+          ...actionSchemas("career.fact.propose.input.v1", "career.fact.propose.result.v1", careerFactProposeInputSchema(), careerFactProposeResultSchema()),
+          confirmation: "none",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [cap("career.facts.propose")],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "career.fact.confirm",
+          kind: "write",
+          title: "Confirm Career Facts",
+          description: "Apply owner-confirmed Career memory fact decisions gathered during the resume interview.",
+          ...actionSchemas("career.fact.confirm.input.v1", "career.fact.confirm.result.v1", careerFactConfirmInputSchema(), careerFactConfirmResultSchema()),
+          confirmation: "owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [cap("career.facts.confirm")],
           required_inference_purposes: [],
         },
         {
@@ -669,7 +826,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "export",
           title: "Request PDF Export",
           description: "Request a PDF export for the current Resume through the host export broker.",
-          ...actionSchemas("resume.export.pdf.request.input.v1", "resume.export.pdf.request.result.v1", exportRequestInputSchema()),
+          ...actionSchemas("resume.export.pdf.request.input.v1", "resume.export.pdf.request.result.v1", exportRequestInputSchema(), exportPreparedResultSchema()),
           confirmation: "trusted_owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -743,7 +900,7 @@ process.on("SIGTERM", stop); process.on("SIGINT", stop);
 
 function modernFixtureServer(appHtml: string, version: string): string {
   return `import http from "node:http";
-import { adjudicateResumeInference, prepareResumeInference } from "./inference-program.js";
+import { adjudicateResumeInference, planResumeAction, prepareResumeInference } from "./inference-program.js";
 const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
 const host = "127.0.0.1";
 const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
@@ -762,8 +919,9 @@ const server = http.createServer((request, response) => {
     if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri:"ui://resume-builder/main",name:"Resume Builder",title:"Resume Builder",description:"Sandboxed owner resume workflow",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
     if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
     if (message.method === "resources/read" && message.params?.uri === "ui://resume-builder/main") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
-    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}},{name:"app.inference.prepare",description:"Prepare an installed app-owned inference plan",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.adjudicate",description:"Adjudicate an installed app-owned inference candidate",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}}]}); return; }
+    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}},{name:"app.actions.plan",description:"Plan an installed app-owned chat action for generic host execution",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.prepare",description:"Prepare an installed app-owned inference plan",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.adjudicate",description:"Adjudicate an installed app-owned inference candidate",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}}]}); return; }
     if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:${JSON.stringify(version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
+    if (message.method === "tools/call" && message.params?.name === "app.actions.plan") { try { const result=planResumeAction(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app action planning failed"}})); } return; }
     if (message.method === "tools/call" && message.params?.name === "app.inference.prepare") { try { const result=prepareResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference preparation failed"}})); } return; }
     if (message.method === "tools/call" && message.params?.name === "app.inference.adjudicate") { try { const result=adjudicateResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference adjudication failed"}})); } return; }
     response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
@@ -936,7 +1094,10 @@ async function loadOrCreateFixtureSource(
   const modernFixtureHtml = authorityLabel === "modern" ? loadResumeBuilderUi() : null;
   const modernInferenceProgram = authorityLabel === "modern" ? loadResumeBuilderInferenceProgram() : null;
   const modernResourceFiles = authorityLabel === "modern"
-    ? new Map(RESUME_CHAT_RESOURCE_FILES.map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]))
+    ? new Map([
+      ...RESUME_CHAT_RESOURCE_FILES.map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]),
+      ...Object.values(RESUME_CHAT_INITIAL_DOCUMENT_FILES).map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]),
+    ])
     : null;
   const publishedAt = new Date().toISOString();
   const nextUpdateAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();

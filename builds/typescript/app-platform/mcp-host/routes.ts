@@ -50,6 +50,10 @@ const chatDocumentParamsSchema = z.object({
   sessionId: z.string().uuid(),
   documentId: HostBindingIdSchema,
 }).passthrough();
+const chatResourceParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+  resourceId: HostBindingIdSchema,
+}).passthrough();
 const chatDocumentWriteRequestSchema = z.object({
   operation_id: z.string().uuid(),
   idempotency_key: z.string().min(16).max(256),
@@ -238,6 +242,15 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     catch (error) { return sendDocumentError(reply, error); }
   });
 
+  app.get("/apps/:appKey/chat-workspaces/sessions/:sessionId/resources/:resourceId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = chatResourceParamsSchema.safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.readAppResource(parsed.data.sessionId, parsed.data.resourceId)); }
+    catch (error) { return sendResourceError(reply, error); }
+  });
+
   app.put("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents/:documentId", async (request, reply) => {
     const selected = resolveHost(request, reply, platform); if (!selected) return;
     if (!authorizeOwner(request, reply)) return;
@@ -401,6 +414,21 @@ function sendDocumentError(reply: FastifyReply, error: unknown) {
       retryable,
       refresh_required: code === "conflict" || code === "session_closed",
       current_revision: currentRevision,
+    },
+  });
+}
+
+function sendResourceError(reply: FastifyReply, error: unknown) {
+  const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app package resource operation failed", 500);
+  const code = platform.code === "denied" || platform.code === "not_found_within_scope" || platform.code === "session_closed" ? "denied" : platform.code;
+  const safeMessage = code === "denied"
+    ? "This app package resource is unavailable."
+    : "The app package resource could not be loaded safely.";
+  return reply.code(platform.statusCode).send({
+    error: {
+      code,
+      safe_message: safeMessage,
+      retryable: platform.statusCode >= 500,
     },
   });
 }

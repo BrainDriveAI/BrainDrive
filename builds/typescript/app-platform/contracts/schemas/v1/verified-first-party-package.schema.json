@@ -535,6 +535,64 @@
                         "maxLength": 128,
                         "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
                       },
+                      "empty_state": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "empty_state_version": {
+                                "type": "number",
+                                "const": 1
+                              },
+                              "heading": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "description": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              },
+                              "cta_label": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "cta_message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "empty_state_version",
+                              "heading",
+                              "description",
+                              "cta_label",
+                              "cta_message"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "documents": {
                         "minItems": 1,
                         "maxItems": 16,
@@ -614,6 +672,58 @@
                                   "minLength": 3,
                                   "maxLength": 128,
                                   "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "initial_content": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "initial_content_version": {
+                                      "type": "number",
+                                      "const": 1
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "const": "package_file"
+                                    },
+                                    "package_path": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 512
+                                    },
+                                    "media_type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "text/markdown",
+                                        "text/plain",
+                                        "application/json"
+                                      ]
+                                    },
+                                    "content_digest": {
+                                      "type": "string",
+                                      "pattern": "^sha256:[a-f0-9]{64}$"
+                                    },
+                                    "seed_policy": {
+                                      "type": "string",
+                                      "enum": [
+                                        "when_missing"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "initial_content_version",
+                                    "source",
+                                    "package_path",
+                                    "media_type",
+                                    "content_digest",
+                                    "seed_policy"
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 {
                                   "type": "null"

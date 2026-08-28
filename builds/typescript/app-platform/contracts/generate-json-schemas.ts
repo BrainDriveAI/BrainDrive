@@ -6,6 +6,13 @@ import { z, type ZodType } from "zod";
 
 import { AuditEventSchema, LifecycleDiagnosticEventSchema, ResumeRecoveryReconciliationAuditDetailsSchema } from "./audit.js";
 import {
+  AppActionExecutionPlanSchema,
+  AppActionPlanDocumentSnapshotSchema,
+  AppActionPlanFinalResultSchema,
+  AppActionPlanRequestSchema,
+  AppActionPlanStepSchema,
+} from "./app-action-plan.js";
+import {
   AppArtifactRecordSchema,
   AppArtifactRegistrationRequestSchema,
   AppExportFinalizeRequestSchema,
@@ -21,6 +28,7 @@ import {
   AppActionDescriptorSchema,
   AppActionJsonSchemaBodySchema,
   AppActionSchemaResourceSchema,
+  ChatWorkspaceEmptyStateSchema,
   CapabilityRegistrationSchema,
   CapabilityRequestSchema,
   CatalogPresentationSchema,
@@ -175,9 +183,15 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "app-identity": AppIdentitySchema,
   "app-operation-binding": AppOperationBindingSchema,
   "app-retention-policy": AppRetentionPolicySchema,
+  "app-action-execution-plan": AppActionExecutionPlanSchema,
+  "app-action-plan-document-snapshot": AppActionPlanDocumentSnapshotSchema,
+  "app-action-plan-final-result": AppActionPlanFinalResultSchema,
+  "app-action-plan-request": AppActionPlanRequestSchema,
+  "app-action-plan-step": AppActionPlanStepSchema,
   "app-action-descriptor": AppActionDescriptorSchema,
   "app-action-json-schema-body": AppActionJsonSchemaBodySchema,
   "app-action-schema-resource": AppActionSchemaResourceSchema,
+  "chat-workspace-empty-state": ChatWorkspaceEmptyStateSchema,
   "app-artifact-record": AppArtifactRecordSchema,
   "app-artifact-registration-request": AppArtifactRegistrationRequestSchema,
   "app-export-finalize-request": AppExportFinalizeRequestSchema,

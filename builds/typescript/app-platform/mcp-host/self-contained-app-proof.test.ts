@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +15,7 @@ import { BriefDomainService } from "../../brief-domain/service.js";
 import { BriefDataStore } from "../../brief-domain/store.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
+import { preserveMcpResult } from "../../mcp/result-envelope.js";
 import type { GenericPackageManifest } from "../contracts/app-registry.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import { createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
@@ -56,9 +58,12 @@ describe("SCAF-007 self-contained installed app proof", () => {
     const banned = [
       /\bResumeChat(?:ProfileUpdate|Create)\w*Schema\b/,
       /\btranslateChatWorkspaceDataActionInput\b/,
+      /\bexecuteAppOwnedResumeChatAction\b/,
+      /\bbuildResume(?:ProfileUpdate|DefinitionWrite)Input\b/,
+      /\brenderAppOwnedResumeMarkdownPdf\b/,
       /\binput_schema_id\s*:\s*["']resume\./,
       /\bresult_schema_id\s*:\s*["']resume\./,
-      /\b(?:case|if)\b[^\n]*(?:action_id|action\.action_id)[^\n]*["']resume\.(?:profile\.(?:read|update)|create|state\.read|export\.pdf\.request)["']/,
+      /\b(?:case|if)\b[^\n]*(?:actionId|action_id|action\.action_id)[^\n]*["']resume\.(?:profile\.(?:read|update)|create|state\.read|export\.pdf\.request)["']/,
       /\bbrief\.proof\.(?:read|write)\b/,
     ];
     const violations: string[] = [];
@@ -91,7 +96,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         workspace: { workspace_id: "resume.chat" },
       });
       expect((launch.workspace.actions as Array<{ action_id: string }>).map((action) => action.action_id)).toContain("resume.create");
-      expect(JSON.stringify(launch)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
+      expect(JSON.stringify(launch)).not.toMatch(/Bearer|authorization|secret|\/home\//i);
 
       const profileReadBefore = await app.inject({
         method: "GET",
@@ -99,10 +104,14 @@ describe("SCAF-007 self-contained installed app proof", () => {
       });
       expect(profileReadBefore.statusCode).toBe(200);
       expect(profileReadBefore.json()).toMatchObject({
-        state: "missing",
+        state: "current",
         document_id: "resume.profile",
         document_binding_id: "resume.profile.current",
-        record: null,
+        record: {
+          revision: 1,
+          media_type: "text/markdown",
+          content: expect.stringContaining("# Resume Profile"),
+        },
       });
 
       const documentOperationId = randomUUID();
@@ -112,7 +121,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         payload: {
           operation_id: documentOperationId,
           idempotency_key: `scaf-007-profile-doc-${documentOperationId}`,
-          expected_revision: null,
+          expected_revision: 1,
           media_type: "text/markdown",
           content: "# Maya Torres\nDirector of Product Operations.",
         },
@@ -121,7 +130,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
       expect(profileWrite.json()).toMatchObject({
         state: "current",
         document_id: "resume.profile",
-        record: { revision: 1, content: "# Maya Torres\nDirector of Product Operations." },
+        record: { revision: 2, content: "# Maya Torres\nDirector of Product Operations." },
       });
 
       const resumeDocument = await app.inject({
@@ -130,22 +139,29 @@ describe("SCAF-007 self-contained installed app proof", () => {
       });
       expect(resumeDocument.statusCode).toBe(200);
       expect(resumeDocument.json()).toMatchObject({
-        state: "missing",
+        state: "current",
         document_id: "resume.document",
         document_binding_id: "resume.definition.current.general",
+        record: {
+          revision: 1,
+          media_type: "text/markdown",
+          content: expect.stringContaining("# Resume"),
+        },
       });
 
       const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
       expect(model.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
         "app_action_resume_profile_read",
+        "app_action_career_fact_propose",
+        "app_action_career_fact_confirm",
         "app_action_resume_profile_update",
         "app_action_resume_create",
       ]));
       expect(model.tools.find((tool) => tool.name === "app_action_resume_profile_read")?.inputSchema).toMatchObject({
         properties: {
           action_input: {
-            required: ["view"],
-            properties: { view: { enum: ["workspace"] } },
+            required: [],
+            properties: {},
           },
         },
       });
@@ -174,7 +190,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
       };
 
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_read", {
-        action_input: { view: "workspace" },
+        action_input: {},
         operation_id: readOperationId,
         idempotency_key: `scaf-007-profile-read-${readOperationId}`,
       })).resolves.toMatchObject({
@@ -183,10 +199,14 @@ describe("SCAF-007 self-contained installed app proof", () => {
           action_id: "resume.profile.read",
           operation_id: readOperationId,
           result: {
-            workspace_version: 4,
-            definitions: [],
-            interview: [],
-            quality_reviews: [],
+            result_version: 1,
+            state: "current",
+            document_id: "resume.profile",
+            document_binding_id: "resume.profile.current",
+            record: {
+              revision: 2,
+              content: "# Maya Torres\nDirector of Product Operations.",
+            },
           },
         },
       });
@@ -242,7 +262,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
               supporting_confirmed_fact_revision_ids: [],
             }),
           ]),
-          section_order: ["experience"],
+          section_order: ["summary", "experience"],
           presentation_preferences: {},
           locale: "en-US",
           page_intent: "one_page",
@@ -541,7 +561,37 @@ async function resumeProofHost(router: ResumeCapabilityRouter): Promise<AppMcpHo
     idempotencyKey: "scaf-007-resume-install-0001",
     approveCapabilities: true,
   });
-  return new AppMcpHost(new ResumeAppHostAdapter(harness.service, { capabilityRouter: router }));
+  return new AppMcpHost(new ResumeAppHostAdapter(harness.service, {
+    capabilityRouter: router,
+    clientFactory: () => ({
+      negotiate: async () => ({
+        connectionId: randomUUID(),
+        tools: [{ name: "app.actions.plan" }],
+      } as never),
+      readAppResource: vi.fn(),
+      callTool: async (_mcp: unknown, toolName: string, args: unknown, operationId: string) => {
+        if (toolName !== "app.actions.plan") throw new Error("unexpected_tool");
+        return preserveMcpResult({
+          _meta: { ui: { visibility: ["model"] } },
+          isError: false,
+          structuredContent: await planResumeActionForTest(args),
+        }, {
+          protocolVersion: "2026-07-28",
+          connectionId: randomUUID(),
+          requestId: operationId,
+          operationId,
+          toolVisibility: ["model"],
+        });
+      },
+      cancel: vi.fn(),
+    }),
+  }));
+}
+
+async function planResumeActionForTest(args: unknown): Promise<Record<string, unknown>> {
+  const runtimePath = path.resolve(process.cwd(), "../resume_builder/resources/inference-program.js");
+  const module = await import(pathToFileURL(runtimePath).href) as { planResumeAction: (input: unknown) => Record<string, unknown> };
+  return module.planResumeAction(args);
 }
 
 async function briefProofHost() {

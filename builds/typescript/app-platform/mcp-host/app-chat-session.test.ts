@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +16,7 @@ import { canonicalInputDigest } from "../contracts/common.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
 import type { AuthContext } from "../../contracts.js";
+import { preserveMcpResult } from "../../mcp/result-envelope.js";
 
 type HostOptions = NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>;
 
@@ -107,6 +109,26 @@ function profileReadInputSchema(): Record<string, unknown> {
   };
 }
 
+function profileDocumentReadResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      state: { type: "string", enum: ["current", "missing"] },
+      document_id: { type: "string", enum: ["resume.profile"] },
+      document_binding_id: { type: "string", enum: ["resume.profile.current"] },
+      record: {
+        type: ["object", "null"],
+        additionalProperties: true,
+        properties: {},
+        required: [],
+      },
+    },
+    required: ["result_version", "state", "document_id", "document_binding_id", "record"],
+  };
+}
+
 function profileUpdateInputSchema(): Record<string, unknown> {
   return {
     type: "object",
@@ -181,7 +203,7 @@ function validAcceptedActionPayload(): Record<string, unknown> {
 
 function workspace(
   contextRequests: ChatWorkspaceDescriptor["context_requests"] = [],
-  overrides: Partial<Pick<ChatWorkspaceDescriptor, "documents" | "resources" | "actions">> = {},
+  overrides: Partial<Pick<ChatWorkspaceDescriptor, "empty_state" | "documents" | "resources" | "actions">> = {},
 ): ChatWorkspaceDescriptor {
   return {
     workspace_version: 1,
@@ -189,6 +211,7 @@ function workspace(
     title: "Resume Workspace",
     description: "Native app-chat workspace fixture.",
     default_document_id: "conversation",
+    ...(overrides.empty_state !== undefined ? { empty_state: overrides.empty_state } : {}),
     documents: overrides.documents ?? [{
       document_version: 1,
       document_id: "conversation",
@@ -205,6 +228,50 @@ function workspace(
     context_requests: contextRequests,
     actions: overrides.actions ?? [],
   };
+}
+
+function resumePlannerDocuments(): ChatWorkspaceDescriptor["documents"] {
+  return [
+    {
+      document_version: 1,
+      document_id: "conversation",
+      role: "conversation",
+      title: "Conversation",
+      description: "Native app conversation.",
+      editable: false,
+      default_visibility: "primary",
+      model_access: "read_write_draft",
+      resource_id: null,
+      data_binding_id: null,
+      presentation: null,
+    },
+    {
+      document_version: 1,
+      document_id: "resume.profile",
+      role: "source_document",
+      title: "Resume Profile",
+      description: "App-owned resume profile.",
+      editable: true,
+      default_visibility: "primary",
+      model_access: "read_write_draft",
+      resource_id: null,
+      data_binding_id: "resume.profile.current",
+      presentation: null,
+    },
+    {
+      document_version: 1,
+      document_id: "resume.document",
+      role: "derived_document",
+      title: "Resume",
+      description: "App-owned resume document.",
+      editable: false,
+      default_visibility: "primary",
+      model_access: "action_result",
+      resource_id: null,
+      data_binding_id: "resume.definition.current.general",
+      presentation: null,
+    },
+  ];
 }
 
 function presentations(chatWorkspace: ChatWorkspaceDescriptor) {
@@ -239,6 +306,7 @@ async function setup(input: {
   requestedCapabilities?: readonly string[];
   requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
   contextRequests?: ChatWorkspaceDescriptor["context_requests"];
+  emptyState?: ChatWorkspaceDescriptor["empty_state"];
   actions?: ChatWorkspaceDescriptor["actions"];
   documents?: ChatWorkspaceDescriptor["documents"];
   router?: ResumeCapabilityRouter;
@@ -252,7 +320,7 @@ async function setup(input: {
     routeKey: "resume-builder",
     displayName: "Resume Builder",
   });
-  const chatWorkspace = workspace(input.contextRequests, { actions: input.actions, documents: input.documents });
+  const chatWorkspace = workspace(input.contextRequests, { actions: input.actions, documents: input.documents, empty_state: input.emptyState });
   await rm(path.join(root, "source"), { recursive: true, force: true });
   harness.dependencies.repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [{
     appId: "ai.braindrive.resume-builder",
@@ -268,10 +336,43 @@ async function setup(input: {
     harness,
     host: new ResumeAppHostAdapter(harness.service, {
       capabilityRouter: input.router,
-      clientFactory: input.clientFactory,
+      clientFactory: input.clientFactory ?? noPlannerClientFactory,
       installedAppInference: input.installedAppInference,
     }),
   };
+}
+
+const noPlannerClientFactory: HostOptions["clientFactory"] = () => ({
+  negotiate: async () => ({ connectionId: randomUUID(), tools: [] } as never),
+  readAppResource: vi.fn(),
+  callTool: vi.fn(),
+  cancel: vi.fn(),
+});
+
+const resumePlannerClientFactory: HostOptions["clientFactory"] = () => ({
+  negotiate: async () => ({ connectionId: randomUUID(), tools: [{ name: "app.actions.plan" }] } as never),
+  readAppResource: vi.fn(),
+  callTool: async (_mcp: unknown, toolName: string, args: unknown, operationId: string) => {
+    if (toolName !== "app.actions.plan") throw new Error("unexpected_tool");
+    return preserveMcpResult({
+      structuredContent: await planResumeActionForTest(args),
+      _meta: { ui: { visibility: ["model"] } },
+      isError: false,
+    }, {
+      protocolVersion: "2026-07-28",
+      connectionId: randomUUID(),
+      requestId: operationId,
+      operationId,
+      toolVisibility: ["model"],
+    });
+  },
+  cancel: vi.fn(),
+});
+
+async function planResumeActionForTest(args: unknown): Promise<Record<string, unknown>> {
+  const runtimePath = path.resolve(process.cwd(), "../resume_builder/resources/inference-program.js");
+  const module = await import(pathToFileURL(runtimePath).href) as { planResumeAction: (input: unknown) => Record<string, unknown> };
+  return module.planResumeAction(args);
 }
 
 function fakeRouter(result: unknown = { sources: [{ reference: "career-context", state: "present" }] }): ResumeCapabilityRouter {
@@ -448,6 +549,21 @@ describe("app-chat workspace session authority", () => {
     );
   });
 
+  it("projects app-declared empty-state metadata in the workspace launch DTO", async () => {
+    const empty_state = {
+      empty_state_version: 1 as const,
+      heading: "App-authored start",
+      description: "The app owns this empty state.",
+      cta_label: "Let's get started",
+      cta_message: "Begin this app workflow.",
+    };
+    const { host } = await setup({ emptyState: empty_state });
+
+    await expect(host.launchChatWorkspace()).resolves.toMatchObject({
+      workspace: { empty_state },
+    });
+  });
+
   it("reads and writes app-owned documents through app-chat session authority", async () => {
     const { host } = await setup({
       requestedCapabilities: ["resume.definitions.read", "resume.definitions.write"],
@@ -515,9 +631,7 @@ describe("app-chat workspace session authority", () => {
     })).rejects.toMatchObject({ code: "denied" });
   });
 
-  it("projects Resume-domain records for declared document bindings when generic storage is empty", async () => {
-    const definitionRevisionId = randomUUID();
-    const progressRevisionId = randomUUID();
+  it("does not project Resume-domain records into app documents when generic storage is empty", async () => {
     const router = fakeRouter({
       workspace_version: 4,
       definitions: [{
@@ -528,7 +642,7 @@ describe("app-chat workspace session authority", () => {
         updated_at: "2026-08-27T20:31:20.510Z",
         metadata: {
           record_id: randomUUID(),
-          revision_id: definitionRevisionId,
+          revision_id: randomUUID(),
           revision: 2,
           created_at: "2026-08-27T20:31:20.510Z",
           prior_revision_id: null,
@@ -548,7 +662,7 @@ describe("app-chat workspace session authority", () => {
         updated_at: "2026-08-27T20:29:20.510Z",
         metadata: {
           record_id: randomUUID(),
-          revision_id: progressRevisionId,
+          revision_id: randomUUID(),
           revision: 1,
           created_at: "2026-08-27T20:29:20.510Z",
           prior_revision_id: null,
@@ -600,27 +714,18 @@ describe("app-chat workspace session authority", () => {
     const launch = await host.launchChatWorkspace();
 
     await expect(host.readAppDocument(launch.session.session_id, "resume.document")).resolves.toMatchObject({
-      state: "current",
+      state: "missing",
       document_id: "resume.document",
       document_binding_id: "resume.definition.current.general",
-      record: {
-        revision: 2,
-        revision_id: definitionRevisionId,
-        media_type: "text/markdown",
-        content: expect.stringContaining("Maya Chen"),
-      },
+      record: null,
     });
     await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
-      state: "current",
+      state: "missing",
       document_id: "resume.profile",
       document_binding_id: "resume.profile.current",
-      record: {
-        revision: 1,
-        revision_id: progressRevisionId,
-        media_type: "text/markdown",
-        content: expect.stringContaining("# Resume Profile"),
-      },
+      record: null,
     });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
   });
 
   it("rejects disabled launch, surface presentation launch, and required ungranted context", async () => {
@@ -1253,7 +1358,9 @@ describe("app-chat workspace session authority", () => {
     const router = fakeRouter({ definition: { metadata: { revision_id: randomUUID() } }, reused: false });
     const { host } = await setup({
       router,
+      clientFactory: resumePlannerClientFactory,
       requestedCapabilities: ["resume.definitions.read", "resume.definitions.write"],
+      documents: resumePlannerDocuments(),
       actions: [
         {
           action_version: 1,
@@ -1261,11 +1368,11 @@ describe("app-chat workspace session authority", () => {
           kind: "read",
           title: "Read Resume Profile",
           description: "Read profile.",
-          ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", profileReadInputSchema()),
+          ...actionSchemas("resume.profile.read.input.v1", "resume.profile.read.result.v1", emptyObjectSchema(), profileDocumentReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",
-          required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+          required_capabilities: [],
           required_inference_purposes: [],
         },
         {
@@ -1352,12 +1459,6 @@ describe("app-chat workspace session authority", () => {
 
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
       1,
-      "resume.definitions.read",
-      {},
-      expect.objectContaining({ viewId: launch.session.view_id }),
-    );
-    expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
-      2,
       "resume.definitions.write",
       expect.objectContaining({
         kind: "interview_progress",
@@ -1369,7 +1470,7 @@ describe("app-chat workspace session authority", () => {
       expect.objectContaining({ viewId: launch.session.view_id }),
     );
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
-      3,
+      2,
       "resume.definitions.write",
       expect.objectContaining({
         definition_kind: "general",

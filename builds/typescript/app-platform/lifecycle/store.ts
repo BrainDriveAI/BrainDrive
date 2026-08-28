@@ -3,13 +3,14 @@ import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
-import { AppRetentionClassSchema, GenericPackageManifestSchema } from "../contracts/app-registry.js";
+import { AppRetentionClassSchema } from "../contracts/app-registry.js";
 import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
 import { LifecycleOperationSchema, LifecycleRecordSchema } from "../contracts/lifecycle.js";
-import { CapabilityGrantSchema, PackageManifestSchema, PackageTrustSchema } from "../contracts/package.js";
+import { CapabilityGrantSchema, PackageTrustSchema } from "../contracts/package.js";
 import { RuntimeIdentitySchema } from "../contracts/supervisor.js";
 import { AppPlatformError } from "./errors.js";
 import type { RuntimePackageManifest } from "./package-verifier.js";
+import { parseStoredRuntimePackageManifest } from "./runtime-manifest.js";
 
 export type LifecycleRecord = z.infer<typeof LifecycleRecordSchema>;
 export type LifecycleOperation = z.infer<typeof LifecycleOperationSchema>;
@@ -26,11 +27,6 @@ export type StoredPackage = {
   manifest: RuntimePackageManifest;
   trust: z.infer<typeof PackageTrustSchema>;
 };
-
-function parseStoredManifest(value: unknown): RuntimePackageManifest {
-  const candidate = value as { manifest_version?: unknown };
-  return candidate?.manifest_version === 2 ? GenericPackageManifestSchema.parse(value) : PackageManifestSchema.parse(value);
-}
 
 const UninstallJournalSchema = z.object({
   journal_version: z.literal(1),
@@ -236,17 +232,18 @@ export class AppLifecycleStore {
   async removeGrant(grantId: string): Promise<void> { await rm(path.join(this.grantsRoot, `${grantId}.json`), { force: true }); }
 
   async savePackage(stored: StoredPackage): Promise<void> {
-    parseStoredManifest(stored.manifest);
+    const manifest = parseStoredRuntimePackageManifest(stored.manifest);
     PackageTrustSchema.parse(stored.trust);
-    await this.writeAtomic(path.join(this.packagesRoot, `${stored.package_digest.slice(7)}.json`), stored);
+    await this.writeAtomic(path.join(this.packagesRoot, `${stored.package_digest.slice(7)}.json`), { ...stored, manifest });
   }
 
   async readPackage(packageDigest: string): Promise<StoredPackage | null> {
     try {
       const value = JSON.parse(await readFile(path.join(this.packagesRoot, `${packageDigest.slice(7)}.json`), "utf8")) as StoredPackage;
       if (value.store_version !== 1 || value.package_digest !== packageDigest) throw new AppPlatformError("store_corrupt", "Stored package metadata is invalid");
-      parseStoredManifest(value.manifest); PackageTrustSchema.parse(value.trust);
-      return value;
+      const manifest = parseStoredRuntimePackageManifest(value.manifest);
+      PackageTrustSchema.parse(value.trust);
+      return { ...value, manifest };
     } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
   }
 

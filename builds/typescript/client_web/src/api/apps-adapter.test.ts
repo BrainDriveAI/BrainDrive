@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, AppDocumentError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -153,7 +153,7 @@ describe("Apps gateway adapter", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({ presentation_id: "chat", workspace_id: "resume.chat" });
   });
 
-  it("reads and writes generic app-chat workspace documents without caller-supplied authority", async () => {
+  it("reads package resources and generic app-chat workspace documents without caller-supplied authority", async () => {
     const sessionId = crypto.randomUUID();
     const readResult = {
       result_version: 1,
@@ -166,9 +166,22 @@ describe("Apps gateway adapter", () => {
       ...readResult,
       record: { revision: 3, media_type: "text/markdown", content: "# Updated" },
     };
+    const resourceResult = {
+      result_version: 1,
+      resource_id: "agent.instructions",
+      title: "Agent Instructions",
+      description: "Read-only package resource.",
+      role: "agent_instructions",
+      media_type: "text/markdown",
+      content_digest: `sha256:${"c".repeat(64)}`,
+      owner_editable: false,
+      prompt_inclusion: "workspace_start",
+      content: "# Agent Instructions",
+    };
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify(readResult), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(writeResult), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify(writeResult), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(resourceResult), { status: 200 }));
 
     await expect(readAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile")).resolves.toMatchObject({ state: "current", record: { revision: 2 } });
     await expect(writeAppChatWorkspaceDocument("resume-builder", sessionId, "resume.profile", {
@@ -176,10 +189,12 @@ describe("Apps gateway adapter", () => {
       content: "# Updated",
       mediaType: "text/markdown",
     })).resolves.toMatchObject({ record: { revision: 3, content: "# Updated" } });
+    await expect(readAppChatWorkspaceResource("resume-builder", sessionId, "agent.instructions")).resolves.toMatchObject({ resource_id: "agent.instructions", content: "# Agent Instructions" });
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
       `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/documents/resume.profile`,
+      `/api/apps/resume-builder/chat-workspaces/sessions/${sessionId}/resources/agent.instructions`,
     ]);
     const writeBody = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body));
     expect(writeBody).toMatchObject({
