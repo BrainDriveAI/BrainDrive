@@ -41,7 +41,7 @@ function isChatWorkspaceLaunch(launch: AppLaunch): launch is Extract<AppLaunch, 
 }
 
 export default function AppsPage({
-  entryPoint: _entryPoint = "direct",
+  entryPoint = "direct",
   onOpenSettings,
   onSessionClosed,
   onWorkspaceActiveChange,
@@ -130,7 +130,7 @@ export default function AppsPage({
       const chatPresentation = primaryChatPresentation(app);
       const launch = chatPresentation
         ? await launchAppChatWorkspace(app.route_key, { presentationId: chatPresentation.presentation_id, workspaceId: chatPresentation.workspace_id })
-        : await launchApp(app.route_key, "direct");
+        : await launchApp(app.route_key, entryPoint);
       setSelected({ appKey: app.route_key, appId: app.identity.app_id, appName: app.identity.display_name, launch });
     } catch {
       setAppError(app.route_key, `${app.identity.display_name} could not connect. Check its status and try again.`);

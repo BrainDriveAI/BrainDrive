@@ -333,13 +333,13 @@ describe("manifest-driven Apps surface", () => {
     expect(screen.getByText("Disabled — your saved data is retained")).toBeInTheDocument();
   });
 
-  it("returns keyboard focus to Launch after the sandbox session closes through the generic direct launch path", async () => {
+  it("passes the current entry point to sandbox launches and restores focus after close", async () => {
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
     vi.mocked(appsApi.launchApp).mockResolvedValue(launch);
     const user = userEvent.setup(); renderApps(<AppsPage entryPoint="career" />);
     const launchButton = await screen.findByRole("button", { name: /^Launch$/ });
     await user.click(launchButton);
-    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "direct");
+    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "career");
     await user.click(await screen.findByRole("button", { name: "Close app" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^Launch$/ })).toHaveFocus());
   });

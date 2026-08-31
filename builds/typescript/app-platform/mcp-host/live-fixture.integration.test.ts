@@ -276,7 +276,7 @@ describe("live signed modern MCP Apps fixture", () => {
         presentation: {
           presentation_id: "just.chat",
           type: "chat_workspace",
-          label: "Just Chat With It",
+          label: "Launch",
           workspace_id: "resume.chat",
           owner_visibility: "primary",
         },
