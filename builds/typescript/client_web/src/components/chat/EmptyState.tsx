@@ -1,9 +1,10 @@
 import { ROOT_AGENT_PROJECT_ID, canonicalizeRootAgentProjectId } from "@/lib/rootAgent";
 
-type ProjectIntro = {
+export type ProjectIntro = {
   heading: string;
   description: string;
   cta?: string;
+  ctaMessage?: string;
   suggestions?: string[];
 };
 
@@ -60,11 +61,12 @@ const DEFAULT_INTRO: ProjectIntro = {
 
 type EmptyStateProps = {
   projectId?: string | null;
+  intro?: ProjectIntro;
   onSuggestionClick?: (suggestion: string) => void;
 };
 
-export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateProps) {
-  const intro = (projectId && PROJECT_INTROS[canonicalizeRootAgentProjectId(projectId)]) || DEFAULT_INTRO;
+export default function EmptyState({ projectId, intro: customIntro, onSuggestionClick }: EmptyStateProps) {
+  const intro = customIntro || (projectId && PROJECT_INTROS[canonicalizeRootAgentProjectId(projectId)]) || DEFAULT_INTRO;
 
   return (
     <div
@@ -101,7 +103,7 @@ export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateP
       ) : intro.cta ? (
         <button
           type="button"
-          onClick={() => onSuggestionClick?.(intro.cta!)}
+          onClick={() => onSuggestionClick?.(intro.ctaMessage ?? intro.cta!)}
           className="mt-8 rounded-xl bg-bd-amber px-6 py-3 text-sm font-medium text-bd-bg-primary transition-colors duration-200 hover:bg-bd-amber-hover"
         >
           {intro.cta}

@@ -1,0 +1,278 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/frozen-quality-regression-manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "type": "number",
+      "const": 1
+    },
+    "fixture_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^synthetic-qgc-"
+    },
+    "synthetic_only": {
+      "type": "boolean",
+      "const": true
+    },
+    "evidence_scope": {
+      "type": "string",
+      "const": "workflow_only"
+    },
+    "semantic_input_version": {
+      "type": "number",
+      "const": 1
+    },
+    "normalized_checkpoint": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "const": "pre_correction_general_resume_review"
+        },
+        "checkpoint_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "checkpoint_digest"
+      ],
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "object",
+      "properties": {
+        "fact_revision_ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "coverage_revision_ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "presentation_preference_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "target_direction_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "semantic_input_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "fact_revision_ids",
+        "coverage_revision_ids",
+        "presentation_preference_digest",
+        "target_direction_digest",
+        "semantic_input_digest"
+      ],
+      "additionalProperties": false
+    },
+    "policies": {
+      "type": "object",
+      "properties": {
+        "quality_standard": {
+          "type": "object",
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "policy_id",
+            "policy_version",
+            "policy_digest"
+          ],
+          "additionalProperties": false
+        },
+        "evaluator_contract": {
+          "type": "object",
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "policy_id",
+            "policy_version",
+            "policy_digest"
+          ],
+          "additionalProperties": false
+        },
+        "evidence_limited": {
+          "type": "object",
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "policy_id",
+            "policy_version",
+            "policy_digest"
+          ],
+          "additionalProperties": false
+        },
+        "prompt": {
+          "type": "object",
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "policy_id",
+            "policy_version",
+            "policy_digest"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "quality_standard",
+        "evaluator_contract",
+        "evidence_limited",
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "expected": {
+      "type": "object",
+      "properties": {
+        "C1": {
+          "type": "string",
+          "const": "fail"
+        },
+        "C2": {
+          "type": "string",
+          "const": "fail"
+        },
+        "C3": {
+          "type": "string",
+          "const": "pass"
+        },
+        "quality_state": {
+          "type": "string",
+          "const": "needs_correction"
+        },
+        "passing_label_allowed": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "C1",
+        "C2",
+        "C3",
+        "quality_state",
+        "passing_label_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "strategy_binding": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "canonicalized_milestone_2"
+        },
+        "strategy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "section_order_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "status",
+        "strategy_digest",
+        "section_order_digest"
+      ],
+      "additionalProperties": false
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "manifest_version",
+    "fixture_id",
+    "synthetic_only",
+    "evidence_scope",
+    "semantic_input_version",
+    "normalized_checkpoint",
+    "bindings",
+    "policies",
+    "expected",
+    "strategy_binding",
+    "manifest_digest"
+  ],
+  "additionalProperties": false
+}

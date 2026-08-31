@@ -1,48 +1,40 @@
 # AIH-03 scorecard
 
-## Historical evidence note
-
-The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
-
-## Current-candidate execution
-
-The first evaluator consulted an installed planning skill outside the allowed repository-only context and was rejected. The retained fresh rerun used plugin and skill discovery disabled in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-03 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
-
 - Scenario ID: AIH-03
-- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate revision: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- Candidate state proof: `candidate-content sha256 8fe40a01593323b8c35fe1bb11d41b8dce82ed3cb13e604b5084d17ae955e741; entries 0; head d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_TEST_REVISION: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 1b949797d2f8dedeb9b336e5e52ddb484705683df83923a58f78258c9492b9e7; entries 1042; revision d89ba6d5d9cb8a34f5afd801e887701de323dfed`
 - Task prompt: Using only Git-derived tracked and non-ignored candidate repository evidence, determine which paths currently govern native setup and the web-to-gateway contract. Label uncommitted candidate pages honestly. Classify builds/typescript/New-User-Setup.md, builds/typescript/client_web/src/api/CONTRACT.md, its preserved history, ROADMAP.md, and milestone records without promoting legacy, history, plans, or evidence into current technical authority.
-- Starting path and allowed context: `docs/developers/catalog.json`; Git-derived tracked/non-ignored files, catalog lifecycle metadata, current source, tests, and package scripts.
-- Prohibited inputs/actions confirmed: No untracked planning, prior conversation, or maintainer coaching was used; legacy/history/roadmap/evidence records were not promoted; no file changed.
-- Evaluator role: Fresh isolated read-only AI evaluator using only the public checkout and scenario context.
+- Starting path and allowed context: `docs/developers/catalog.json`; tracked/non-ignored candidates, catalog lifecycle metadata, current source, tests, and package scripts.
+- Prohibited inputs/actions confirmed: No untracked planning, prior coaching, lifecycle promotion, or file modification occurred.
+- Evaluator role: Fresh-context, read-only AI evaluator; primary implementer independently cross-checked lifecycle and source claims.
 
 ## Trace summary
 
-- Authorities consulted: Catalog lifecycle and bindings, `docs/developers/setup/native.md`, gateway/request-flow pages, live source, tests, and package scripts.
-- Repository evidence inspected: All named legacy, historical, roadmap, and milestone records plus current native and web-to-gateway sources.
-- Required output: Honest worktree classification and one current governing route for each question.
-- Exact checks or comparisons: Git tracking/status/diffs, lifecycle metadata, live script/source comparison, docs check, and focused journey/boundary tests.
-- Zero-change evidence, when required: All named pages were tracked and clean; no uncommitted Markdown or JSON candidate pages were present.
+- Authorities consulted: Root/scoped instructions, catalog lifecycle/routes, native setup, gateway/request-flow pages, current package scripts, client/gateway source, and focused docs tests.
+- Repository evidence inspected: The five named legacy/history/planning/evidence classes, their replacements, current API adapter/hook/runtime-base source, gateway routes, and orientation/boundary tests.
+- Required output: Status-aware selection, replacement/history routes, and executable-evidence precedence.
+- Exact checks or comparisons: Git tracked/ignored/status checks, catalog extraction, source-revision blob comparison, targeted source/doc reads, and two focused documentation test files.
+- Zero-change evidence, when required: All compared blobs matched the source revision; staged, unstaged, and untracked checks stayed empty.
 
 ## Required output evidence
 
-- Source-selection trace: Native setup routes to `docs/developers/setup/native.md`; web-to-gateway routes to `docs/developers/integrations/gateway.md` plus `docs/developers/architecture/request-flows.md`, with live source/tests defining exact behavior.
-- Lifecycle classifications: `builds/typescript/New-User-Setup.md` is legacy; `builds/typescript/client_web/src/api/CONTRACT.md` is a historical pointer; `docs/developers/history/gateway-contract-original-client.md` is historical; `ROADMAP.md` is current product planning, not technical authority; milestone records are current non-authoritative evidence.
-- Current authority: `builds/typescript/scripts/dev-runtime.mjs`, Vite configuration, gateway source, web adapters, auth middleware, engine/tool source, and their tests back the current canonical pages.
-- Binary scorecard: All declared gates pass independently; no aggregate score was used.
+- Source-selection trace: Native setup routes to `docs/developers/setup/native.md`; web-to-gateway guidance routes to `docs/developers/integrations/gateway.md` and `docs/developers/architecture/request-flows.md`; exact behavior remains in current source/tests.
+- Lifecycle classifications: `builds/typescript/New-User-Setup.md` is legacy; `client_web/src/api/CONTRACT.md` is a historical pointer; `docs/developers/history/gateway-contract-original-client.md` is historical; `ROADMAP.md` is current planning, not technical authority; milestone/acceptance records are non-authoritative evidence. No uncommitted candidate pages existed.
+- Current authority: `builds/typescript/package.json`, `scripts/dev-runtime.mjs`, Vite config, `gateway-adapter.ts`, `useGatewayChat.ts`, `runtime-api-base.ts`, `gateway/server.ts`, and their tests back the current canonical routes.
+- Binary scorecard: Every declared must-pass dimension was adjudicated independently from lifecycle metadata and executable evidence.
 
 | Gating dimension | Pass/fail | Evidence |
 |---|---|---|
-| Authority | pass | One current canonical route plus executable evidence was selected for each question. |
-| Repository accuracy | pass | Every named path was classified according to current catalog lifecycle metadata. |
-| Scope | pass | Only tracked/non-ignored checkout evidence was used and repository state was unchanged. |
+| Authority | pass | One current canonical route plus current source/tests was selected for each question. |
+| Repository accuracy | pass | Every named path was classified using catalog lifecycle data and verified tracked at the pinned revision. |
+| Scope | pass | Only public tracked/non-ignored evidence was used; external planning and repository writes were excluded. |
 
 ## Outcome
 
-- Required output present: Yes; source-selection trace, lifecycle classifications, and current authority are retained.
-- Interventions: The rejected first run is preserved above as a failed context-boundary attempt. In the accepted rerun, unavailable `jq` and one incorrect catalog-field assumption were replaced by narrower read-only Node, `sed`, and `rg` inspection without changing the answer.
-- Remaining risk: Catalog applicability says current on `dev`; this evidence binds the exact agent-branch revision and does not claim released-tag authority.
+- Required output present: Yes; all named paths, replacements, history route, and precedence rules are explicit.
+- Interventions: A search surfaced a pre-existing scorecard line; it was excluded, and the primary implementer rechecked classifications directly.
+- Remaining risk: This establishes authority at the source revision but does not prove native startup or live browser/gateway behavior.
 - Disposition: `pass`
-- Sanitization performed: Repository-relative public paths and summarized check results only; no owner, credential, private, or external planning data retained.
+- Sanitization performed: Public repository-relative paths and summarized test results only; local paths, private material, and raw output were excluded.

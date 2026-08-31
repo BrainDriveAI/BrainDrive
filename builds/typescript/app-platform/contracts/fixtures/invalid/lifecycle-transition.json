@@ -1,0 +1,12 @@
+{
+  "lifecycle_transition_version": 1,
+  "transition_id": "30000000-0000-4000-8000-000000000001",
+  "operation_id": "30000000-0000-4000-8000-000000000002",
+  "installation_id": "30000000-0000-4000-8000-000000000003",
+  "package_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "from": "not_installed",
+  "to": "active",
+  "requested_at": "2026-08-07T12:00:00.000Z",
+  "committed_at": null,
+  "outcome": "rejected"
+}

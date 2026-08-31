@@ -1,0 +1,369 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/app-inference-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "inference_contract_version": {
+          "type": "number",
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "event": {
+          "type": "string",
+          "const": "progress"
+        },
+        "delta": {
+          "type": "string",
+          "maxLength": 32768
+        }
+      },
+      "required": [
+        "inference_contract_version",
+        "request_id",
+        "operation_id",
+        "sequence",
+        "event",
+        "delta"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "inference_contract_version": {
+          "type": "number",
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "event": {
+          "type": "string",
+          "const": "completed"
+        },
+        "structured_output": {},
+        "output_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "input_tokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "output_tokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "input_tokens",
+            "output_tokens"
+          ],
+          "additionalProperties": false
+        },
+        "outcome": {
+          "type": "object",
+          "properties": {
+            "stage": {
+              "type": "string",
+              "enum": [
+                "request_validation",
+                "compatibility_preflight",
+                "provider_resolution",
+                "provider_request",
+                "finish_reason",
+                "structured_parse",
+                "output_schema_validation",
+                "deterministic_validation",
+                "recovery",
+                "persistence",
+                "cancellation",
+                "completed",
+                "internal"
+              ]
+            },
+            "finish_category": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "length",
+                "content_filter",
+                "refusal",
+                "tool_calls",
+                "unknown",
+                "missing"
+              ]
+            },
+            "attempt_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "recovery_class": {
+              "type": "string",
+              "enum": [
+                "none",
+                "provider_structural_repair",
+                "provider_validation_repair",
+                "deterministic_fallback",
+                "host_owned_zero_call"
+              ]
+            },
+            "completion_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "primary",
+                "provider_repair",
+                "deterministic_fallback",
+                "host_owned"
+              ]
+            },
+            "final_disposition": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "stage",
+            "finish_category",
+            "attempt_count",
+            "retryable",
+            "recovery_class",
+            "completion_mode",
+            "final_disposition"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "inference_contract_version",
+        "request_id",
+        "operation_id",
+        "sequence",
+        "event",
+        "structured_output",
+        "output_digest",
+        "usage"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "inference_contract_version": {
+          "type": "number",
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "event": {
+          "type": "string",
+          "const": "failed"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "invalid_request",
+                "denied",
+                "model_incompatible",
+                "provider_unavailable",
+                "quota_exceeded",
+                "rate_limited",
+                "deadline_exceeded",
+                "cancelled",
+                "schema_validation_failed",
+                "validation_failed",
+                "recoverable_internal_failure",
+                "malformed_structured_output",
+                "incomplete_output",
+                "evidence_validation_failed",
+                "provider_schema_unsupported",
+                "provider_authentication_failed",
+                "provider_authorization_failed",
+                "content_filtered",
+                "provider_refused",
+                "unexpected_tool_call",
+                "internal_failure"
+              ]
+            },
+            "safe_message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "code",
+            "safe_message",
+            "retryable"
+          ],
+          "additionalProperties": false
+        },
+        "outcome": {
+          "type": "object",
+          "properties": {
+            "stage": {
+              "type": "string",
+              "enum": [
+                "request_validation",
+                "compatibility_preflight",
+                "provider_resolution",
+                "provider_request",
+                "finish_reason",
+                "structured_parse",
+                "output_schema_validation",
+                "deterministic_validation",
+                "recovery",
+                "persistence",
+                "cancellation",
+                "completed",
+                "internal"
+              ]
+            },
+            "finish_category": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "length",
+                "content_filter",
+                "refusal",
+                "tool_calls",
+                "unknown",
+                "missing"
+              ]
+            },
+            "attempt_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "recovery_class": {
+              "type": "string",
+              "enum": [
+                "none",
+                "provider_structural_repair",
+                "provider_validation_repair",
+                "deterministic_fallback",
+                "host_owned_zero_call"
+              ]
+            },
+            "completion_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "primary",
+                "provider_repair",
+                "deterministic_fallback",
+                "host_owned"
+              ]
+            },
+            "final_disposition": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "stage",
+            "finish_category",
+            "attempt_count",
+            "retryable",
+            "recovery_class",
+            "completion_mode",
+            "final_disposition"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "inference_contract_version",
+        "request_id",
+        "operation_id",
+        "sequence",
+        "event",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

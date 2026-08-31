@@ -1,0 +1,118 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/contract-error.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "error_version": {
+      "type": "number",
+      "const": 1
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "invalid_input",
+        "not_found_within_scope",
+        "denied",
+        "conflict",
+        "idempotency_conflict",
+        "incompatible_schema",
+        "incompatible_version",
+        "invalid_state_transition",
+        "duplicate_identity",
+        "registration_missing",
+        "identity_mismatch",
+        "descriptor_invalid",
+        "unknown_purpose",
+        "malformed_envelope",
+        "envelope_too_large",
+        "widened_grant",
+        "forbidden_field",
+        "package_source_untrusted",
+        "package_descriptor_invalid",
+        "package_archive_invalid",
+        "package_path_invalid",
+        "package_unsafe_link",
+        "package_duplicate_path",
+        "package_case_collision",
+        "package_oversize",
+        "package_digest_mismatch",
+        "package_signature_invalid",
+        "package_file_mismatch",
+        "signing_key_untrusted",
+        "source_index_rollback",
+        "revocation_metadata_invalid",
+        "revocation_rollback",
+        "package_revoked",
+        "supervisor_descriptor_invalid",
+        "runtime_conflict",
+        "readiness_failed",
+        "runtime_unhealthy",
+        "stop_unacknowledged",
+        "ambiguous_runtime_state",
+        "restart_exhausted",
+        "cancelled",
+        "deadline_exceeded",
+        "provider_unavailable",
+        "model_incompatible",
+        "schema_validation_failed",
+        "validation_failed",
+        "resource_exhausted",
+        "recoverable_internal_failure"
+      ]
+    },
+    "safe_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "details": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expected_version": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "observed_version": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "current_revision": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "category"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "error_version",
+    "code",
+    "safe_message",
+    "retryable",
+    "correlation_id",
+    "occurred_at"
+  ],
+  "additionalProperties": false
+}

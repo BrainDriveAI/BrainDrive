@@ -8,6 +8,32 @@ import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
+import { createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
+import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
+import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
+import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
+import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
+import { BriefAppHostAdapter } from "../app-platform/mcp-host/brief-host-adapter.js";
+import { ResumeAppHostAdapter } from "../app-platform/mcp-host/resume-host-adapter.js";
+import { parseAppChatModelMetadata } from "../app-platform/mcp-host/app-chat-model.js";
+import { createAppMcpHostRoutePlatform, registerAppMcpHostRoutes, type AppMcpHostRoutePlatform } from "../app-platform/mcp-host/routes.js";
+import { BriefDataStore } from "../brief-domain/store.js";
+import { BriefDomainService } from "../brief-domain/service.js";
+import { BriefInferenceBroker } from "../brief-inference/broker.js";
+import { createLiveBriefProviderResolver } from "../brief-inference/compatibility.js";
+import { createBriefCapabilityRegistrations } from "../app-capabilities/brief-registry.js";
+import { AppInferenceDispatcher } from "../app-inference/dispatcher.js";
+import { AppInferencePurposeRegistry } from "../app-inference/registry.js";
+import { createBriefInferencePurposeRegistration } from "../app-inference/brief-registration.js";
+import { InstalledAppInferenceExecutor, type InstalledAppInferenceProviderResolver } from "../app-inference/installed-program.js";
+import { createInstalledAppProviderResolver } from "../app-inference/provider.js";
+import { CareerPlacementAdapter } from "../resume-domain/career.js";
+import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
+import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
+import { ResumeDomainService } from "../resume-domain/service.js";
+import { ResumeDataStore } from "../resume-domain/store.js";
+import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
+
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
   createModelAdapter,
@@ -88,7 +114,8 @@ import {
   decideExplicitProviderActivation,
   normalizeProviderActivationRevision,
 } from "./provider-activation.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
+import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, PublishedProjectDocumentReadOnlyError, type GatewayProjectFile, type PublishedProjectDocumentProvider } from "./projects.js";
+import { ResumePublishedDocumentProvider } from "./resume-published-document.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
 
@@ -259,6 +286,10 @@ const BASE_PUBLIC_ROUTES = new Set([
   "/auth/refresh",
 ]);
 
+function isPrivateAppCapabilityRoute(path: string): boolean {
+  return /^\/internal\/apps\/[a-z0-9]+(?:-[a-z0-9]+)*\/capabilities$/.test(path);
+}
+
 const MANAGED_PROXY_ROUTES = new Set([
   "/account",
   "/account/change-password",
@@ -275,7 +306,11 @@ function isSyntheticLocalEmail(email: string): boolean {
   return SYNTHETIC_LOCAL_EMAIL_SUFFIXES.some((suffix) => normalizedEmail.endsWith(suffix));
 }
 
-export async function buildServer(rootDir = process.cwd()) {
+export type BuildServerDependencies = {
+  installedAppInferenceProviderResolver?: InstalledAppInferenceProviderResolver;
+};
+
+export async function buildServer(rootDir = process.cwd(), dependencies: BuildServerDependencies = {}) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
@@ -431,6 +466,86 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   );
 
+  let migrationInProgress = false;
+  const appLifecycleService = readBooleanEnv(process.env.BRAINDRIVE_APP_PLATFORM_ENABLED, false)
+    ? await createAppLifecycle({
+        memoryRoot: runtimeConfig.memory_root,
+        hostVersion: appVersion,
+        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
+        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        ownerActorId: authState.actor_id,
+        isMemoryMigrationInProgress: () => migrationInProgress,
+      })
+    : null;
+  const briefLifecycleService = appLifecycleService
+    ? await createBriefAppLifecycle({
+        memoryRoot: runtimeConfig.memory_root,
+        hostVersion: appVersion,
+        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
+        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        ownerActorId: authState.actor_id,
+        isMemoryMigrationInProgress: () => migrationInProgress,
+      })
+    : null;
+  let appMcpHost: AppMcpHost | null = null;
+  let briefMcpHost: AppMcpHost | null = null;
+  let appMcpHostRoutePlatform: AppMcpHostRoutePlatform | null = null;
+  const publishedDocumentProviders: PublishedProjectDocumentProvider[] = [];
+  if (appLifecycleService) {
+    const resumeDataStore = new ResumeDataStore(runtimeConfig.memory_root, appLifecycleService.dependencies.ownerDataRoot);
+    const descriptor = await appLifecycleService.ownerDescriptor();
+    await resumeDataStore.initialize(descriptor.grant?.owner_id ?? "00000000-0000-4000-8000-000000000001");
+    const resumeDomain = new ResumeDomainService(resumeDataStore);
+    publishedDocumentProviders.push(new ResumePublishedDocumentProvider(resumeDomain));
+    const exportBroker = new ResumeExportBroker(resumeDomain, auditLog);
+    const capabilityPolicy = new ResumeCapabilityPolicy(async () => {
+      const current = await appLifecycleService.ownerDescriptor();
+      return current.record.state === "active" ? current.grant : null;
+    });
+    const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), capabilityPolicy, auditLog, exportBroker);
+    const installedProviderResolver = dependencies.installedAppInferenceProviderResolver
+      ?? createInstalledAppProviderResolver({
+          adapterName: runtimeConfig.provider_adapter,
+          adapterConfig,
+          loadPreferences: loadLivePreferences,
+        });
+    appMcpHost = new AppMcpHost(new ResumeAppHostAdapter(appLifecycleService, {
+      audit: auditLog,
+      capabilityRouter,
+      installedAppInference: new InstalledAppInferenceExecutor({ resolveProvider: installedProviderResolver, audit: auditLog }),
+      exportBroker,
+    }));
+    const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService!.dependencies.ownerDataRoot);
+    const briefProviderResolver = process.env.BRAINDRIVE_E2E_BRIEF_INFERENCE_FIXTURE === "1"
+      ? async () => ({
+        providerProfileId: "synthetic-brief-workflow-fixture", modelId: "synthetic-brief-contract-model", compatibility: "brief_structured_no_tools_v1" as const,
+        adapter: { completeStructuredNoTools: async ({ user, signal }: { user: string; signal: AbortSignal }) => {
+          if (signal.aborted) throw new Error("cancelled");
+          const parsed = JSON.parse(user) as { source: string };
+          const quote = parsed.source.split(/(?<=[.!?])\s+/)[0]?.trim() || parsed.source.trim();
+          return { text: JSON.stringify({ title: "Owner source brief", statements: [{ statement_id: randomUUID(), text: quote, support: { kind: "source_quote", quote } }] }), finishReason: "stop" as const };
+        } },
+      })
+      : createLiveBriefProviderResolver({ adapterName: runtimeConfig.provider_adapter, adapterConfig, loadPreferences: loadLivePreferences });
+    const briefInference = new BriefInferenceBroker(briefProviderResolver, auditLog);
+    const briefDomain = new BriefDomainService(briefDataStore);
+    const briefInferenceDispatcher = new AppInferenceDispatcher(new AppInferencePurposeRegistry([createBriefInferencePurposeRegistration(briefInference)]), Date.now, auditLog);
+    briefMcpHost = new AppMcpHost(BriefAppHostAdapter.create(briefLifecycleService!, createBriefCapabilityRegistrations(briefDomain, briefInferenceDispatcher), auditLog));
+  }
+  if (appLifecycleService) {
+    auditLog("app_platform.lifecycle.enabled", {
+      app_id: "ai.braindrive.resume-builder",
+      fixture_source: "repository_fixture",
+      supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "docker_linux_x64" ? "docker_process" : "desktop_packaged_node",
+    });
+    app.addHook("onClose", async () => {
+      await appMcpHost?.closeAll();
+      await briefMcpHost?.closeAll();
+      await appLifecycleService.dependencies.supervisor.close();
+      await briefLifecycleService?.dependencies.supervisor.close();
+    });
+  }
+
   app.addHook("onRequest", async (request, reply) => {
     applyDesktopCorsHeaders(request.headers.origin, reply, desktopCorsOrigin, Boolean(desktopApiToken));
 
@@ -470,7 +585,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
-  const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
+  const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir, publishedDocumentProviders });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
@@ -488,7 +603,6 @@ export async function buildServer(rootDir = process.cwd()) {
           persistAuthState,
         })
       : null;
-  let migrationInProgress = false;
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -552,7 +666,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.code(201).send({
         access_token: tokens.accessToken,
@@ -597,7 +711,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const tokens = await localJwtAuthService.login(parsed.data);
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.send({
         access_token: tokens.accessToken,
@@ -635,7 +749,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const tokens = await localJwtAuthService.refresh(refreshToken);
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.send({
         access_token: tokens.accessToken,
@@ -644,7 +758,7 @@ export async function buildServer(rootDir = process.cwd()) {
       });
     } catch (error) {
       if (error instanceof RefreshReplayDetectedError) {
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         reply.code(401).send({ error: "refresh_replay_detected" });
         return;
       }
@@ -661,7 +775,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.post("/auth/logout", async (request, reply) => {
     if (localJwtAuthService) {
       await localJwtAuthService.logout();
-      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
     }
 
     reply.send({ ok: true });
@@ -669,7 +783,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.addHook("preHandler", async (request, reply) => {
     const requestPath = stripQueryString(request.url);
-    if (publicRoutes.has(requestPath)) {
+    if (publicRoutes.has(requestPath) || isPrivateAppCapabilityRoute(requestPath)) {
       return;
     }
 
@@ -701,6 +815,18 @@ export async function buildServer(rootDir = process.cwd()) {
 
     reply.code(423).send({ error: "migration_in_progress" });
   });
+
+  if (appLifecycleService) {
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: appLifecycleService },
+      { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.2.0", service: briefLifecycleService! },
+    ], 2));
+    appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
+      { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost! },
+      { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost! },
+    ]);
+    registerAppMcpHostRoutes(app, appMcpHostRoutePlatform);
+  }
 
   app.post("/message", async (request, reply) => {
     const normalizedRequest = gatewayAdapter.normalizeMessageRequest(request.body, request.headers["x-conversation-id"]);
@@ -751,7 +877,24 @@ export async function buildServer(rootDir = process.cwd()) {
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles)
       : "";
-    const finalPrompt = promptWithSkills.prompt + projectContext;
+    let appChatModelContext: Awaited<ReturnType<typeof resolveAppChatModelContextForMessage>> = null;
+    try {
+      appChatModelContext = await resolveAppChatModelContextForMessage(body.metadata, appMcpHostRoutePlatform);
+    } catch (error) {
+      const statusCode = error instanceof AppPlatformError ? error.statusCode : 400;
+      const code = error instanceof AppPlatformError ? error.code : "invalid_request";
+      auditLog("app.chat_workspace.model_context_denied", {
+        conversation_id: conversationId,
+        code,
+        status_code: statusCode,
+      });
+      reply.code(statusCode).send({ error: code });
+      return;
+    }
+    const finalPrompt = promptWithSkills.prompt + projectContext + (appChatModelContext?.prompt_context ?? "");
+    const requestToolExecutor = appChatModelContext
+      ? new ToolExecutor([...tools, ...appChatModelContext.tools])
+      : toolExecutor;
 
     const correlationId = crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
@@ -759,7 +902,7 @@ export async function buildServer(rootDir = process.cwd()) {
       conversationId,
       correlationId,
       messages: conversations.buildConversationMessages(conversationId, finalPrompt),
-      tools: toolExecutor.listTools(request.authContext),
+      tools: requestToolExecutor.listTools(request.authContext),
     });
 
     auditLog("context.window", {
@@ -861,7 +1004,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
       for await (const event of runAgentLoop(
         modelAdapter,
-        toolExecutor,
+        requestToolExecutor,
         approvalStore,
         engineRequest,
         request.authContext,
@@ -2538,7 +2681,7 @@ export async function buildServer(rootDir = process.cwd()) {
       let logoutRequired = false;
       if (localJwtAuthService) {
         await localJwtAuthService.logout();
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         logoutRequired = true;
       }
       reply.send({
@@ -2918,7 +3061,7 @@ export async function buildServer(rootDir = process.cwd()) {
       let logoutRequired = false;
       if (localJwtAuthService) {
         await localJwtAuthService.logout();
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         logoutRequired = true;
       }
 
@@ -3231,6 +3374,10 @@ export async function buildServer(rootDir = process.cwd()) {
         reply.code(400).send({ error: "Invalid path" });
         return;
       }
+      if (error instanceof PublishedProjectDocumentReadOnlyError) {
+        reply.code(409).send({ error: "Published app documents are read-only" });
+        return;
+      }
 
       throw error;
     }
@@ -3368,6 +3515,12 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function readAppLifecycleTarget(value: string | undefined): AppLifecycleRuntimeTarget {
+  const target = value?.trim() || "docker_linux_x64";
+  if (target === "docker_linux_x64" || target === "desktop_windows_x64" || target === "desktop_macos_universal") return target;
+  throw new Error("BRAINDRIVE_APP_PLATFORM_TARGET must name an accepted Resume Builder runtime target");
+}
+
 function applyDesktopCorsHeaders(
   origin: string | undefined,
   reply: import("fastify").FastifyReply,
@@ -3494,13 +3647,40 @@ function supportBundleEndpointsEnabled(runtimeConfig: RuntimeConfig): boolean {
   return runtimeConfig.auth_mode === "local";
 }
 
-function isSecureRequest(request: { headers: Record<string, unknown> }): boolean {
-  const forwardedProto = request.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string" && forwardedProto.toLowerCase().includes("https")) {
+function isSecureRequest(
+  request: { headers: Record<string, unknown> },
+  internalTransportToken: string
+): boolean {
+  if (isAuthenticatedLanBrowserHttpRequest(request.headers, internalTransportToken)) {
+    return false;
+  }
+
+  const forwardedProto = firstHeaderValue(request.headers["x-forwarded-proto"]);
+  if (forwardedProto?.trim().toLowerCase() === "https") {
     return true;
   }
 
   return process.env.NODE_ENV === "production";
+}
+
+function isAuthenticatedLanBrowserHttpRequest(
+  headers: Record<string, unknown>,
+  internalTransportToken: string
+): boolean {
+  if (!isBrowserAccessRequest(headers, internalTransportToken)) {
+    return false;
+  }
+
+  const forwardedProto = firstHeaderValue(headers["x-forwarded-proto"]);
+  const browserClientIp = firstHeaderValue(headers["x-braindrive-browser-client-ip"]);
+  const browserClientId = firstHeaderValue(headers["x-braindrive-browser-client-id"]);
+  return (
+    forwardedProto?.trim().toLowerCase() === "http" &&
+    typeof browserClientIp === "string" &&
+    browserClientIp.length > 0 &&
+    browserClientIp.length <= 128 &&
+    browserClientId === undefined
+  );
 }
 
 function toInitials(value: string): string {
@@ -4292,12 +4472,41 @@ export function createBrainDriveMemorySafetyGuard(
   return () => null;
 }
 
+async function resolveAppChatModelContextForMessage(
+  metadata: Record<string, unknown> | undefined,
+  platform: AppMcpHostRoutePlatform | null,
+) {
+  try {
+    const appChat = parseAppChatModelMetadata(metadata);
+    if (!appChat) return null;
+    if (!platform) throw new AppPlatformError("denied", "App-chat model sessions are unavailable", 403);
+    const selected = platform.entries.find((entry) => entry.appId === appChat.app_id);
+    if (!selected) throw new AppPlatformError("app_not_found", "App-chat model session targets an unavailable app", 404);
+    return selected.host.buildChatWorkspaceModelContext(appChat);
+  } catch (error) {
+    if (error instanceof AppPlatformError) throw error;
+    if (error instanceof z.ZodError) throw new AppPlatformError("invalid_input", "App-chat model metadata is invalid", 400);
+    throw new AppPlatformError("invalid_input", "App-chat model metadata is invalid", 400);
+  }
+}
+
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {
   const rootDir = process.cwd();
   buildServer(rootDir)
     .then(async ({ app, runtimeConfig }) => {
       await app.listen({ host: runtimeConfig.bind_address, port: runtimeConfig.port ?? 8787 });
       auditLog("startup.listen", { host: runtimeConfig.bind_address, port: runtimeConfig.port ?? 8787 });
+      let closing = false;
+      const close = () => {
+        if (closing) return;
+        closing = true;
+        void app.close().catch((error) => {
+          auditLog("shutdown.failure", { message: error instanceof Error ? error.message : "Unknown shutdown error" });
+          process.exitCode = 1;
+        });
+      };
+      process.once("SIGTERM", close);
+      process.once("SIGINT", close);
     })
     .catch((error) => {
       auditLog("startup.failure", {

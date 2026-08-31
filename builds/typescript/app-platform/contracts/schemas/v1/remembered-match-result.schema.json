@@ -1,0 +1,58 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/remembered-match-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "match_version": {
+      "type": "number",
+      "const": 1
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "explicit_revision",
+        "exact_label",
+        "none"
+      ]
+    },
+    "result_class": {
+      "type": "string",
+      "enum": [
+        "matched",
+        "ambiguous",
+        "none"
+      ]
+    },
+    "matches": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fact_revision_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "safe_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "fact_revision_id",
+          "safe_label"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "match_version",
+    "method",
+    "result_class",
+    "matches"
+  ],
+  "additionalProperties": false
+}

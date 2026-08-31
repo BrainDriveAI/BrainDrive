@@ -1,0 +1,137 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-export-finalize-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_version": {
+      "type": "number",
+      "const": 1
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "authority_version": {
+          "type": "number",
+          "const": 1
+        },
+        "owner_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "publisher_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 96,
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+        },
+        "installation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "lifecycle_generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "grant_revision": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "revocation_generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "authority_version",
+        "owner_id",
+        "actor_id",
+        "app_id",
+        "publisher_id",
+        "installation_id",
+        "package_digest",
+        "lifecycle_generation",
+        "grant_id",
+        "grant_revision",
+        "revocation_generation"
+      ],
+      "additionalProperties": false
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256
+    },
+    "artifact_revision_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "media_type": {
+      "type": "string",
+      "enum": [
+        "application/pdf",
+        "text/plain"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "safe_destination_label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+$"
+    }
+  },
+  "required": [
+    "request_version",
+    "authority",
+    "operation_id",
+    "idempotency_key",
+    "artifact_revision_id",
+    "content_digest",
+    "media_type",
+    "outcome",
+    "safe_destination_label"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "job_write",
+  "candidate_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "capability": "career.facts.confirm",
+  "provider_api_key": "synthetic-prohibited-credential-field",
+  "raw_path": "/synthetic/prohibited/path"
+}

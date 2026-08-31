@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { getOnboardingStatus } from "@/api/gateway-adapter";
+import AppsPage from "@/components/apps/AppsPage";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -32,6 +33,9 @@ export default function AppShell({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAppsOpen, setIsAppsOpen] = useState(false);
+  const [hasOpenedApps, setHasOpenedApps] = useState(false);
+  const [isAppWorkspaceActive, setIsAppWorkspaceActive] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -180,12 +184,24 @@ export default function AppShell({
   }, []);
 
   function handleFileClick(file: ProjectFile) {
+    setIsAppsOpen(false);
     setActiveFile(file);
+  }
+
+  function handleSelectProject(projectId: string) {
+    setIsAppsOpen(false);
+    selectProject(projectId);
   }
 
   function handleReturnToChat() {
     setActiveFile(null);
   }
+
+  const handleOpenApps = useCallback(() => {
+    setActiveFile(null);
+    setHasOpenedApps(true);
+    setIsAppsOpen(true);
+  }, []);
 
   function handleConversationComplete() {
     refreshProjects();
@@ -210,6 +226,13 @@ export default function AppShell({
     })();
   }
 
+  function handleAppSessionClosed() {
+    if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) return;
+    void refreshSelectedProjectFiles().then((nextFiles) => {
+      setActiveFile((current) => current ? nextFiles.find((file) => file.path === current.path) ?? null : null);
+    }).catch(() => undefined);
+  }
+
   const documentContent = activeFile && selectedProject ? (
     <DocumentView
       projectId={selectedProject.id}
@@ -224,6 +247,7 @@ export default function AppShell({
   } as CSSProperties;
 
   const mobileHeader = typeof document === "undefined"
+    || isAppWorkspaceActive
     ? null
     : createPortal(
         <div className="pointer-events-none fixed inset-x-0 top-0 z-30 md:hidden">
@@ -249,7 +273,7 @@ export default function AppShell({
             <button
               type="button"
               aria-label="Go to BrainDrive home"
-              onClick={() => selectProject(ROOT_AGENT_PROJECT_ID)}
+              onClick={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
               className="cursor-pointer bg-transparent p-0"
             >
               <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
@@ -264,7 +288,7 @@ export default function AppShell({
       className="flex overflow-hidden bg-bd-bg-chat text-bd-text-primary"
       style={{ height: "var(--app-height)", maxHeight: "var(--app-height)" }}
     >
-      <div className="hidden md:flex md:shrink-0">
+      {!isAppWorkspaceActive ? <div className="hidden md:flex md:shrink-0">
         <Sidebar
           isCollapsed={isCollapsed}
           onToggle={() => {
@@ -276,20 +300,22 @@ export default function AppShell({
           projectFiles={projectFiles}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
-          onSelectProject={selectProject}
+          onSelectProject={handleSelectProject}
           onDeselectProject={deselectProject}
           onReturnToChat={handleReturnToChat}
           onFileClick={handleFileClick}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenApps={handleOpenApps}
+          isAppsActive={isAppsOpen}
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
         />
-      </div>
+      </div> : null}
 
-      {isMobileSidebarOpen ? (
+      {isMobileSidebarOpen && !isAppWorkspaceActive ? (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
           <button
             type="button"
@@ -309,7 +335,7 @@ export default function AppShell({
               projectFiles={projectFiles}
               isLoadingProjects={isLoadingProjects}
               isLoadingFiles={isLoadingFiles}
-              onSelectProject={selectProject}
+              onSelectProject={handleSelectProject}
               onDeselectProject={deselectProject}
               onReturnToChat={handleReturnToChat}
               onFileClick={handleFileClick}
@@ -317,6 +343,8 @@ export default function AppShell({
                 setIsMobileSidebarOpen(false);
                 setIsSettingsOpen(true);
               }}
+              onOpenApps={() => { handleOpenApps(); setIsMobileSidebarOpen(false); }}
+              isAppsActive={isAppsOpen}
               onLogout={() => onLogout?.()}
               tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
@@ -334,7 +362,23 @@ export default function AppShell({
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
-          {children ?? (
+          {hasOpenedApps ? (
+            <div
+              className={isAppsOpen ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+              hidden={!isAppsOpen}
+              aria-hidden={!isAppsOpen}
+            >
+              <AppsPage
+                entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onSessionClosed={handleAppSessionClosed}
+                onWorkspaceActiveChange={setIsAppWorkspaceActive}
+                onLogout={() => onLogout?.()}
+                tier={deploymentMode === "managed" ? "concierge" : "local"}
+              />
+            </div>
+          ) : null}
+          {!isAppsOpen ? children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}
@@ -346,7 +390,7 @@ export default function AppShell({
               onSendMessage={handleReturnToChat}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
-          )}
+          ) : null}
         </div>
       </main>
 

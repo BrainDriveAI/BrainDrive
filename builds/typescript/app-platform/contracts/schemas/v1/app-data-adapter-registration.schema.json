@@ -1,0 +1,57 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-data-adapter-registration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "registration_version": {
+      "type": "number",
+      "const": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "binding_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "adapter_contract_version": {
+      "type": "number",
+      "const": 1
+    },
+    "data_contract_version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 65535
+    },
+    "namespace_policy": {
+      "type": "string",
+      "const": "host_derived_from_verified_app_id"
+    },
+    "retention_policy": {
+      "type": "string",
+      "const": "retain_owner_data_remove_runtime_authority"
+    },
+    "owner_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    }
+  },
+  "required": [
+    "registration_version",
+    "app_id",
+    "binding_id",
+    "adapter_contract_version",
+    "data_contract_version",
+    "namespace_policy",
+    "retention_policy",
+    "owner_component_id"
+  ],
+  "additionalProperties": false
+}

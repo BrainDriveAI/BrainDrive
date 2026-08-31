@@ -1,0 +1,101 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/guidance-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "guidance_version": {
+      "type": "number",
+      "const": 1
+    },
+    "items": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "strong_evidence",
+              "missing_detail",
+              "unresolved_conflict",
+              "unsupported_requirement",
+              "intentional_omission"
+            ]
+          },
+          "evidence_revision_ids": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "evidence_labels": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "category",
+          "evidence_revision_ids",
+          "evidence_labels",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "optional_questions": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "evidence_revision_ids": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "question_id",
+          "prompt",
+          "evidence_revision_ids"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "guidance_version",
+    "items",
+    "optional_questions"
+  ],
+  "additionalProperties": false
+}

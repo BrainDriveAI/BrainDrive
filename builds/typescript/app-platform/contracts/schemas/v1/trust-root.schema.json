@@ -1,0 +1,147 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/trust-root.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "trust_root_version": {
+      "type": "number",
+      "const": 1
+    },
+    "trust_domain": {
+      "type": "string",
+      "const": "braindrive-app-release"
+    },
+    "root_key": {
+      "type": "object",
+      "properties": {
+        "key_id": {
+          "type": "string",
+          "pattern": "^braindrive-app-(?:root|release)-[A-Za-z0-9-]{4,64}$"
+        },
+        "algorithm": {
+          "type": "string",
+          "const": "ed25519"
+        },
+        "public_key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{43}=$"
+        },
+        "status": {
+          "type": "string",
+          "const": "active"
+        }
+      },
+      "required": [
+        "key_id",
+        "algorithm",
+        "public_key",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "threshold": {
+      "type": "number",
+      "const": 1
+    },
+    "release_keys": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key_version": {
+            "type": "number",
+            "const": 1
+          },
+          "key_id": {
+            "type": "string",
+            "pattern": "^braindrive-app-(?:root|release)-[A-Za-z0-9-]{4,64}$"
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "ed25519"
+          },
+          "public_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$"
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "retired",
+              "revoked"
+            ]
+          },
+          "authorization": {
+            "type": "object",
+            "properties": {
+              "signature_version": {
+                "type": "number",
+                "const": 1
+              },
+              "domain_separator": {
+                "type": "string",
+                "const": "BrainDrive-App-Release-Key-v1"
+              },
+              "canonicalization": {
+                "type": "string",
+                "const": "braindrive-canonical-json-v1"
+              },
+              "signature_algorithm": {
+                "type": "string",
+                "const": "ed25519"
+              },
+              "signing_key_id": {
+                "type": "string",
+                "pattern": "^braindrive-app-(?:root|release)-[A-Za-z0-9-]{4,64}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signature_version",
+              "domain_separator",
+              "canonicalization",
+              "signature_algorithm",
+              "signing_key_id",
+              "signature"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "key_version",
+          "key_id",
+          "algorithm",
+          "public_key",
+          "not_before",
+          "not_after",
+          "status",
+          "authorization"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "trust_root_version",
+    "trust_domain",
+    "root_key",
+    "threshold",
+    "release_keys"
+  ],
+  "additionalProperties": false
+}

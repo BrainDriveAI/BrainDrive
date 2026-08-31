@@ -104,4 +104,19 @@ describe("sidebar categorization", () => {
       ["run-journal.md", "Journal"],
     ]);
   });
+
+  it("shows app-published documents as ordinary named files with a Published badge", () => {
+    const model = buildProjectSidebarModel("career", [{
+      name: "published/ai.braindrive.resume-builder/general-resume.md",
+      path: "documents/career/published/ai.braindrive.resume-builder/general-resume.md",
+      displayName: "General Resume",
+      readOnly: true,
+      sourceLabel: "Resume Builder",
+      sourceType: "app_published",
+    }]);
+
+    expect(model.files).toEqual([
+      expect.objectContaining({ label: "General Resume", badge: "Published" }),
+    ]);
+  });
 });
