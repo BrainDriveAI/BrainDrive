@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.6" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.7" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -610,7 +610,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
         profile_version: 1,
         presentation_id: "just.chat",
         type: "chat_workspace",
-        label: "Just Chat With It",
+        label: "Launch",
         description: "Build your Resume Profile and Resume in a native chat workspace.",
         workspace_id: "resume.chat",
         owner_visibility: "primary",

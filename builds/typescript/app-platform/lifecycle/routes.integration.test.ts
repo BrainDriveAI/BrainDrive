@@ -208,7 +208,7 @@ describe("owner lifecycle gateway routes", () => {
         expect.objectContaining({
           presentation_id: "just.chat",
           type: "chat_workspace",
-          label: "Just Chat With It",
+          label: "Launch",
           workspace_id: "resume.chat",
           owner_visibility: "primary",
         }),

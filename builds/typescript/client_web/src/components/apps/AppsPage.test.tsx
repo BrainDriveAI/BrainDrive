@@ -64,7 +64,7 @@ function chatPresentation(): NonNullable<appsApi.AppStatus["catalog"]>["presenta
         profile_version: 1,
         presentation_id: "chat",
         type: "chat_workspace",
-        label: "Just Chat With It",
+        label: "Launch",
         description: "Open the native app workspace.",
         workspace_id: "resume.chat",
         owner_visibility: "primary",
@@ -114,7 +114,7 @@ function chatLaunch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): ap
       profile_version: 1,
       presentation_id: "chat",
       type: "chat_workspace",
-      label: "Just Chat With It",
+      label: "Launch",
       description: "Open the native app workspace.",
       workspace_id: "resume.chat",
       owner_visibility: "primary",
@@ -353,7 +353,7 @@ describe("manifest-driven Apps surface", () => {
 
     const user = userEvent.setup();
     renderApps(<AppsPage />);
-    const launchButton = await screen.findByRole("button", { name: "Just Chat With It" });
+    const launchButton = await screen.findByRole("button", { name: "Launch" });
     await user.click(launchButton);
 
     expect(appsApi.launchAppChatWorkspace).toHaveBeenCalledWith("resume-builder", { presentationId: "chat", workspaceId: "resume.chat" });
@@ -369,7 +369,7 @@ describe("manifest-driven Apps surface", () => {
 
     await user.click(screen.getByRole("button", { name: "Back to Apps" }));
     await waitFor(() => expect(appsApi.closeAppSession).toHaveBeenCalledWith("resume-builder", launched.session.session_id));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Just Chat With It" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Launch" })).toHaveFocus());
   });
 
   it("keeps surface presentations on the sandbox launch path", async () => {
