@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 export * from "./workflow.js";
+export * from "./internet-search.js";
 
 export const BRIEF_APP_STORAGE_DOCUMENTS = {
   source: {

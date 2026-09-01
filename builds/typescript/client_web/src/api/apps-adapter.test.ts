@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, AppDocumentError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -416,5 +416,25 @@ describe("Apps gateway adapter", () => {
       app_issue_ids: ["brief.generate/schema-title-invalid"],
       owner_state: { state: "unavailable" },
     });
+  });
+
+  it("uses exact generic Internet Search gateway routes without app or provider paths", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ discovery_version: 1, operation_id: "web.search@1", state: "available", callable: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ capability: "web.search", version: 1, status: "success", results: [] }), { status: 200 }));
+    const request = {
+      request_id: "00000000-0000-4000-8000-000000000701",
+      run_id: "00000000-0000-4000-8000-000000000702",
+      input: { query: "generic proof", max_results: 1 },
+    };
+
+    await expect(discoverInternetSearchCapability("web.search@1")).resolves.toMatchObject({ operation_id: "web.search@1" });
+    await expect(callInternetSearchCapability("web.search@1", request)).resolves.toMatchObject({ capability: "web.search" });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/capabilities/web.search%401");
+    expect(fetchMock.mock.calls[1]![0]).toBe("/api/capabilities/web.search%401/call");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toEqual(request);
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).join("\n")).not.toMatch(/searxng|localhost|127\.|0\.0\.0\.0|\bport\b|provider|endpoint/i);
+    expect(() => discoverInternetSearchCapability("searxng-local")).toThrow("Invalid Internet Search operation id");
   });
 });

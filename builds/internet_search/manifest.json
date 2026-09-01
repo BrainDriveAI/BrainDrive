@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "capability_id": "internet-search",
+  "capability_version": "0.1.0",
+  "provider": {
+    "internal_profile_id": "searxng-local",
+    "public_profile_id": "local-owner-managed"
+  },
+  "sidecar": {
+    "runtime": "searxng",
+    "target": "docker_linux_x64",
+    "transport": "container_internal",
+    "service_name": "internet-search-searxng",
+    "health_path": "/healthz",
+    "public_bind": false,
+    "managed_by": "braindrive_lifecycle"
+  },
+  "operations": [
+    "web.search@1",
+    "web.read@1"
+  ],
+  "initial_lifecycle_state": "unavailable",
+  "non_claims": [
+    "no search result normalization in IS-003",
+    "no page fetch in IS-003",
+    "no consumer app workflow in IS-003"
+  ]
+}

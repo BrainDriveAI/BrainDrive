@@ -16,6 +16,8 @@ export const BRIEF_BUILDER_FIRST_PARTY_REGISTRATION: FirstPartyAppRegistration =
     capability("ai.braindrive.brief-builder", "brief-builder", "brief.records.write"),
     capability("ai.braindrive.brief-builder", "brief-builder", "brief.approvals.confirm", "owner_confirmation"),
     capability("ai.braindrive.brief-builder", "brief-builder", "app.inference.request"),
+    capability("ai.braindrive.brief-builder", "brief-builder", "web.search"),
+    capability("ai.braindrive.brief-builder", "brief-builder", "web.read"),
   ],
   inference_purpose_registrations: [{
     registration_version: 1, app_id: "ai.braindrive.brief-builder", key: { purpose_id: "brief.generate", version: 1 },

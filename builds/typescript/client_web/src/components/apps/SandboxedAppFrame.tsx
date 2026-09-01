@@ -3,12 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppCapabilityError,
   callAppCapability,
+  callInternetSearchCapability,
   closeAppSession,
+  discoverInternetSearchCapability,
   finalizeResumeBuilderExport,
   sendAppAppsBridgeMessage,
   sendAppBridgeMessage,
   type AppSurfaceLaunch,
   type HostConfirmationPresentation,
+  type InternetSearchOperationId,
 } from "@/api/apps-adapter";
 import { isTauriRuntime } from "@/api/runtime-api-base";
 import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
@@ -23,6 +26,33 @@ export function isTrustedSandboxMessage(event: MessageEvent, frame: HTMLIFrameEl
 
 export function isModelSettingsAction(action: unknown, value: unknown): boolean {
   return action === "navigate_settings" && value === "models";
+}
+
+export function isInternetSearchOperationCapability(value: unknown): value is InternetSearchOperationId {
+  return value === "web.search@1" || value === "web.read@1";
+}
+
+function internetSearchGrantName(operationId: InternetSearchOperationId): "web.search" | "web.read" {
+  return operationId === "web.search@1" ? "web.search" : "web.read";
+}
+
+function launchAllowsInternetSearch(launch: AppSurfaceLaunch, operationId: InternetSearchOperationId): boolean {
+  const grantName = internetSearchGrantName(operationId);
+  return launch.allowed_capabilities.includes(grantName) || launch.allowed_capabilities.includes(operationId);
+}
+
+function unauthorizedInternetSearchDiscovery(operationId: InternetSearchOperationId) {
+  return {
+    discovery_version: 1,
+    operation_id: operationId,
+    state: "unauthorized",
+    callable: false,
+    capability: null,
+    provider_profile: null,
+    health: null,
+    grant: { required: true, authorized: false },
+    message: "Capability authorization is required.",
+  };
 }
 
 export function applyGroupedFactDecisions(input: Record<string, unknown>, acceptedRevisionIds: ReadonlySet<string>): Record<string, unknown> {
@@ -261,6 +291,14 @@ export default function SandboxedAppFrame({
             throw new Error(outcome === "cancelled" ? "cancelled" : "recoverable_internal_failure");
           }
         });
+      }
+      if (message.type === "capability.discover" && isInternetSearchOperationCapability(message.payload?.operation_id)) {
+        if (!launchAllowsInternetSearch(launch, message.payload.operation_id)) return unauthorizedInternetSearchDiscovery(message.payload.operation_id);
+        return await discoverInternetSearchCapability(message.payload.operation_id);
+      }
+      if (message.type === "capability.call" && isInternetSearchOperationCapability(message.payload?.capability) && message.payload.input) {
+        if (!launchAllowsInternetSearch(launch, message.payload.capability)) throw new Error("not_authorized");
+        return await callInternetSearchCapability(message.payload.capability, message.payload.input as { request_id: string; run_id: string; input: unknown });
       }
       if (message.type === "capability.call" && typeof message.payload?.capability === "string" && message.payload.input) {
         try {

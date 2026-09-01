@@ -72,7 +72,7 @@ export async function createBriefAppLifecycle(input: { memoryRoot: string; hostV
     appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.2.0",
     summary: "Summarize source material into a concise, supported brief you can review, edit, and approve.",
     resourceHtml: await readFile(resourcePath, "utf8"),
-    requestedCapabilities: ["brief.records.read", "brief.records.write", "brief.approvals.confirm", "app.inference.request"],
+    requestedCapabilities: ["brief.records.read", "brief.records.write", "brief.approvals.confirm", "app.inference.request", "web.search", "web.read"],
     requestedInferencePurposes: [{ purpose_id: "brief.generate", version: 1 }],
   }]);
   const tokenBroker = new CapabilityTokenBroker();

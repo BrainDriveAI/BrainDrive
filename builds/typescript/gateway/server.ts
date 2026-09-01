@@ -33,6 +33,23 @@ import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
+import {
+  createDefaultInternetSearchCapabilityRegistry,
+  type InternetSearchCapabilityRegistry,
+} from "../internet-search/registry.js";
+import { registerInternetSearchCapabilityRoutes } from "../internet-search/routes.js";
+import {
+  createConfiguredStaticWebReadAdapter,
+  type WebReadExecutor,
+} from "../internet-search/read-adapter.js";
+import {
+  createConfiguredSearxngWebSearchAdapter,
+  type WebSearchExecutor,
+} from "../internet-search/search-adapter.js";
+import {
+  createConfiguredSearxngSidecarLifecycle,
+  type SearxngSidecarLifecycle,
+} from "../internet-search/sidecar.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -308,6 +325,10 @@ function isSyntheticLocalEmail(email: string): boolean {
 
 export type BuildServerDependencies = {
   installedAppInferenceProviderResolver?: InstalledAppInferenceProviderResolver;
+  internetSearchCapabilityRegistry?: InternetSearchCapabilityRegistry;
+  internetSearchSidecarLifecycle?: SearxngSidecarLifecycle | null;
+  internetSearchSearchExecutor?: WebSearchExecutor | null;
+  internetSearchReadExecutor?: WebReadExecutor | null;
 };
 
 export async function buildServer(rootDir = process.cwd(), dependencies: BuildServerDependencies = {}) {
@@ -603,6 +624,23 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
           persistAuthState,
         })
       : null;
+  const internetSearchSidecarLifecycle =
+    dependencies.internetSearchSidecarLifecycle ?? createConfiguredSearxngSidecarLifecycle();
+  const internetSearchCapabilityRegistry =
+    dependencies.internetSearchCapabilityRegistry
+    ?? createDefaultInternetSearchCapabilityRegistry({ statusProvider: internetSearchSidecarLifecycle });
+  const internetSearchSearchExecutor =
+    dependencies.internetSearchSearchExecutor
+    ?? createConfiguredSearxngWebSearchAdapter({ statusProvider: internetSearchSidecarLifecycle });
+  const internetSearchReadExecutor =
+    dependencies.internetSearchReadExecutor
+    ?? createConfiguredStaticWebReadAdapter({ statusProvider: internetSearchSidecarLifecycle });
+  if (internetSearchSidecarLifecycle) {
+    await internetSearchSidecarLifecycle.start();
+    app.addHook("onClose", async () => {
+      await internetSearchSidecarLifecycle.close();
+    });
+  }
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -827,6 +865,10 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     ]);
     registerAppMcpHostRoutes(app, appMcpHostRoutePlatform);
   }
+  registerInternetSearchCapabilityRoutes(app, internetSearchCapabilityRegistry, {
+    searchExecutor: internetSearchSearchExecutor,
+    readExecutor: internetSearchReadExecutor,
+  });
 
   app.post("/message", async (request, reply) => {
     const normalizedRequest = gatewayAdapter.normalizeMessageRequest(request.body, request.headers["x-conversation-id"]);

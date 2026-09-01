@@ -12,6 +12,13 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain('id="tab-source"');
     expect(html).toContain('id="tab-brief"');
+    expect(html).toContain('id="tab-search"');
+    expect(html).toContain("Internet Search");
+    expect(html).toContain('request("capability.discover"');
+    expect(html).toContain('send("web.search@1"');
+    expect(html).toContain('send("web.read@1"');
+    expect(html).toContain("External untrusted source material");
+    expect(html).toContain("external-untrusted");
     expect(html).toContain('class="brief-document"');
     expect(html).toContain("Key points");
     expect(html).toContain("View supporting sources");
@@ -28,6 +35,7 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain("crypto.getRandomValues");
     expect(html).not.toContain("crypto.randomUUID");
     expect(html).not.toMatch(/https?:\/\//);
+    expect(html).not.toMatch(/searxng|localhost|127\.|0\.0\.0\.0|\bport\b|provider_url|endpoint_url/i);
     expect(html).not.toContain("Career");
     expect(html).not.toContain("resume");
   });

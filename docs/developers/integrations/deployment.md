@@ -5,13 +5,13 @@
 | Path | Process/network shape | State boundary |
 |---|---|---|
 | Native development | Local MCP processes, gateway on loopback, Vite web server/proxy | Configured task/owner memory root and separate secrets home |
-| Docker development | Source-mounted app/web with Compose network and published development web port | Bind-mounted memory, secrets/dependency volumes; startup may change ownership/install packages |
-| Docker local | Packaged app on a local bind | Named memory and secrets volumes plus master-key environment material |
+| Docker development | Source-mounted app/web with Compose network, private Internet Search sidecar service, and published development web port | Bind-mounted memory, secrets/dependency volumes; startup may change ownership/install packages |
+| Docker local | Packaged app on a local bind with private Internet Search sidecar service | Named memory and secrets volumes plus master-key environment material |
 | Docker prod | App plus edge/proxy safeguards | Production configuration and authority required; not a documentation-test target |
 | Tauri | Native shell plus embedded loopback MCP/gateway runtime and webview | Platform app data/config/secrets/log roots |
 | Managed | Core gateway may proxy selected upstream account/credits routes | Local core memory/secrets remain distinct from upstream account/provider state |
 
-Packaging changes connectivity and lifecycle effects. It does not make gateway APIs public, make MCP services safe on an untrusted network, merge memory with secrets, or grant provider credentials.
+Packaging changes connectivity and lifecycle effects. It does not make gateway APIs public, expose the Internet Search sidecar as a consumer contract, make MCP services safe on an untrusted network, merge memory with secrets, or grant provider credentials.
 
 Use [native setup](../setup/native.md), [Docker development](../setup/docker-development.md), or [Tauri desktop](../setup/tauri-desktop.md) for command contracts. Production helpers, publishing, release signing, destructive volume cleanup, and managed access are not authorized by this page.
 

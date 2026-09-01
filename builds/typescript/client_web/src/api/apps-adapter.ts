@@ -435,6 +435,13 @@ export class AppDocumentError extends GatewayError {
   }
 }
 
+export type InternetSearchOperationId = "web.search@1" | "web.read@1";
+
+function internetSearchOperationId(value: string): InternetSearchOperationId {
+  if (value === "web.search@1" || value === "web.read@1") return value;
+  throw new Error("Invalid Internet Search operation id");
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {
@@ -557,6 +564,20 @@ export function callAppCapability(appKey: string, capability: string, input: unk
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ capability, operation_id: operationId, input, owner_confirmed: ownerConfirmed }),
+  });
+}
+
+export function discoverInternetSearchCapability(operationId: InternetSearchOperationId | string): Promise<unknown> {
+  const capabilityOperationId = internetSearchOperationId(operationId);
+  return requestJson(`/capabilities/${encodeURIComponent(capabilityOperationId)}`);
+}
+
+export function callInternetSearchCapability(operationId: InternetSearchOperationId | string, request: { request_id: string; run_id: string; input: unknown }): Promise<unknown> {
+  const capabilityOperationId = internetSearchOperationId(operationId);
+  return requestJson(`/capabilities/${encodeURIComponent(capabilityOperationId)}/call`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
   });
 }
 

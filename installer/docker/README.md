@@ -101,6 +101,7 @@ How dev mode works:
 - API calls proxy from Vite to backend (`/api` -> app service).
 - Runtime memory is a host bind mount from `PAA_LIBRARY_HOST_PATH` (defaulting to the repository development memory fixture); secrets use the external `braindrive_secrets` volume. The app and web dependency trees use separate named volumes.
 - The feature-gated first-party app platform uses the separate `braindrive_dev_app_platform` volume at `/data/app-platform`. It stores shared verified package material plus app-scoped installation, operation, and runtime state below host-derived app keys. It does not install either app automatically, exposes no additional host port, and default uninstall does not traverse owner-data namespaces. Set `BRAINDRIVE_APP_PLATFORM_ENABLED=false` before startup to disable this internal-beta developer surface.
+- Internet Search local V1 includes a private SearXNG sidecar on the Compose application network. BrainDrive probes it through host-owned lifecycle code before advertising generic Search/Read capability availability. The sidecar has no host-published port and is not a consumer-facing endpoint.
 - The separately buildable `builds/resume_builder` and `builds/brief_builder` packages are mounted read-only at `/app/resume_builder` and `/app/brief_builder`; the app container may load each declared UI resource but cannot modify package source. These reviewed first-party mounts are not an arbitrary local-package or third-party installation path.
 - App startup recursively changes ownership of the active memory bind, lifecycle host-state volume, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize the exact bind target and UID/GID before starting. Both containers run `npm install` from bind-mounted workspaces, so review package metadata and lockfiles after a recreate.
 - Compose creates or reuses `braindrive_dev_default`; only Vite is host-bound, and its `/api` route proxies to the internal app.
@@ -116,8 +117,8 @@ If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
 
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
-- `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
-- `compose.dev.yml`: developer hot-reload stack (Vite UI on `${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}`).
+- `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access) plus a private Internet Search sidecar with no host-published port.
+- `compose.dev.yml`: developer hot-reload stack (Vite UI on `${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}`) plus a private Internet Search sidecar with no host-published port.
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
 - `Caddyfile.local`: local HTTP routing.

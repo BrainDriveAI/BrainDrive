@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act, StrictMode } from "react";
 
-import { AppCapabilityError, callAppCapability, closeAppSession } from "@/api/apps-adapter";
+import { AppCapabilityError, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability } from "@/api/apps-adapter";
 import { APPS_PROTOCOL_VERSION, BRIDGE_CHANNEL } from "@/mcp-apps/bridge";
 import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, closeAppSession: vi.fn(async () => undefined), sendAppBridgeMessage: vi.fn(async () => ({ status: "ready" })), sendAppAppsBridgeMessage: vi.fn(async () => ({ result: {} })), callAppCapability: vi.fn(async () => ({ result: {} })), finalizeResumeBuilderExport: vi.fn(async (input: { safe_destination_label: string; outcome: string }) => ({ receipt_revision_id: crypto.randomUUID(), safe_destination_label: input.safe_destination_label, outcome: input.outcome })) };
+  return { ...actual, closeAppSession: vi.fn(async () => undefined), sendAppBridgeMessage: vi.fn(async () => ({ status: "ready" })), sendAppAppsBridgeMessage: vi.fn(async () => ({ result: {} })), callAppCapability: vi.fn(async () => ({ result: {} })), discoverInternetSearchCapability: vi.fn(async () => ({ discovery_version: 1, operation_id: "web.search@1", state: "available", callable: true })), callInternetSearchCapability: vi.fn(async () => ({ capability: "web.search", version: 1, status: "success", results: [] })), finalizeResumeBuilderExport: vi.fn(async (input: { safe_destination_label: string; outcome: string }) => ({ receipt_revision_id: crypto.randomUUID(), safe_destination_label: input.safe_destination_label, outcome: input.outcome })) };
 });
 
 const launch = {
@@ -192,6 +192,52 @@ describe("sandboxed MCP App frame", () => {
       false,
     ));
     expect(callAppCapability).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), envelopeId, expect.anything());
+  });
+
+  it("forwards Brief Internet Search operation messages through the generic capability routes", async () => {
+    const internetSearchLaunch = { ...launch, allowed_capabilities: [...launch.allowed_capabilities, "web.search", "web.read"], resource: { ...launch.resource, uri: "ui://brief-builder/main" } };
+    render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={internetSearchLaunch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Brief Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    const request = {
+      request_id: crypto.randomUUID(),
+      run_id: crypto.randomUUID(),
+      input: { query: "generic consumption", max_results: 1 },
+    };
+
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "brief", version: "1.2.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.discover", payload: { operation_id: "web.search@1" } });
+    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.call", payload: { capability: "web.search@1", input: request } });
+
+    await waitFor(() => expect(discoverInternetSearchCapability).toHaveBeenCalledWith("web.search@1"));
+    await waitFor(() => expect(callInternetSearchCapability).toHaveBeenCalledWith("web.search@1", request));
+    expect(callAppCapability).not.toHaveBeenCalledWith("brief-builder", "web.search@1", expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it("does not forward Internet Search calls when the app launch grant omits the generic capability", async () => {
+    render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={{ ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } }} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Brief Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source: "view", message: { bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.call", payload: { capability: "web.search@1", input: { request_id: crypto.randomUUID(), run_id: crypto.randomUUID(), input: { query: "denied" } } } } } }));
+      await Promise.resolve();
+    });
+
+    await act(async () => { await Promise.resolve(); });
+    expect(callInternetSearchCapability).not.toHaveBeenCalled();
+    expect(callAppCapability).not.toHaveBeenCalledWith("brief-builder", "web.search@1", expect.anything(), expect.anything(), expect.anything());
   });
 
   it("requires both the exact iframe window and opaque sandbox origin", () => {
