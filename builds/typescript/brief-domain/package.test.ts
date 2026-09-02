@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { FirstPartyAppRegistrationSchema } from "../app-platform/contracts/app-registry.js";
 import { BRIEF_BUILDER_FIRST_PARTY_REGISTRATION } from "../app-platform/first-party-registrations.js";
-import { createBriefAppLifecycle } from "../app-platform/lifecycle/bootstrap.js";
+import { BRIEF_BUILDER_VERSION, createBriefAppLifecycle } from "../app-platform/lifecycle/bootstrap.js";
 
 describe("Brief Builder first-party package and registration", () => {
   it("binds exact reviewed capabilities, purpose, adapter, resource, and all platform targets", async () => {
@@ -18,7 +18,7 @@ describe("Brief Builder first-party package and registration", () => {
     const root = await mkdtemp(path.join(tmpdir(), "brief-package-"));
     const lifecycle = await createBriefAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
     try {
-      const verified = await lifecycle.dependencies.verifier.verifyForCatalog(lifecycle.dependencies.repository, "1.2.0", { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
+      const verified = await lifecycle.dependencies.verifier.verifyForCatalog(lifecycle.dependencies.repository, BRIEF_BUILDER_VERSION, { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
       expect(verified).toMatchObject({ manifest: { app_id: "ai.braindrive.brief-builder", primary_resource: { uri: "ui://brief-builder/main" }, requested_capabilities: expect.arrayContaining([{ name: "web.search", version: 1 }, { name: "web.read", version: 1 }]), requested_inference_purposes: [{ purpose_id: "brief.generate", version: 1 }] }, trust: { executable_allowed: true } });
       expect(verified.manifest.platform_artifacts.map((item) => item.target).sort()).toEqual(["desktop_macos_universal", "desktop_windows_x64", "docker_linux_x64"]);
       expect(verified.packageDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -26,14 +26,14 @@ describe("Brief Builder first-party package and registration", () => {
 
     const windowsLifecycle = await createBriefAppLifecycle({ memoryRoot: path.join(root, "windows-memory"), stateRoot: path.join(root, "windows-host"), hostVersion: "26.7.23", target: "desktop_windows_x64" });
     try {
-      const verified = await windowsLifecycle.dependencies.verifier.verifyForCatalog(windowsLifecycle.dependencies.repository, "1.2.0", { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
+      const verified = await windowsLifecycle.dependencies.verifier.verifyForCatalog(windowsLifecycle.dependencies.repository, BRIEF_BUILDER_VERSION, { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
       expect(verified).toMatchObject({ target: "desktop_windows_x64", trust: { executable_allowed: true } });
       expect(verified.manifest.platform_artifacts.find((item) => item.target === verified.target)).toMatchObject({ target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node" });
     } finally { await windowsLifecycle.dependencies.supervisor.close(); }
 
     const macLifecycle = await createBriefAppLifecycle({ memoryRoot: path.join(root, "mac-memory"), stateRoot: path.join(root, "mac-host"), hostVersion: "26.7.23", target: "desktop_macos_universal" });
     try {
-      const verified = await macLifecycle.dependencies.verifier.verifyForCatalog(macLifecycle.dependencies.repository, "1.2.0", { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
+      const verified = await macLifecycle.dependencies.verifier.verifyForCatalog(macLifecycle.dependencies.repository, BRIEF_BUILDER_VERSION, { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" });
       expect(verified).toMatchObject({ target: "desktop_macos_universal", trust: { executable_allowed: true } });
       expect(verified.manifest.platform_artifacts.find((item) => item.target === verified.target)).toMatchObject({ target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node" });
     } finally { await macLifecycle.dependencies.supervisor.close(); }

@@ -8,9 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSyntheticFirstPartyFixtureRepository } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
+import { AppPlatformError } from "../lifecycle/errors.js";
 import { ResumeAppHostAdapter } from "./resume-host-adapter.js";
 import type { AppChatWorkspaceLaunch } from "./app-host-types.js";
 import { buildAppChatModelContext, parseAppChatModelMetadata, type AppChatModelMetadata } from "./app-chat-model.js";
+import { AppChatSessionRegistry } from "./app-chat-session.js";
 import type { ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
@@ -816,6 +818,47 @@ describe("app-chat workspace session authority", () => {
     })).rejects.toMatchObject({ code: "session_closed" });
   });
 
+  it("renews active app-chat session authority without rotating session identity", () => {
+    let now = Date.parse("2026-08-26T12:00:00.000Z");
+    const registry = new AppChatSessionRegistry({ now: () => now });
+    const authority = {
+      ownerId: randomUUID(),
+      accountId: randomUUID(),
+      actorId: randomUUID(),
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+      installationId: randomUUID(),
+      packageDigest: digest("a"),
+      lifecycleGeneration: 2,
+      grantId: randomUUID(),
+      grantRevision: 1,
+      revocationGeneration: 0,
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      contextGrantSetDigest: digest("b"),
+    };
+    const committed = registry.commit(registry.plan(authority));
+
+    expect(committed.expiresAt).toBe("2026-08-26T12:05:00.000Z");
+
+    now = Date.parse("2026-08-26T12:04:00.000Z");
+    const renewed = registry.renew(authority.appId, committed.sessionId);
+
+    expect(renewed).toMatchObject({
+      sessionId: committed.sessionId,
+      viewId: committed.viewId,
+      operationId: committed.operationId,
+      sessionGeneration: committed.sessionGeneration,
+      expiresAt: "2026-08-26T12:09:00.000Z",
+    });
+
+    now = Date.parse("2026-08-26T12:08:30.000Z");
+    expect(registry.read(authority.appId, committed.sessionId).sessionId).toBe(committed.sessionId);
+
+    now = Date.parse("2026-08-26T12:09:00.001Z");
+    expect(() => registry.read(authority.appId, committed.sessionId)).toThrow(AppPlatformError);
+  });
+
   it("fails closed when a required context projection exceeds its descriptor bound", async () => {
     const { host } = await setup({
       router: fakeRouter({ content: "x".repeat(256) }),
@@ -932,6 +975,131 @@ describe("app-chat workspace session authority", () => {
       content_digest: resourceDigest,
       included: true,
       byte_length: Buffer.byteLength(resourceText, "utf8"),
+    })]);
+  });
+
+  it("uses owner overrides for owner-editable package resources in app-chat model context", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-chat-owner-resource-"));
+    roots.push(root);
+    await mkdir(path.join(root, "payload", "resources"), { recursive: true });
+    const packageText = "# Agent Instructions\nUse the packaged default.";
+    const ownerText = "# Agent Instructions\nUse the owner override.";
+    await writeFile(path.join(root, "payload", "resources", "agent.md"), packageText);
+    const packageDigest = digestText(packageText);
+    const ownerDigest = digestText(ownerText);
+    const session = {
+      ownerId: randomUUID(),
+      accountId: randomUUID(),
+      actorId: "owner",
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+      installationId: randomUUID(),
+      packageDigest: digest("a"),
+      lifecycleGeneration: 2,
+      grantId: randomUUID(),
+      grantRevision: 1,
+      revocationGeneration: 0,
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      contextGrantSetDigest: digest("b"),
+      sessionId: randomUUID(),
+      viewId: randomUUID(),
+      operationId: randomUUID(),
+      sessionGeneration: 1,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const metadata: AppChatModelMetadata = {
+      metadata_version: 1,
+      app_id: session.appId,
+      installation_id: session.installationId,
+      package_digest: session.packageDigest,
+      session_id: session.sessionId,
+      view_id: session.viewId,
+      operation_id: session.operationId,
+      session_generation: session.sessionGeneration,
+      presentation_id: session.presentationId,
+      workspace_id: session.workspaceId,
+      context_grant_set_digest: session.contextGrantSetDigest,
+    };
+    const chatWorkspace = workspace([], {
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Native app conversation.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "agent.instructions",
+          role: "advanced_resource",
+          title: "Agent Instructions",
+          description: "Owner-editable app instructions.",
+          editable: true,
+          default_visibility: "advanced",
+          model_access: "read_write_draft",
+          resource_id: "agent.instructions",
+          data_binding_id: "agent.instructions.owner",
+          initial_content: {
+            initial_content_version: 1,
+            source: "package_file",
+            package_path: "payload/resources/agent.md",
+            media_type: "text/markdown",
+            content_digest: packageDigest,
+            seed_policy: "when_missing",
+          },
+        },
+      ],
+      resources: [{
+        resource_version: 1,
+        resource_id: "agent.instructions",
+        role: "agent_instructions",
+        title: "Agent Instructions",
+        description: "Owner-editable model guidance.",
+        package_path: "payload/resources/agent.md",
+        media_type: "text/markdown",
+        content_digest: packageDigest,
+        owner_editable: true,
+        prompt_inclusion: "workspace_start",
+      }],
+    });
+
+    const model = await buildAppChatModelContext({
+      metadata,
+      session,
+      workspace: chatWorkspace,
+      storedPackage: {
+        store_version: 1,
+        package_digest: session.packageDigest,
+        package_version: "1.0.0",
+        package_root: root,
+        entrypoint: path.join(root, "payload/docker/index.js"),
+        manifest: {} as never,
+        trust: {} as never,
+      },
+      resolveResourcePromptContent: async () => ({
+        content: ownerText,
+        contentDigest: ownerDigest,
+        source: "owner_override",
+        ownerRevision: 3,
+      }),
+      executeAction: async () => ({ ok: true }),
+    });
+
+    expect(model.promptContext).toContain(ownerText);
+    expect(model.promptContext).not.toContain("Use the packaged default.");
+    expect(model.evidence.resources).toEqual([expect.objectContaining({
+      resource_id: "agent.instructions",
+      content_digest: ownerDigest,
+      content_source: "owner_override",
+      owner_revision: 3,
     })]);
   });
 

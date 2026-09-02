@@ -41,6 +41,7 @@ import {
   type ResumeRecoveryOperationLifecycleProjection,
 } from "../../app-capabilities/recovery-reconciliation.js";
 import { AppActionPlanRequestSchema } from "../contracts/app-action-plan.js";
+import type { AppResourceDescriptor } from "../contracts/app-registry.js";
 import { AppArtifactExportService } from "../../app-capabilities/artifact-export.js";
 import { InstalledAppInferenceExecutor, InstalledAppInferenceInvocationSchema } from "../../app-inference/installed-program.js";
 import { createInstalledAppInferenceProgramClient } from "../../app-inference/installed-program-mcp.js";
@@ -65,6 +66,7 @@ import {
   assertAppChatMetadataMatchesSession,
   buildAppChatModelContext,
   type AppChatActionExecutionRequest,
+  type AppChatResourcePromptContent,
 } from "./app-chat-model.js";
 import { readVerifiedPackageResource } from "./app-package-resource.js";
 import { readOrSeedAppDocument } from "./app-document-content.js";
@@ -405,7 +407,7 @@ export class ResumeAppHostAdapter {
       this.close(sessionId);
       throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
     }
-    return projectAppChatSession(session);
+    return projectAppChatSession(this.chatSessions.renew(this.appId, session.sessionId));
   }
 
   async readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
@@ -536,6 +538,7 @@ export class ResumeAppHostAdapter {
       session,
       workspace,
       storedPackage: descriptor.storedPackage!,
+      resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
       executeAction: (actionRequest) => this.executeChatWorkspaceAction(actionRequest),
     });
     return {
@@ -1026,10 +1029,43 @@ export class ResumeAppHostAdapter {
     });
     const document = selection.workspace.documents.find((candidate) => candidate.document_id === documentId);
     if (!document) throw new AppPlatformError("not_found_within_scope", "App document is not declared for this workspace", 404);
-    if (document.role === "conversation" || document.role === "advanced_resource" || !document.data_binding_id) {
+    if (document.role === "conversation" || !document.data_binding_id) {
       throw new AppPlatformError("denied", "Workspace item is not bound to app document storage", 403);
     }
-    return { session, descriptor, document };
+    return { session: this.chatSessions.renew(this.appId, session.sessionId), descriptor, document };
+  }
+
+  private async resolveOwnerEditableResourcePrompt(
+    resource: AppResourceDescriptor,
+    session: AppChatSessionRecord,
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>,
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+  ): Promise<AppChatResourcePromptContent | null> {
+    const document = workspace.documents.find((candidate) =>
+      candidate.resource_id === resource.resource_id &&
+      candidate.editable &&
+      Boolean(candidate.data_binding_id)
+    );
+    if (!document) return null;
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.documentStorage.initialize();
+    await this.documentStorage.bindActiveAuthority(authority);
+    const record = await readOrSeedAppDocument({
+      documentStorage: this.documentStorage,
+      authority,
+      storedPackage: descriptor.storedPackage!,
+      document,
+      operationId: randomUUID(),
+      idempotencyKey: `resource-override-seed-${randomUUID()}`,
+      audit: this.audit,
+    });
+    if (!record) return null;
+    return {
+      content: appDocumentPromptText(record.content),
+      contentDigest: record.content_digest as `sha256:${string}`,
+      source: "owner_override",
+      ownerRevision: record.revision,
+    };
   }
 
   private async requireChatSessionForStorage(sessionId: string): Promise<{
@@ -1056,7 +1092,7 @@ export class ResumeAppHostAdapter {
       this.close(session.sessionId);
       throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
     }
-    return { session, descriptor };
+    return { session: this.chatSessions.renew(this.appId, session.sessionId), descriptor };
   }
 
   private storageAuthority(session: AppChatSessionRecord, grant: CapabilityGrant): AppDocumentStorageAuthority {
@@ -1269,7 +1305,7 @@ export class ResumeAppHostAdapter {
       presentationId: session.presentationId,
       workspaceId: session.workspaceId,
     });
-    return { session, descriptor, workspace: selection.workspace };
+    return { session: this.chatSessions.renew(this.appId, session.sessionId), descriptor, workspace: selection.workspace };
   }
 
   private createDefaultCapabilityRegistrations(): readonly HostCapabilityRegistration[] {
@@ -1880,6 +1916,10 @@ function defaultRetentionClassForDocument(document: ReturnType<typeof selectAppC
   if (role === "recovery_document") return "rollback_recovery_window";
   if (role === "action_result_document") return "durable_operation_lookup";
   return "durable_owner_data";
+}
+
+function appDocumentPromptText(content: unknown): string {
+  return typeof content === "string" ? content : JSON.stringify(content, null, 2);
 }
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {

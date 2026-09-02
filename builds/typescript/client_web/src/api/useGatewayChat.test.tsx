@@ -336,6 +336,46 @@ describe("useGatewayChat", () => {
     expect(result.current.activity.some((item) => item.type === "approval-result")).toBe(true);
   });
 
+  it("notifies stream observers before discarding structured tool output", async () => {
+    const onStreamEvent = vi.fn();
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        {
+          type: "tool-call",
+          id: "tool-1",
+          name: "app_action_export",
+          input: {},
+        },
+        {
+          type: "tool-result",
+          id: "tool-1",
+          status: "ok",
+          output: { result: { status: "prepared" } },
+        },
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-export",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat({ onStreamEvent }));
+
+    act(() => {
+      result.current.append("Export this.");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(onStreamEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "tool-result",
+      output: { result: { status: "prepared" } },
+    }));
+  });
+
   it("handles /skills slash command without invoking message streaming", async () => {
     listSkillsMock.mockResolvedValue([
       {

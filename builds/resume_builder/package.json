@@ -1,6 +1,6 @@
 {
   "name": "@braindrive/resume-builder",
-  "version": "4.2.7",
+  "version": "4.2.8",
   "private": true,
   "type": "module",
   "description": "Resume Builder sandbox workflow, app-owned inference program, contracts, and MCP surface",

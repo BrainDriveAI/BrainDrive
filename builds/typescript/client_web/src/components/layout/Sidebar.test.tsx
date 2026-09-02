@@ -109,6 +109,7 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Conversation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Goals" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Journal" })).toBeInTheDocument();
@@ -218,6 +219,46 @@ describe("Sidebar", () => {
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an explicit project conversation row that returns from files to chat", async () => {
+    const user = userEvent.setup();
+    const onReturnToChat = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[{ name: "plan.md", path: "documents/finance/plan.md" }]}
+        activeFilePath="documents/finance/plan.md"
+        onReturnToChat={onReturnToChat}
+        onClose={onClose}
+      />
+    );
+
+    const conversation = screen.getByRole("button", { name: "Conversation" });
+    expect(conversation).not.toHaveAttribute("aria-current");
+
+    await user.click(conversation);
+
+    expect(onReturnToChat).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the project conversation row as current when no file is open", () => {
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[{ name: "plan.md", path: "documents/finance/plan.md" }]}
+        activeFilePath={null}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-current", "page");
   });
 
   it("does not show the document upload control in the project sidebar", () => {

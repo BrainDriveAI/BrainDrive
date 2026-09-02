@@ -11,7 +11,7 @@ import {
   updateConversationSkills,
   updateProjectSkills,
 } from "./gateway-adapter";
-import type { ActivityEvent, ApprovalDecision, ContextWindowWarning, PendingApproval } from "./types";
+import type { ActivityEvent, ApprovalDecision, ChatEvent, ContextWindowWarning, PendingApproval } from "./types";
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_ACTIVITY: ActivityEvent[] = [];
@@ -71,6 +71,7 @@ type UseGatewayChatOptions = {
   projectId?: string | null;
   initialMessages?: Message[];
   draftKey?: string | null;
+  onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
 };
 
 type AppendOptions = {
@@ -127,10 +128,15 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const conversationIdRef = useRef<string | null>(cached?.conversationId ?? externalConversationId);
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
+  const streamEventHandlerRef = useRef(options.onStreamEvent);
 
   useEffect(() => {
     projectIdRef.current = externalProjectId;
   }, [externalProjectId]);
+
+  useEffect(() => {
+    streamEventHandlerRef.current = options.onStreamEvent;
+  }, [options.onStreamEvent]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -457,6 +463,8 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
             }));
           },
         })) {
+          await streamEventHandlerRef.current?.(event);
+
           if (requestToken !== requestTokenRef.current && isActive()) {
             return;
           }

@@ -13,12 +13,12 @@ import {
   type HostConfirmationPresentation,
   type InternetSearchOperationId,
 } from "@/api/apps-adapter";
-import { isTauriRuntime } from "@/api/runtime-api-base";
 import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
 import { McpAppBridgeController, type BridgeStatus } from "@/mcp-apps/bridge";
 import { OUTER_PROXY_SANDBOX, VIEW_PERMISSION_POLICY, createSandboxProxyUrl } from "@/mcp-apps/sandbox-proxy";
 import { secureRandomUuid } from "@/utils/browser-crypto";
 import { openExternalUrl } from "@/utils/external-url";
+import { appExportPayloadSizeBytes, parseHostAppExportPayload, saveHostAppExport } from "./app-export-download";
 
 export function isTrustedSandboxMessage(event: MessageEvent, frame: HTMLIFrameElement | null): boolean {
   return Boolean(frame?.contentWindow && event.source === frame.contentWindow && event.origin === "null");
@@ -113,41 +113,8 @@ type PendingHostAction = {
   reject: (reason: Error) => void;
 };
 
-export async function saveHostResumeExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
-  const value = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown; safe_destination_label?: unknown; definition?: unknown; parse_back?: unknown };
-  if (typeof value.filename !== "string" || typeof value.mime_type !== "string" || typeof value.bytes_base64 !== "string" || typeof value.safe_destination_label !== "string") {
-    throw new Error("invalid_export_result");
-  }
-  const isPdf = value.mime_type === "application/pdf" && /^[^/\\]+\.pdf$/i.test(value.filename);
-  const isText = value.mime_type === "text/plain" && /^[^/\\]+\.txt$/i.test(value.filename);
-  if (!isPdf && !isText) throw new Error("invalid_export_result");
-  const bytes = Uint8Array.from(atob(value.bytes_base64), (character) => character.charCodeAt(0));
-  let textPayload = "";
-  try { if (isText) textPayload = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-  catch { throw new Error("invalid_export_result"); }
-  if ((isPdf && new TextDecoder("latin1").decode(bytes.subarray(0, 8)) !== "%PDF-1.4") || (isText && (!textPayload || bytes.includes(0)))) throw new Error("invalid_export_result");
-  let safeDestinationLabel = value.safe_destination_label;
-  if (isTauriRuntime()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const native = await invoke<{ outcome: "completed" | "cancelled"; safeDestinationLabel: string }>("save_resume_export", {
-      request: { safeFilename: value.filename, mimeType: value.mime_type, bytesBase64: value.bytes_base64 },
-    });
-    if (native.outcome === "cancelled") throw new Error("cancelled");
-    if (!(isPdf ? /^[^/\\]+\.pdf$/i : /^[^/\\]+\.txt$/i).test(native.safeDestinationLabel)) throw new Error("invalid_export_result");
-    safeDestinationLabel = native.safeDestinationLabel;
-  } else {
-    const url = URL.createObjectURL(new Blob([bytes], { type: value.mime_type }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = value.filename;
-    anchor.rel = "noopener";
-    anchor.click();
-    queueMicrotask(() => URL.revokeObjectURL(url));
-  }
-  return { safe_destination_label: safeDestinationLabel, definition: value.definition, parse_back: value.parse_back };
-}
-
-export const saveHostPdfExport = saveHostResumeExport;
+export const saveHostResumeExport = saveHostAppExport;
+export const saveHostPdfExport = saveHostAppExport;
 
 export default function SandboxedAppFrame({
   appKey,
@@ -274,15 +241,11 @@ export default function SandboxedAppFrame({
             throw new Error("recoverable_internal_failure");
           }
           try {
-            const exportPayload = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown };
-            if (typeof exportPayload.filename !== "string" || typeof exportPayload.mime_type !== "string" || typeof exportPayload.bytes_base64 !== "string") {
-              throw new Error("invalid_export_result");
-            }
-            const padding = exportPayload.bytes_base64.endsWith("==") ? 2 : exportPayload.bytes_base64.endsWith("=") ? 1 : 0;
-            const sizeBytes = Math.floor(exportPayload.bytes_base64.length * 3 / 4) - padding;
+            const exportPayload = parseHostAppExportPayload(result);
+            const sizeBytes = appExportPayloadSizeBytes(exportPayload.bytes_base64);
             const exportDecision = browserBroker.validateExport({ safeFilename: exportPayload.filename, mimeType: exportPayload.mime_type, sizeBytes }, true, true);
             if (!exportDecision.allowed) throw new Error(exportDecision.code);
-            const projection = await saveHostResumeExport(result);
+            const projection = await saveHostAppExport(result);
             const receipt = await finalizeResumeBuilderExport({ artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: projection.safe_destination_label, outcome: "completed" });
             return { ...projection, safe_destination_label: receipt.safe_destination_label };
           } catch (exportError) {

@@ -447,14 +447,25 @@ export const ChatWorkspaceDescriptorSchema = z
       context.addIssue({ code: "custom", path: ["default_document_id"], message: "default document must reference a declared workspace document" });
     }
     const resourceIds = new Set(value.resources.map((item) => item.resource_id));
+    const resourceById = new Map(value.resources.map((item) => [item.resource_id, item]));
     const actionIds = new Set(value.actions.map((item) => item.action_id));
     for (const [index, document] of value.documents.entries()) {
       if (document.resource_id !== null && !resourceIds.has(document.resource_id)) {
         context.addIssue({ code: "custom", path: ["documents", index, "resource_id"], message: "document resource must reference a declared app resource" });
       }
       if (document.initial_content) {
-        if (!document.data_binding_id || document.role === "conversation" || document.role === "advanced_resource") {
+        if (!document.data_binding_id || document.role === "conversation") {
           context.addIssue({ code: "custom", path: ["documents", index, "initial_content"], message: "initial document content requires a bound app document" });
+        }
+        const resource = document.resource_id ? resourceById.get(document.resource_id) : null;
+        if (resource && (
+          document.initial_content.source !== "package_file" ||
+          document.initial_content.package_path !== resource.package_path ||
+          document.initial_content.media_type !== resource.media_type ||
+          document.initial_content.content_digest !== resource.content_digest ||
+          document.initial_content.seed_policy !== "when_missing"
+        )) {
+          context.addIssue({ code: "custom", path: ["documents", index, "initial_content"], message: "resource-backed document seed must match the immutable package resource" });
         }
       }
       const headerActions = document.presentation?.header_actions ?? [];
@@ -462,6 +473,22 @@ export const ChatWorkspaceDescriptorSchema = z
         if (headerAction.type === "app_action" && !actionIds.has(headerAction.action_id)) {
           context.addIssue({ code: "custom", path: ["documents", index, "presentation", "header_actions", actionIndex, "action_id"], message: "document header action must reference a declared workspace action" });
         }
+      }
+    }
+    for (const [index, resource] of value.resources.entries()) {
+      if (!resource.owner_editable) continue;
+      const overrideDocument = value.documents.find((document) =>
+        document.resource_id === resource.resource_id &&
+        document.editable &&
+        document.data_binding_id &&
+        document.initial_content?.source === "package_file" &&
+        document.initial_content.package_path === resource.package_path &&
+        document.initial_content.media_type === resource.media_type &&
+        document.initial_content.content_digest === resource.content_digest &&
+        document.initial_content.seed_policy === "when_missing"
+      );
+      if (!overrideDocument) {
+        context.addIssue({ code: "custom", path: ["resources", index, "owner_editable"], message: "owner-editable resources require an editable bound document seeded from the immutable package resource" });
       }
     }
   });

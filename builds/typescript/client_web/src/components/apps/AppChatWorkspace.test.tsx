@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
-import AppChatWorkspace, { buildAppChatMessageMetadata } from "./AppChatWorkspace";
+import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport } from "./AppChatWorkspace";
+
+const { chatPanelProps } = vi.hoisted(() => ({
+  chatPanelProps: [] as Array<{ onStreamEvent?: (event: unknown) => void | Promise<void> }>,
+}));
 
 vi.mock("@/api/auth-adapter", () => ({
   getSession: vi.fn(async () => ({
@@ -20,6 +24,12 @@ vi.mock("@/api/apps-adapter", async () => {
   return {
     ...actual,
     closeAppSession: vi.fn(async () => undefined),
+    finalizeAppExport: vi.fn(async (appKey: string, input: { safe_destination_label: string; outcome: string }) => ({
+      receipt_revision_id: "00000000-0000-4000-8000-000000000099",
+      safe_destination_label: input.safe_destination_label,
+      outcome: input.outcome,
+      appKey,
+    })),
     readAppChatWorkspaceSession: vi.fn(),
     readAppChatWorkspaceDocument: vi.fn(),
     readAppChatWorkspaceResource: vi.fn(),
@@ -32,20 +42,26 @@ vi.mock("@/components/chat/ChatPanel", () => ({
     contentOverride?: ReactNode;
     emptyStateIntro?: { heading: string; description: string; cta?: string };
     messageMetadata?: Record<string, unknown>;
-  }) => (
-    <section aria-label="Native chat panel">
-      <div data-testid="chat-metadata">{JSON.stringify(props.messageMetadata)}</div>
-      {props.emptyStateIntro ? (
-        <div data-testid="chat-empty-intro">
-          <h2>{props.emptyStateIntro.heading}</h2>
-          <p>{props.emptyStateIntro.description}</p>
-          {props.emptyStateIntro.cta ? <button type="button">{props.emptyStateIntro.cta}</button> : null}
-        </div>
-      ) : null}
-      {props.contentOverride ?? <div>Conversation transcript</div>}
-      <textarea placeholder="Message your BrainDrive..." />
-    </section>
-  ),
+    onStreamEvent?: (event: unknown) => void | Promise<void>;
+    statusNotice?: { message: string } | null;
+  }) => {
+    chatPanelProps.push(props);
+    return (
+      <section aria-label="Native chat panel">
+        <div data-testid="chat-metadata">{JSON.stringify(props.messageMetadata)}</div>
+        {props.statusNotice ? <div data-testid="chat-status-notice">{props.statusNotice.message}</div> : null}
+        {props.emptyStateIntro ? (
+          <div data-testid="chat-empty-intro">
+            <h2>{props.emptyStateIntro.heading}</h2>
+            <p>{props.emptyStateIntro.description}</p>
+            {props.emptyStateIntro.cta ? <button type="button">{props.emptyStateIntro.cta}</button> : null}
+          </div>
+        ) : null}
+        {props.contentOverride ?? <div>Conversation transcript</div>}
+        <textarea placeholder="Message your BrainDrive..." />
+      </section>
+    );
+  },
 }));
 
 function launch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): appsApi.AppChatWorkspaceLaunch {
@@ -164,9 +180,67 @@ function launch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): appsAp
   };
 }
 
+function withProfileDocumentPresentation(current: appsApi.AppChatWorkspaceLaunch): appsApi.AppChatWorkspaceLaunch {
+  return {
+    ...current,
+    workspace: {
+      ...current.workspace,
+      documents: current.workspace.documents.map((document) => document.document_id === "profile" ? {
+        ...document,
+        presentation: {
+          presentation_version: 1,
+          renderer: "markdown_document",
+          chrome: "document",
+          title: "Your Resume Profile",
+          subtitle: "Resume Builder",
+          header_actions: [
+            { type: "back_to_chat", label: "Back to chat" },
+            { type: "edit_document", label: "Edit Profile" },
+          ],
+        },
+      } : document),
+    },
+  };
+}
+
+function withEditableAdvancedResource(current: appsApi.AppChatWorkspaceLaunch): appsApi.AppChatWorkspaceLaunch {
+  return {
+    ...current,
+    workspace: {
+      ...current.workspace,
+      documents: current.workspace.documents.map((document) => document.document_id === "instructions" ? {
+        ...document,
+        editable: true,
+        model_access: "read_write_draft",
+        data_binding_id: "instructions.owner",
+        presentation: {
+          presentation_version: 1,
+          renderer: "markdown_document",
+          chrome: "document",
+          title: "Agent Instructions.md",
+          subtitle: "Owner editable app instructions",
+          header_actions: [
+            { type: "back_to_chat", label: "Back to chat" },
+            { type: "edit_document", label: "Edit" },
+          ],
+        },
+      } : document),
+      resources: current.workspace.resources.map((resource) => resource.resource_id === "instructions" ? {
+        ...resource,
+        owner_editable: true,
+      } : resource),
+    },
+  };
+}
+
 describe("AppChatWorkspace", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    chatPanelProps.length = 0;
     vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
       result_version: 1,
       state: "missing",
@@ -222,6 +296,26 @@ describe("AppChatWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Let's build your resume" })).toBeInTheDocument();
     expect(screen.getByText(/Tell me the role you want/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Let's get started" })).toBeInTheDocument();
+  });
+
+  it("opens workspace navigation in a mobile drawer and closes it after selection", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    expect(screen.queryByRole("dialog", { name: "Test Builder workspace navigation" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open workspace navigation menu" }));
+    const drawer = screen.getByRole("dialog", { name: "Test Builder workspace navigation" });
+    expect(within(drawer).getByRole("button", { name: "Close workspace navigation" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "Profile" })).toBeInTheDocument();
+
+    await user.click(within(drawer).getByRole("button", { name: "Profile" }));
+    expect(screen.queryByRole("dialog", { name: "Test Builder workspace navigation" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Profile" })).toHaveFocus();
   });
 
   it("navigates documents and advanced resources with focus moving to the selected heading", async () => {
@@ -320,6 +414,197 @@ describe("AppChatWorkspace", () => {
       content: "# Updated profile",
       mediaType: "text/markdown",
     }));
+    expect(await screen.findByText("Revision 3")).toBeInTheDocument();
+    expect(screen.getByText("Saved Profile.")).toBeInTheDocument();
+  });
+
+  it("confirms document-chrome saves, returns to preview, and renders markdown emphasis", async () => {
+    const current = withProfileDocumentPresentation(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        revision: 2,
+        media_type: "text/markdown",
+        content: "## **Experience**\n- Reduced launch slips by 38%.",
+      } as appsApi.AppDocumentRecord,
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        revision: 3,
+        media_type: "text/markdown",
+        content: "## **Experience**\n- Improved review cycle time.",
+      } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+
+    expect(await screen.findByRole("heading", { name: "Experience" })).toBeInTheDocument();
+    expect(screen.queryByText("**Experience**")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Profile content" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit Profile" }));
+    const editor = await screen.findByRole("textbox", { name: "Profile content" });
+    await user.clear(editor);
+    await user.type(editor, "## **Experience**\n- Improved review cycle time.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledWith("resume-builder", current.session.session_id, "profile", {
+      expectedRevision: 2,
+      content: "## **Experience**\n- Improved review cycle time.",
+      mediaType: "text/markdown",
+    }));
+    expect(screen.getByText("Saved Profile.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Profile content" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Experience" })).toBeInTheDocument();
+    expect(screen.queryByText("**Experience**")).not.toBeInTheDocument();
+  });
+
+  it("edits owner overrides for advanced resource-backed documents without showing a package pane", async () => {
+    const current = withEditableAdvancedResource(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "instructions",
+      document_binding_id: "instructions.owner",
+      record: {
+        revision: 1,
+        media_type: "text/markdown",
+        content: "# Agent Instructions\nUse the package default.",
+      } as appsApi.AppDocumentRecord,
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "instructions",
+      document_binding_id: "instructions.owner",
+      record: {
+        revision: 2,
+        media_type: "text/markdown",
+        content: "# Agent Instructions\nUse owner edits.",
+      } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
+
+    expect(await screen.findByRole("heading", { name: "Agent Instructions.md" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Package resource" })).not.toBeInTheDocument();
+    expect(appsApi.readAppChatWorkspaceResource).not.toHaveBeenCalledWith("test-builder", current.session.session_id, "instructions");
+    expect(screen.queryByRole("textbox", { name: "Agent Instructions content" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Agent Instructions content" });
+    await user.clear(editor);
+    await user.type(editor, "# Agent Instructions\nUse owner edits.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledWith("test-builder", current.session.session_id, "instructions", {
+      expectedRevision: 1,
+      content: "# Agent Instructions\nUse owner edits.",
+      mediaType: "text/markdown",
+    }));
+    expect(screen.getByText("Saved Agent Instructions.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Agent Instructions content" })).not.toBeInTheDocument();
+  });
+
+  it("keeps app-chat workspace sessions alive while the editor is open", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    expect(appsApi.readAppChatWorkspaceSession).toHaveBeenCalledWith("test-builder", current.session.session_id);
+
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+    expect(appsApi.readAppChatWorkspaceSession).toHaveBeenCalledTimes(2);
+    expect(appsApi.readAppChatWorkspaceSession).toHaveBeenLastCalledWith("test-builder", current.session.session_id);
+  });
+
+  it("recovers an expired app-chat document session and retries save without losing the draft", async () => {
+    const current = launch();
+    const renewed = launch({
+      session: {
+        ...current.session,
+        session_id: "00000000-0000-4000-8000-000000000201",
+        session_generation: 1,
+      },
+    });
+    const onRenewSession = vi.fn(async () => renewed);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "profile",
+      document_binding_id: "profile.current",
+      record: {
+        revision: 2,
+        media_type: "text/markdown",
+        content: "# Profile",
+      } as appsApi.AppDocumentRecord,
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument)
+      .mockRejectedValueOnce(new appsApi.AppDocumentError(
+        "This workspace document binding is unavailable.",
+        410,
+        "session_closed",
+        {
+          state_version: 1,
+          state: "unavailable",
+          safe_message: "This workspace document binding is unavailable.",
+          retryable: false,
+          refresh_required: true,
+          current_revision: null,
+        },
+      ))
+      .mockResolvedValueOnce({
+        result_version: 1,
+        state: "current",
+        document_id: "profile",
+        document_binding_id: "profile.current",
+        record: {
+          revision: 3,
+          media_type: "text/markdown",
+          content: "# Owner draft",
+        } as appsApi.AppDocumentRecord,
+      });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} onRenewSession={onRenewSession} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    const editor = await screen.findByRole("textbox", { name: "Profile content" });
+    await user.clear(editor);
+    await user.type(editor, "# Owner draft");
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledTimes(2));
+    expect(onRenewSession).toHaveBeenCalledWith(current);
+    expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenNthCalledWith(2, "test-builder", renewed.session.session_id, "profile", {
+      expectedRevision: 2,
+      content: "# Owner draft",
+      mediaType: "text/markdown",
+    });
     expect(await screen.findByText("Revision 3")).toBeInTheDocument();
   });
 
@@ -421,6 +706,20 @@ describe("AppChatWorkspace", () => {
     expect(onSessionClosed).toHaveBeenCalledTimes(1);
   });
 
+  it("treats stale app-chat session close failures as best-effort cleanup", async () => {
+    const current = launch();
+    const onSessionClosed = vi.fn();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.closeAppSession).mockRejectedValueOnce(new Error("Unable to close app session"));
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} />);
+
+    await user.click(await screen.findByRole("button", { name: "Back to Apps" }));
+    expect(appsApi.closeAppSession).toHaveBeenCalledWith("test-builder", current.session.session_id);
+    expect(onSessionClosed).toHaveBeenCalledTimes(1);
+  });
+
   it("exposes the shell profile menu at the bottom of the app sidebar", async () => {
     const current = launch();
     const onOpenSettings = vi.fn();
@@ -449,6 +748,80 @@ describe("AppChatWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "BrainDrive Settings" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("downloads and finalizes prepared app-chat exports from stream tool results", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    delete window.__TAURI_INTERNALS__;
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:resume-export");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    try {
+      render(
+        <AppChatWorkspace
+          appKey="test-builder"
+          appName="Test Builder"
+          launch={current}
+          onSessionClosed={() => undefined}
+        />
+      );
+
+      await screen.findByText("Conversation transcript");
+      const onStreamEvent = chatPanelProps.at(-1)?.onStreamEvent;
+      expect(onStreamEvent).toBeTypeOf("function");
+      const exportEvent = {
+        type: "tool-result",
+        id: "tool-1",
+        status: "ok",
+        output: {
+          action_id: "app.export.request",
+          operation_id: "00000000-0000-4000-8000-000000000071",
+          idempotency_key: "app-export-00000000-0000-4000-8000-000000000071",
+          result: {
+            result_version: 1,
+            status: "prepared",
+            artifact: {
+              artifact_revision_id: "00000000-0000-4000-8000-000000000072",
+              content_digest: `sha256:${"c".repeat(64)}`,
+              content_size_bytes: 8,
+              media_type: "application/pdf",
+              owner_visible_label: "resume.pdf",
+            },
+            filename: "resume.pdf",
+            media_type: "application/pdf",
+            bytes_base64: btoa("%PDF-1.4"),
+            safe_destination_label: "resume.pdf",
+            replayed: false,
+          },
+        },
+      };
+      expect(extractPreparedAppChatExport(exportEvent.output)).toMatchObject({
+        artifactRevisionId: "00000000-0000-4000-8000-000000000072",
+        artifactDigest: `sha256:${"c".repeat(64)}`,
+        payload: { filename: "resume.pdf", mime_type: "application/pdf" },
+      });
+
+      await act(async () => {
+        await onStreamEvent?.(exportEvent);
+      });
+
+      await waitFor(() => {
+        expect(anchorClick).toHaveBeenCalledTimes(1);
+        expect(appsApi.finalizeAppExport).toHaveBeenCalledWith("test-builder", {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000072",
+          artifact_digest: `sha256:${"c".repeat(64)}`,
+          safe_destination_label: "resume.pdf",
+          outcome: "completed",
+        });
+      });
+      expect(screen.getByTestId("chat-status-notice")).toHaveTextContent("Downloaded resume.pdf.");
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+      anchorClick.mockRestore();
+    }
   });
 
   it("builds app-chat message metadata without bridge credentials, resource HTML, host paths, or raw grants", () => {

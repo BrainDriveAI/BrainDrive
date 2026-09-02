@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.7" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.8" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -245,6 +245,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Resume Builder operating rules for the chat workspace.",
     packagePath: "payload/resources/agent-instructions.md",
     fileName: "agent-instructions.md",
+    ownerEditable: true,
     promptInclusion: "workspace_start" as const,
   },
   {
@@ -254,6 +255,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Topic order and question guidance for building the Resume Profile.",
     packagePath: "payload/resources/interview-guide.md",
     fileName: "interview-guide.md",
+    ownerEditable: true,
     promptInclusion: "workspace_start" as const,
   },
   {
@@ -263,6 +265,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Rules for supported claims, review, and factual safety.",
     packagePath: "payload/resources/resume-quality-standard.md",
     fileName: "resume-quality-standard.md",
+    ownerEditable: false,
     promptInclusion: "action_request" as const,
   },
   {
@@ -272,6 +275,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Default renderer binding and template-scope limits for this release.",
     packagePath: "payload/resources/resume-template-standard.md",
     fileName: "resume-template-standard.md",
+    ownerEditable: false,
     promptInclusion: "action_request" as const,
   },
   {
@@ -281,6 +285,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Resume session recovery and draft reconciliation behavior.",
     packagePath: "payload/resources/recovery-guidance.md",
     fileName: "recovery-guidance.md",
+    ownerEditable: false,
     promptInclusion: "document_open" as const,
   },
 ] as const;
@@ -599,7 +604,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
     package_path: resource.packagePath,
     media_type: "text/markdown" as const,
     content_digest: digest(files.get(resource.packagePath)!),
-    owner_editable: false,
+    owner_editable: resource.ownerEditable,
     prompt_inclusion: resource.promptInclusion as ModernPromptInclusion,
   });
   return {
@@ -720,13 +725,35 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           document_id: resource.resourceId,
           role: "advanced_resource" as const,
           title: resource.title,
-          description: resource.description,
-          editable: false,
+          description: resource.ownerEditable ? "Owner-editable override seeded from the package default." : resource.description,
+          editable: resource.ownerEditable,
           default_visibility: "advanced" as const,
-          model_access: "read_reference" as const,
+          model_access: resource.ownerEditable ? "read_write_draft" as const : "read_reference" as const,
           resource_id: resource.resourceId,
-          data_binding_id: null,
-          presentation: null,
+          data_binding_id: resource.ownerEditable ? `${resource.resourceId}.owner` : null,
+          ...(resource.ownerEditable ? {
+            initial_content: {
+              initial_content_version: 1 as const,
+              source: "package_file" as const,
+              package_path: resource.packagePath,
+              media_type: "text/markdown" as const,
+              content_digest: digest(files.get(resource.packagePath)!),
+              seed_policy: "when_missing" as const,
+            },
+            presentation: {
+              presentation_version: 1 as const,
+              renderer: "markdown_document" as const,
+              chrome: "document" as const,
+              title: `${resource.title}.md`,
+              subtitle: "Owner editable app instructions",
+              header_actions: [
+                { type: "back_to_chat" as const, label: "Back to chat" },
+                { type: "edit_document" as const, label: "Edit" },
+              ],
+            },
+          } : {
+            presentation: null,
+          }),
         })),
       ],
       resources: RESUME_CHAT_RESOURCE_FILES.map(appResource),

@@ -293,7 +293,31 @@ describe("live signed modern MCP Apps fixture", () => {
         expect.objectContaining({ document_id: "conversation", title: "Conversation", role: "conversation" }),
         expect.objectContaining({ document_id: "resume.profile", title: "Your Resume Profile", data_binding_id: "resume.profile.current" }),
         expect.objectContaining({ document_id: "resume.document", title: "Your Resume", data_binding_id: "resume.definition.current.general" }),
+        expect.objectContaining({ document_id: "agent.instructions", title: "Agent Instructions", editable: true, data_binding_id: "agent.instructions.owner" }),
+        expect.objectContaining({ document_id: "interview.guide", title: "Interview Guide", editable: true, data_binding_id: "interview.guide.owner" }),
       ]));
+      await expect(host.readAppDocument(launch.session.session_id, "agent.instructions")).resolves.toMatchObject({
+        state: "current",
+        document_id: "agent.instructions",
+        document_binding_id: "agent.instructions.owner",
+        record: {
+          role: "app_state",
+          content: expect.stringContaining("Resume Builder Workspace"),
+        },
+      });
+      await expect(host.writeAppDocument(launch.session.session_id, "agent.instructions", {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-chat-fixture-agent-instructions-override",
+        expected_revision: 1,
+        content: "# Resume Builder Agent Instructions\nOwner override.",
+      })).resolves.toMatchObject({
+        state: "current",
+        document_id: "agent.instructions",
+        record: {
+          revision: 2,
+          content: "# Resume Builder Agent Instructions\nOwner override.",
+        },
+      });
       const resources = launch.workspace.resources as Array<{ resource_id: string }>;
       const actions = launch.workspace.actions as Array<{ action_id: string }>;
       expect(resources.map((resource) => resource.resource_id)).toEqual([

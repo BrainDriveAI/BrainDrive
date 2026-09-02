@@ -97,6 +97,24 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
   });
 
+  it("renders host status notices in the conversation stream", () => {
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        messages: [{ id: "u-1", role: "user", content: "Export my resume." }],
+      })
+    );
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        isEmpty={false}
+        statusNotice={{ tone: "success", message: "Downloaded resume.pdf." }}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Downloaded resume.pdf.");
+  });
+
   it("does not expose fresh conversation actions for overflow errors", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({
