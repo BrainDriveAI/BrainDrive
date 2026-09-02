@@ -1,0 +1,119 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/provided-operation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "operation_id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+    },
+    "provider_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "adapter": {
+      "type": "object",
+      "properties": {
+        "package_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "export_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,127}$"
+        },
+        "abi": {
+          "type": "string",
+          "const": "braindrive-operation-adapter-v1"
+        }
+      },
+      "required": [
+        "package_path",
+        "export_name",
+        "abi"
+      ],
+      "additionalProperties": false
+    },
+    "input_contract": {
+      "type": "object",
+      "properties": {
+        "schema_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+        },
+        "schema_version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65535
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schema_id",
+        "schema_version",
+        "content_digest"
+      ],
+      "additionalProperties": false
+    },
+    "result_contract": {
+      "type": "object",
+      "properties": {
+        "schema_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+        },
+        "schema_version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65535
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schema_id",
+        "schema_version",
+        "content_digest"
+      ],
+      "additionalProperties": false
+    },
+    "required_sidecars": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      }
+    },
+    "result_classification": {
+      "type": "string",
+      "const": "generic_envelope"
+    }
+  },
+  "required": [
+    "operation_id",
+    "provider_component_id",
+    "adapter",
+    "input_contract",
+    "result_contract",
+    "required_sidecars",
+    "result_classification"
+  ],
+  "additionalProperties": false
+}

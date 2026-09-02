@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { PermissionSet } from "../../contracts.js";
 import { SUPERVISOR_POLICY } from "../contracts/package.js";
-import { MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
+import { createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
+import { InstalledPackageStore, type CapabilityDependencyResolver } from "./installed-package-store.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "./routes.js";
 import { createLifecycleHarness } from "./test-helpers.js";
+import type { PackageComponentManifest } from "../contracts/package-components.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -21,7 +23,405 @@ function installBody(generation = 0, operationId = crypto.randomUUID()) {
   return { operation_id: operationId, idempotency_key: operationId, expected_generation: generation, installation_id: null, version: "1.0.0", approve_capabilities: true };
 }
 
+async function packageComponentFixture(fixtureId: string): Promise<PackageComponentManifest> {
+  const raw = await readFile(new URL("../contracts/fixtures/sidecar-package/sc-001-conformance-corpus.json", import.meta.url), "utf8");
+  const source = JSON.parse(raw) as { valid_cases: Array<{ fixture_id: string; manifest?: PackageComponentManifest }> };
+  const manifest = source.valid_cases.find((candidate) => candidate.fixture_id === fixtureId)?.manifest;
+  if (!manifest) throw new Error(`missing fixture: ${fixtureId}`);
+  return JSON.parse(JSON.stringify(manifest)) as PackageComponentManifest;
+}
+
+function withSearchDependency(
+  manifest: PackageComponentManifest,
+  appId: string,
+  routeKey: string,
+  requirement: "required" | "optional" = "required",
+): PackageComponentManifest {
+  const dependency = {
+    operation_id: "web.search@1",
+    requirement,
+    unavailable_behavior: requirement === "required" ? "block_activation" as const : "degrade_with_safe_status" as const,
+    provider_selection: "owner_or_admin_policy" as const,
+    silent_install_or_switch: false as const,
+  };
+  return {
+    ...manifest,
+    package_id: appId,
+    catalog: { ...manifest.catalog, display_name: "Research Consumer" },
+    components: manifest.components.map((component) => component.component_kind === "app"
+      ? { ...component, display_name: "Research Consumer", app_id: appId, route_key: routeKey, requested_capabilities: [dependency] }
+      : component),
+    capability_dependencies: [dependency],
+  };
+}
+
+function withRequiredSearchDependency(manifest: PackageComponentManifest, appId: string, routeKey: string): PackageComponentManifest {
+  return withSearchDependency(manifest, appId, routeKey, "required");
+}
+
+function withOptionalSearchDependency(manifest: PackageComponentManifest, appId: string, routeKey: string): PackageComponentManifest {
+  return withSearchDependency(manifest, appId, routeKey, "optional");
+}
+
+type DependencyResolution = Awaited<ReturnType<CapabilityDependencyResolver["resolveDependency"]>>;
+
+function dependencyResolver(state: DependencyResolution): CapabilityDependencyResolver {
+  return { resolveDependency: async (operationId) => ({ ...state, operation_id: operationId }) };
+}
+
 describe("owner lifecycle gateway routes", () => {
+  it("adds safe installed package projections without exposing sidecar internals or changing app catalog behavior", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc002-routes-")); roots.push(root);
+    const h = await createLifecycleHarness(path.join(root, "apps"));
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: await packageComponentFixture("valid-provider-sidecar"),
+      packageDigest: `sha256:${"7".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic SideCar provider fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, { packageStore }));
+
+    const response = await app.inject({ method: "GET", url: "/apps" });
+    expect(response.statusCode).toBe(200);
+    const catalog = response.json();
+    expect(catalog.apps).toHaveLength(1);
+    expect(catalog.apps[0]).toMatchObject({ route_key: "resume-builder", available_actions: ["install"] });
+    expect(catalog.packages).toHaveLength(1);
+    expect(catalog.packages[0]).toMatchObject({
+      projection_version: 1,
+      identity: { package_id: "ai.braindrive.internet-search.searxng", display_name: "Internet Search Provider" },
+      package_kind: ["capability_provider"],
+      state: "enabled",
+      operations: [{ operation_id: "web.search@1" }, { operation_id: "web.read@1" }],
+      components: expect.arrayContaining([
+        expect.objectContaining({ component_id: "search.provider", component_kind: "capability_provider", launchable: false }),
+        expect.objectContaining({ component_id: "search.runtime", component_kind: "sidecar", launchable: false, health: "unknown" }),
+      ]),
+    });
+    expect(catalog.packages[0].available_actions).not.toContain("launch");
+    const serialized = JSON.stringify(catalog.packages[0]);
+    expect(serialized).not.toMatch(/payload\/|adapter|export_name|provider-key|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
+    await app.close();
+  });
+
+  it("blocks legacy app install and enable actions when dual-projected required dependencies are unavailable", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc007-legacy-dependency-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: withRequiredSearchDependency(await packageComponentFixture("valid-app-owned-sidecar"), appId, routeKey),
+      packageDigest: `sha256:${"9".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic app consumer fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+
+    const missingResolver = dependencyResolver({
+      operation_id: "web.search@1",
+      state: "missing",
+      callable: false,
+      provider_count: 0,
+      failure_code: "provider_unavailable",
+      safe_message: "Capability provider is unavailable.",
+      checked_at: "2026-09-01T12:05:00.000Z",
+    });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, { packageStore, capabilityDependencyResolver: missingResolver }));
+
+    const blockedCatalog = (await app.inject({ method: "GET", url: "/apps" })).json();
+    expect(blockedCatalog.apps[0]).toMatchObject({
+      route_key: routeKey,
+      dependency_readiness: { status: "blocked", required_available: false, blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ operation_id: "web.search@1", requirement: "required", state: "missing", callable: false }],
+      available_actions: [],
+    });
+    expect(blockedCatalog.packages[0]).toMatchObject({
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+    });
+
+    const blockedInstall = await app.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() });
+    expect(blockedInstall.statusCode).toBe(409);
+    expect(blockedInstall.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
+    expect(await h.service.status()).toMatchObject({ state: "not_installed", generation: 0 });
+    expect(h.supervisor.startCount).toBe(0);
+    await app.close();
+
+    const mutable: DependencyResolution = {
+      operation_id: "web.search@1",
+      state: "available",
+      callable: true,
+      provider_count: 1,
+      failure_code: null,
+      safe_message: "Capability dependency is available.",
+      checked_at: "2026-09-01T12:10:00.000Z",
+    };
+    const enabledApp = Fastify();
+    enabledApp.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(enabledApp, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, { packageStore, capabilityDependencyResolver: dependencyResolver(mutable) }));
+    const installed = await enabledApp.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() });
+    expect(installed.statusCode).toBe(200);
+    const disabled = await enabledApp.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/disable`,
+      payload: { operation_id: crypto.randomUUID(), idempotency_key: "disable-research-consumer-0001", expected_generation: installed.json().generation, installation_id: installed.json().identity.installation_id },
+    });
+    expect(disabled.statusCode).toBe(200);
+    mutable.state = "unhealthy";
+    mutable.callable = false;
+    mutable.failure_code = "provider_unhealthy";
+    mutable.safe_message = "Capability provider is unhealthy.";
+
+    const blockedStatus = (await enabledApp.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(blockedStatus).toMatchObject({
+      state: "disabled",
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ operation_id: "web.search@1", state: "unhealthy", callable: false }],
+      available_actions: ["uninstall"],
+    });
+    const blockedEnable = await enabledApp.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/enable`,
+      payload: { operation_id: crypto.randomUUID(), idempotency_key: "enable-research-consumer-0001", expected_generation: blockedStatus.generation, installation_id: installed.json().identity.installation_id },
+    });
+    expect(blockedEnable.statusCode).toBe(409);
+    expect(blockedEnable.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
+    expect(await h.service.status()).toMatchObject({ state: "disabled", generation: blockedStatus.generation });
+    await enabledApp.close();
+  });
+
+  it.each([
+    ["missing", 0, "provider_unavailable"],
+    ["unavailable", 1, "provider_unavailable"],
+    ["disabled", 1, "provider_unavailable"],
+    ["unhealthy", 1, "provider_unhealthy"],
+    ["unauthorized", 1, "not_authorized"],
+    ["selection_required", 2, "provider_selection_required"],
+    ["unsupported_target", 1, "unsupported_target"],
+    ["unknown", 0, "unknown"],
+  ] as const)("blocks required %s dependency before install staging or runtime start", async (state, providerCount, failureCode) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), `bd-ac003-required-${state}-`)); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: withRequiredSearchDependency(await packageComponentFixture("valid-app-owned-sidecar"), appId, routeKey),
+      packageDigest: `sha256:${"b".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic required dependency fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, {
+      packageStore,
+      capabilityDependencyResolver: dependencyResolver({
+        operation_id: "web.search@1",
+        state,
+        callable: false,
+        provider_count: providerCount,
+        failure_code: failureCode,
+        safe_message: "Capability dependency is not ready.",
+        checked_at: "2026-09-01T12:05:00.000Z",
+      }),
+    }));
+
+    const status = (await app.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(status).toMatchObject({
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ state, callable: false, failure_code: failureCode }],
+      available_actions: [],
+    });
+    const blockedInstall = await app.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() });
+    expect(blockedInstall.statusCode).toBe(409);
+    expect(blockedInstall.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
+    expect(await h.service.status()).toMatchObject({ state: "not_installed", generation: 0, installation_id: null, pending_operation_id: null });
+    expect(await h.store.listOperations()).toHaveLength(0);
+    expect(h.supervisor.startCount).toBe(0);
+    await app.close();
+  });
+
+  it("keeps optional unavailable dependencies visible as degraded while allowing declared degraded launch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac003-optional-degraded-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: withOptionalSearchDependency(await packageComponentFixture("valid-app-owned-sidecar"), appId, routeKey),
+      packageDigest: `sha256:${"c".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic optional dependency fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, {
+      packageStore,
+      capabilityDependencyResolver: dependencyResolver({
+        operation_id: "web.search@1",
+        state: "missing",
+        callable: false,
+        provider_count: 0,
+        failure_code: "provider_unavailable",
+        safe_message: "Capability provider is unavailable.",
+        checked_at: "2026-09-01T12:05:00.000Z",
+      }),
+    }));
+
+    const catalog = (await app.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(catalog).toMatchObject({
+      dependency_readiness: { status: "degraded", required_available: true, optional_available: false, degraded_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ operation_id: "web.search@1", requirement: "optional", unavailable_behavior: "degrade_with_safe_status", state: "missing", callable: false }],
+      available_actions: ["install"],
+    });
+    expect(catalog.capability_dependency_status[0].safe_message).toBe("Capability provider is unavailable.");
+
+    const installed = await app.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json()).toMatchObject({
+      state: "active",
+      dependency_readiness: { status: "degraded", degraded_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ requirement: "optional", state: "missing", callable: false }],
+    });
+    expect(installed.json().available_actions).toContain("launch");
+    expect(h.supervisor.startCount).toBe(1);
+    await app.close();
+  });
+
+  it("blocks new lifecycle sessions after a required dependency becomes unavailable post-launch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac003-post-launch-session-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: withRequiredSearchDependency(await packageComponentFixture("valid-app-owned-sidecar"), appId, routeKey),
+      packageDigest: `sha256:${"d".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic required dependency fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const mutable: DependencyResolution = {
+      operation_id: "web.search@1",
+      state: "available",
+      callable: true,
+      provider_count: 1,
+      failure_code: null,
+      safe_message: "Capability dependency is available.",
+      checked_at: "2026-09-01T12:10:00.000Z",
+    };
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, { packageStore, capabilityDependencyResolver: dependencyResolver(mutable) }));
+
+    const installed = await app.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() });
+    expect(installed.statusCode).toBe(200);
+    expect(h.supervisor.startCount).toBe(1);
+
+    mutable.state = "disabled";
+    mutable.callable = false;
+    mutable.failure_code = "provider_unavailable";
+    mutable.safe_message = "Capability provider is disabled.";
+
+    const refreshed = (await app.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(refreshed).toMatchObject({
+      state: "active",
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ state: "disabled", callable: false }],
+    });
+    expect(refreshed.available_actions).not.toContain("launch");
+
+    const session = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/session`,
+      payload: { audience: "app_bridge", capabilities: ["career.context.read"], operation_id: crypto.randomUUID() },
+    });
+    expect(session.statusCode).toBe(409);
+    expect(session.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
+    expect(session.json()).not.toHaveProperty("token");
+    expect(h.supervisor.startCount).toBe(1);
+    await app.close();
+  });
+
+  it("projects selection-required and unknown readiness through route DTOs without leaking provider internals", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-routes-readiness-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    await packageStore.installPackage({
+      manifest: withRequiredSearchDependency(await packageComponentFixture("valid-app-owned-sidecar"), appId, routeKey),
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      source: { kind: "repository_fixture", label: "Synthetic app consumer fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, {
+      packageStore,
+      capabilityDependencyResolver: dependencyResolver({
+        operation_id: "web.search@1",
+        state: "selection_required",
+        callable: false,
+        provider_count: 2,
+        failure_code: "provider_selection_required",
+        safe_message: "Owner or admin provider selection is required.",
+        checked_at: "2026-09-01T12:05:00.000Z",
+      }),
+    }));
+
+    const selectionRequired = (await app.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(selectionRequired).toMatchObject({
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ state: "selection_required", callable: false, provider_count: 2, failure_code: "provider_selection_required" }],
+      available_actions: [],
+    });
+    expect(JSON.stringify(selectionRequired)).not.toMatch(/provider_id|payload\/|adapter|export_name|provider-key|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
+    await app.close();
+
+    const unknownApp = Fastify();
+    unknownApp.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(unknownApp, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, {
+      packageStore,
+      capabilityDependencyResolver: { resolveDependency: async () => { throw new Error("private resolver stack with http://127.0.0.1:8080"); } },
+    }));
+
+    const unknownStatus = (await unknownApp.inject({ method: "GET", url: `/apps/${routeKey}/status` })).json();
+    expect(unknownStatus).toMatchObject({
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1"] },
+      capability_dependency_status: [{ state: "unknown", callable: false, provider_count: 0, failure_code: "unknown" }],
+      available_actions: [],
+    });
+    expect(JSON.stringify(unknownStatus)).not.toMatch(/resolver stack|127\.0\.0\.1|8080|provider_id|payload\/|adapter|export_name|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
+    await unknownApp.close();
+  });
+
   it("uses one generic handler family for two app keys and resolves unknown keys before parsing bodies", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-routes-multi-")); roots.push(root);
     const resume = await createLifecycleHarness(path.join(root, "resume"), {
@@ -258,6 +658,112 @@ describe("owner lifecycle gateway routes", () => {
     const uninstall = { operation_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID(), expected_generation: installed.generation, installation_id: installed.identity.installation_id };
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/uninstall", payload: uninstall })).json()).toEqual({ error: "invalid_request" });
     expect((await h.service.status()).state).toBe("active");
+    await app.close();
+  });
+
+  it("requires fresh approval for widening app updates and allows narrowing while replacing grants", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac008-route-update-grants-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    h.dependencies.repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "app", "source"), [
+      { appId, routeKey, displayName: "Research Consumer", version: "1.0.0", requestedCapabilities: ["career.context.read"] },
+      { appId, routeKey, displayName: "Research Consumer", version: "2.0.0", requestedCapabilities: ["career.context.read", "app.inference.request"] },
+      { appId, routeKey, displayName: "Research Consumer", version: "3.0.0", requestedCapabilities: ["career.context.read"] },
+    ]);
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", service: h.service },
+    ]));
+
+    const installed = (await app.inject({ method: "POST", url: `/apps/${routeKey}/install`, payload: installBody() })).json();
+    const prior = await h.service.ownerDescriptor();
+    const priorGrant = prior.grant!;
+    expect(priorGrant.capabilities).toEqual(["career.context.read"]);
+
+    const oldSessionResponse = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/session`,
+      payload: { audience: "app_data", capabilities: ["career.context.read"], operation_id: crypto.randomUUID() },
+    });
+    expect(oldSessionResponse.statusCode).toBe(200);
+    const oldSession = oldSessionResponse.json();
+    expect(oldSession.claims).toMatchObject({
+      audience: "app_data",
+      installation_id: installed.identity.installation_id,
+      capabilities: ["career.context.read"],
+    });
+    expect(oldSession.claims).not.toHaveProperty("grant_id");
+
+    const wideningDenied = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/update`,
+      payload: {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "10000000-0000-4000-8000-000000008101",
+        expected_generation: installed.generation,
+        installation_id: installed.identity.installation_id,
+        version: "2.0.0",
+        approve_capabilities: false,
+      },
+    });
+    expect(wideningDenied.statusCode).toBe(409);
+    expect(wideningDenied.json()).toMatchObject({ error: "grant_widening_approval_required", retryable: false });
+    expect(await h.service.status()).toMatchObject({ state: "active", generation: installed.generation, grant_id: priorGrant.grant_id });
+
+    const widened = (await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/update`,
+      payload: {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "10000000-0000-4000-8000-000000008102",
+        expected_generation: installed.generation,
+        installation_id: installed.identity.installation_id,
+        version: "2.0.0",
+        approve_capabilities: true,
+      },
+    })).json();
+    const widenedGrant = (await h.service.ownerDescriptor()).grant!;
+    expect(widenedGrant.capabilities).toEqual(["career.context.read", "app.inference.request"]);
+    expect(widenedGrant.grant_id).not.toBe(priorGrant.grant_id);
+    expect((await h.store.readGrant(priorGrant.grant_id))?.revoked_at).not.toBeNull();
+    expect(() => h.tokenBroker.consume(oldSession.token, {
+      audience: "app_data",
+      capability: "career.context.read",
+      installationId: installed.identity.installation_id,
+      currentGrant: widenedGrant,
+    })).toThrowError(expect.objectContaining({ code: "token_scope_invalid" }));
+    expect((await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/session`,
+      payload: { audience: "app_inference", capabilities: ["app.inference.request"], operation_id: crypto.randomUUID() },
+    })).statusCode).toBe(200);
+
+    const narrowed = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/update`,
+      payload: {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "10000000-0000-4000-8000-000000008103",
+        expected_generation: widened.generation,
+        installation_id: widened.identity.installation_id,
+        version: "3.0.0",
+        approve_capabilities: false,
+      },
+    });
+    expect(narrowed.statusCode).toBe(200);
+    const narrowedGrant = (await h.service.ownerDescriptor()).grant!;
+    expect(narrowedGrant.capabilities).toEqual(["career.context.read"]);
+    expect((await h.store.readGrant(widenedGrant.grant_id))?.revoked_at).not.toBeNull();
+    const narrowedInference = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/session`,
+      payload: { audience: "app_inference", capabilities: ["app.inference.request"], operation_id: crypto.randomUUID() },
+    });
+    expect(narrowedInference.statusCode).toBe(409);
+    expect(narrowedInference.json()).toMatchObject({ error: "widened_grant", retryable: false });
+
     await app.close();
   });
 });

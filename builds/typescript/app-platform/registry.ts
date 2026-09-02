@@ -36,8 +36,12 @@ function deepFreeze<T>(value: T, seen = new Set<object>()): T {
   return Object.freeze(value);
 }
 
+export function canonicalCapabilityOperationId(capability: { name: string; version: number }): string {
+  return `${capability.name}@${capability.version}`;
+}
+
 function key(name: string, version: number): string {
-  return `${name}@${version}`;
+  return canonicalCapabilityOperationId({ name, version });
 }
 
 export class FirstPartyAppRegistry {

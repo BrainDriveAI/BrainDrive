@@ -1,0 +1,220 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-operation-receipt-diagnostic-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostic_version": {
+      "type": "number",
+      "const": 1
+    },
+    "event_type": {
+      "type": "string",
+      "const": "operation"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "installation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "package_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "package_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "provider_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "provider_profile_class": {
+      "type": "string",
+      "const": "capability_provider"
+    },
+    "provider_profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "provider_selection": {
+      "type": "string",
+      "enum": [
+        "single_provider",
+        "owner_or_admin_policy",
+        "not_recorded"
+      ]
+    },
+    "provider_execution": {
+      "type": "string",
+      "enum": [
+        "not_executed",
+        "executed"
+      ]
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "partial",
+        "failure",
+        "unavailable",
+        "cancelled"
+      ]
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "completed_item_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "limit_profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "call_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bytes_class": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "small",
+                "medium",
+                "large",
+                "limit"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "call_count",
+        "bytes_class"
+      ],
+      "additionalProperties": false
+    },
+    "duration_ms": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retention_policy_id": {
+      "type": "string",
+      "const": "package-provider-diagnostics-v1"
+    },
+    "retention_expires_after_days": {
+      "type": "number",
+      "const": 14
+    }
+  },
+  "required": [
+    "diagnostic_version",
+    "event_type",
+    "occurred_at",
+    "package_id",
+    "installation_id",
+    "package_version",
+    "package_digest",
+    "provider_component_id",
+    "provider_profile_class",
+    "provider_profile_id",
+    "provider_selection",
+    "provider_execution",
+    "operation_id",
+    "request_id",
+    "run_id",
+    "status",
+    "failure_code",
+    "result_count",
+    "completed_item_count",
+    "limit_profile_id",
+    "usage",
+    "duration_ms",
+    "retention_policy_id",
+    "retention_expires_after_days"
+  ],
+  "additionalProperties": false
+}

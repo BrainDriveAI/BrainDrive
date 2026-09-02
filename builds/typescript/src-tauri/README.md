@@ -62,6 +62,8 @@ The native first-party app runtime uses the same signed-package verifier, app-sc
 
 The JavaScript and PowerShell staging paths both include the two UI resources and pass source-side preflight/tests. Those checks do not prove the changed Spec 08 candidate on either native platform. Fresh native Windows and macOS J-05 plus the two-app lifecycle/process/owner journey on the exact immutable candidate remain required; WSL/Linux diagnostics are not a substitute.
 
+SC-008 stages the Internet Search provider package manifest into the desktop runtime so Tauri can evaluate the same package/component metadata as Docker. The SearXNG proof package currently declares only a `docker_linux_x64` container sidecar target. It is therefore unsupported and unqualified for desktop sidecar execution until a non-Docker `packaged_process` target is added and fresh native Windows/macOS evidence qualifies it. Owner desktop/Tauri machines must not install Docker Desktop as a sidecar prerequisite for this proof provider.
+
 `runtime-api-base.test.ts` covers dynamic gateway resolution, `/api` rewriting, the authoritative desktop transport header, browser proxy behavior, and fail-closed incomplete handoff. These source tests correct the shared boundary but do not turn the preserved WSL diagnostic failure into passing J-05 evidence; both native reports remain required under OPEN-03.
 
 ## Verification routing

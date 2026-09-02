@@ -12,10 +12,12 @@ import {
   type AppPresentationProfileSummary,
   type AppLifecycleAction,
   type AppStatus,
+  type InstalledPackageStatus,
 } from "@/api/apps-adapter";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppChatWorkspace from "./AppChatWorkspace";
 import AppCatalogCard from "./AppCatalogCard";
+import PackageLifecycleCard from "./PackageLifecycleCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
 
 type RetainedDataAction = "delete" | "export" | "archive";
@@ -56,6 +58,7 @@ export default function AppsPage({
   tier?: "local" | "concierge";
 }) {
   const [apps, setApps] = useState<AppStatus[] | null>(null);
+  const [packages, setPackages] = useState<InstalledPackageStatus[] | null>(null);
   const [selected, setSelected] = useState<SelectedSession | null>(null);
   const [busyByApp, setBusyByApp] = useState<Record<string, BusyState | undefined>>({});
   const [errorsByApp, setErrorsByApp] = useState<Record<string, string | undefined>>({});
@@ -72,8 +75,11 @@ export default function AppsPage({
     try {
       const catalog = await getAppCatalog();
       setApps(catalog.apps);
+      setPackages(catalog.packages ?? []);
       setCatalogError(null);
     } catch {
+      setApps((current) => current ?? []);
+      setPackages((current) => current ?? []);
       setCatalogError("Apps are unavailable in this BrainDrive environment.");
     }
   }, []);
@@ -191,21 +197,31 @@ export default function AppsPage({
           </div>
         </div>
         {catalogError ? <div role="alert" className="mb-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{catalogError}</div> : null}
-        {!apps ? <p aria-live="polite" className="text-bd-text-secondary">Loading app catalog…</p> : (
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2" data-testid="app-catalog">
-            {apps.map((app) => <AppCatalogCard
-              key={app.route_key}
-              app={app}
-              busy={busyByApp[app.route_key] ?? null}
-              error={errorsByApp[app.route_key]}
-              notice={noticesByApp[app.route_key]}
-              compact={compactCards}
-              launchLabel={primaryChatPresentation(app)?.label}
-              launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
-              uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
-              onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}
-              onRetainedDataAction={(action) => void retainedDataAction(app, action)}
-            />)}
+        {!apps || !packages ? <p aria-live="polite" className="text-bd-text-secondary">Loading app catalog…</p> : (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2" data-testid="app-catalog">
+              {apps.map((app) => <AppCatalogCard
+                key={app.route_key}
+                app={app}
+                busy={busyByApp[app.route_key] ?? null}
+                error={errorsByApp[app.route_key]}
+                notice={noticesByApp[app.route_key]}
+                compact={compactCards}
+                launchLabel={primaryChatPresentation(app)?.label}
+                launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
+                uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
+                onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}
+                onRetainedDataAction={(action) => void retainedDataAction(app, action)}
+              />)}
+            </div>
+            {packages.length > 0 ? (
+              <section aria-labelledby="apps-packages-heading">
+                <h2 id="apps-packages-heading" className="mb-3 font-heading text-lg font-semibold text-bd-text-heading">Installed packages</h2>
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2" data-testid="package-catalog">
+                  {packages.map((pack) => <PackageLifecycleCard key={pack.identity.package_id} pack={pack} compact={compactCards} />)}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
       </div>

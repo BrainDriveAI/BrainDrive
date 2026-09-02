@@ -1,0 +1,63 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-permission-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "permission_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "network": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "public_https",
+          "loopback_to_own_sidecars",
+          "provider_upstream_https"
+        ]
+      }
+    },
+    "filesystem": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "package_read",
+          "app_storage",
+          "declared_cache"
+        ]
+      }
+    },
+    "process": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "supervised_sidecar"
+        ]
+      }
+    },
+    "credentials": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      }
+    }
+  },
+  "required": [
+    "permission_policy_version",
+    "network",
+    "filesystem",
+    "process",
+    "credentials"
+  ],
+  "additionalProperties": false
+}

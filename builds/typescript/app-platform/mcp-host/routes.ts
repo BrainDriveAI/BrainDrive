@@ -1,7 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
+import { CapabilityOperationCoordinator } from "../../app-capabilities/operations.js";
+import type { CapabilityOperationRouter, ProviderSelectionPolicy } from "../../app-capabilities/provider-router.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
+import { assertLegacyAppDependenciesReady } from "../lifecycle/routes.js";
+import type { AppLifecycleService } from "../lifecycle/service.js";
+import type { CapabilityDependencyResolver, InstalledPackageStore } from "../lifecycle/installed-package-store.js";
 import type { AppMcpHost } from "./app-host.js";
 import { AppArtifactRegistrationRequestSchema, AppArtifactSafeMediaTypeSchema, AppExportDestinationIntentSchema } from "../contracts/app-artifacts.js";
 import { AppDocumentDeleteModeSchema, AppDocumentMediaTypeSchema, AppStorageRetentionClassSchema } from "../contracts/app-storage.js";
@@ -123,25 +128,58 @@ const serverCapabilityRequestSchema = z.object({
   capability_version: z.literal(1),
   operation_id: z.string().uuid(),
   idempotency_key: z.string().min(16).max(256),
+  run_id: z.string().uuid().optional(),
+  installation_id: z.string().uuid().optional(),
+  view_id: z.string().uuid().optional(),
+  lifecycle_generation: z.number().int().positive().optional(),
+  grant_id: z.string().uuid().optional(),
+  grant_revision: z.number().int().positive().optional(),
   input: z.unknown(),
 }).strict();
 
-export type AppMcpHostRouteEntry = { appId: string; routeKey: string; host: AppMcpHost };
+const appScopedProviderCapabilityAuthoritySchema = z.object({
+  run_id: z.string().uuid(),
+  installation_id: z.string().uuid(),
+  view_id: z.string().uuid(),
+  lifecycle_generation: z.number().int().positive(),
+  grant_id: z.string().uuid(),
+  grant_revision: z.number().int().positive(),
+}).strict();
+
+type ServerCapabilityRequest = z.infer<typeof serverCapabilityRequestSchema>;
+type AppScopedProviderOperationId = "web.search@1" | "web.read@1";
+type AppScopedCapabilityRouter = Pick<CapabilityOperationRouter, "call">;
+
+export type AppMcpHostRouteEntry = { appId: string; routeKey: string; host: AppMcpHost; service?: AppLifecycleService };
+export type AppMcpHostRouteOptions = {
+  packageStore?: InstalledPackageStore;
+  capabilityDependencyResolver?: CapabilityDependencyResolver | null;
+  appCapabilityRouter?: AppScopedCapabilityRouter | null;
+  appCapabilityOperations?: CapabilityOperationCoordinator;
+  appCapabilitySelectionPolicy?: ProviderSelectionPolicy | null;
+  now?: () => number;
+};
 export type AppMcpHostRoutePlatform = ReturnType<typeof createAppMcpHostRoutePlatform>;
 
-export function createAppMcpHostRoutePlatform(rawEntries: readonly AppMcpHostRouteEntry[]) {
+export function createAppMcpHostRoutePlatform(rawEntries: readonly AppMcpHostRouteEntry[], options: AppMcpHostRouteOptions = {}) {
   const entries = rawEntries.map((entry) => {
     const appId = CanonicalAppIdSchema.parse(entry.appId);
     const routeKey = AppRouteKeySchema.parse(entry.routeKey);
     if (entry.host.appId !== appId || entry.host.routeKey !== routeKey) {
       throw new AppPlatformError("descriptor_invalid", "MCP host route binding does not match the registered host");
     }
-    return Object.freeze({ appId, routeKey, host: entry.host });
+    return Object.freeze({ appId, routeKey, host: entry.host, service: entry.service });
   });
   if (entries.length === 0 || new Set(entries.map((entry) => entry.appId)).size !== entries.length || new Set(entries.map((entry) => entry.routeKey)).size !== entries.length) {
     throw new AppPlatformError("descriptor_invalid", "MCP host route registry is empty or ambiguous");
   }
   const byRouteKey = new Map(entries.map((entry) => [entry.routeKey, entry]));
+  const packageStore = options.packageStore ?? null;
+  const capabilityDependencyResolver = options.capabilityDependencyResolver ?? null;
+  const appCapabilityRouter = options.appCapabilityRouter ?? null;
+  const appCapabilityOperations = options.appCapabilityOperations ?? new CapabilityOperationCoordinator();
+  const appCapabilitySelectionPolicy = options.appCapabilitySelectionPolicy ?? null;
+  const now = options.now ?? Date.now;
   return Object.freeze({
     entries: Object.freeze(entries),
     resolve(raw: unknown): AppMcpHostRouteEntry {
@@ -153,6 +191,12 @@ export function createAppMcpHostRoutePlatform(rawEntries: readonly AppMcpHostRou
       }
       return entry;
     },
+    packageStore,
+    capabilityDependencyResolver,
+    appCapabilityRouter,
+    appCapabilityOperations,
+    appCapabilitySelectionPolicy,
+    now,
   });
 }
 
@@ -166,6 +210,18 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     if (!token) return reply.code(401).send({ error: "capability_authorization_required" });
     const parsed = serverCapabilityRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    const providerOperationId = appScopedProviderOperationId(parsed.data.capability, parsed.data.capability_version);
+    if (providerOperationId) {
+      try {
+        return reply.send({ result: await handleAppScopedProviderCapability(
+          selected,
+          platform,
+          token,
+          parsed.data,
+          providerOperationId,
+        ) });
+      } catch (error) { return sendServerCapabilityError(reply, error, parsed.data.operation_id); }
+    }
     try {
       return reply.send({ result: await selected.host.handleServerCapability(
         token, parsed.data.capability, parsed.data.capability_version, parsed.data.input,
@@ -180,6 +236,7 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     const parsed = launchRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     try {
+      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId } }, platform.packageStore, platform.capabilityDependencyResolver);
       const resume = parsed.data.resume
         ? {
             sessionId: parsed.data.resume.session_id,
@@ -199,6 +256,7 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     const parsed = chatWorkspaceLaunchRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     try {
+      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId } }, platform.packageStore, platform.capabilityDependencyResolver);
       return reply.send(await selected.host.launchChatWorkspace({
         presentationId: parsed.data.presentation_id,
         workspaceId: parsed.data.workspace_id,
@@ -364,6 +422,94 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     try { return reply.send(await selected.host.finalizeOwnerExport(input, operation_id)); }
     catch (error) { return sendOwnerExportError(reply, error, operation_id); }
   });
+}
+
+async function handleAppScopedProviderCapability(
+  selected: AppMcpHostRouteEntry,
+  platform: AppMcpHostRoutePlatform,
+  token: string,
+  request: ServerCapabilityRequest,
+  providerOperationId: AppScopedProviderOperationId,
+): Promise<unknown> {
+  if (!selected.service || !platform.appCapabilityRouter) {
+    throw new AppPlatformError("denied", "App capability transport is unavailable", 403);
+  }
+  const authority = appScopedProviderCapabilityAuthoritySchema.safeParse({
+    run_id: request.run_id,
+    installation_id: request.installation_id,
+    view_id: request.view_id,
+    lifecycle_generation: request.lifecycle_generation,
+    grant_id: request.grant_id,
+    grant_revision: request.grant_revision,
+  });
+  if (!authority.success) throw new AppPlatformError("invalid_input", "App capability authority is invalid", 400);
+
+  const descriptor = await selected.service.ownerDescriptor();
+  const grant = descriptor.grant;
+  const record = descriptor.record;
+  if (
+    record.state !== "active" ||
+    !record.installation_id ||
+    !record.active_package_digest ||
+    !grant
+  ) throw new AppPlatformError("grant_missing", "App capability grant is unavailable", 403);
+  if (
+    authority.data.installation_id !== record.installation_id ||
+    authority.data.lifecycle_generation !== record.generation ||
+    authority.data.grant_id !== grant.grant_id ||
+    authority.data.grant_revision !== grant.grant_revision
+  ) throw new AppPlatformError("token_scope_invalid", "App capability authority does not match current lifecycle state", 403);
+
+  const claims = selected.service.dependencies.tokenBroker.consume(token, {
+    audience: "app_data",
+    capability: request.capability,
+    installationId: record.installation_id,
+    ownerId: grant.owner_id,
+    actorId: grant.actor_id,
+    appId: selected.appId,
+    publisherId: grant.publisher_id,
+    packageDigest: grant.package_digest,
+    grantId: grant.grant_id,
+    grantRevision: grant.grant_revision,
+    revocationGeneration: grant.revocation_generation,
+    tokenGeneration: Math.max(1, record.generation),
+    viewId: authority.data.view_id,
+    operationId: request.operation_id,
+    idempotencyKey: request.idempotency_key,
+    recordScopes: grant.record_scopes,
+    currentGrant: grant,
+  });
+
+  return await platform.appCapabilityOperations.execute({
+    appId: selected.appId,
+    installationId: claims.installation_id,
+    connectionId: claims.connection_id,
+    viewId: claims.view_id,
+    capability: request.capability,
+    capabilityVersion: request.capability_version,
+    operationId: request.operation_id,
+    idempotencyKey: request.idempotency_key,
+    input: {
+      provider_operation_id: providerOperationId,
+      run_id: authority.data.run_id,
+      input: request.input,
+    },
+    deadlineAt: Math.min(Date.parse(claims.expires_at), platform.now() + 120_000),
+  }, ({ signal }) => platform.appCapabilityRouter!.call(providerOperationId, {
+    request_id: request.operation_id,
+    run_id: authority.data.run_id,
+    input: request.input,
+  }, {
+    authorized: true,
+    signal,
+    selectionPolicy: platform.appCapabilitySelectionPolicy,
+  }));
+}
+
+function appScopedProviderOperationId(capability: string, capabilityVersion: number): AppScopedProviderOperationId | null {
+  if (capabilityVersion === 1 && capability === "web.search") return "web.search@1";
+  if (capabilityVersion === 1 && capability === "web.read") return "web.read@1";
+  return null;
 }
 
 function resolveHost(request: FastifyRequest, reply: FastifyReply, platform: AppMcpHostRoutePlatform): AppMcpHostRouteEntry | null {

@@ -1,0 +1,26 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-adapter-entrypoint.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "package_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "export_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,127}$"
+    },
+    "abi": {
+      "type": "string",
+      "const": "braindrive-operation-adapter-v1"
+    }
+  },
+  "required": [
+    "package_path",
+    "export_name",
+    "abi"
+  ],
+  "additionalProperties": false
+}

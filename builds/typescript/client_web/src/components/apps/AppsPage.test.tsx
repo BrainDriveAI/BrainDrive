@@ -193,6 +193,223 @@ function chatLaunch(overrides: Partial<appsApi.AppChatWorkspaceLaunch> = {}): ap
   };
 }
 
+const dependencyReady: appsApi.CapabilityDependencyReadiness = {
+  status: "ready",
+  required_available: true,
+  optional_available: true,
+  blocking_operation_ids: [],
+  degraded_operation_ids: [],
+};
+
+function dependencyStatus(
+  operationId: string,
+  requirement: "required" | "optional",
+  state: appsApi.CapabilityDependencyState,
+  overrides: Partial<appsApi.CapabilityDependencyStatus> = {},
+): appsApi.CapabilityDependencyStatus {
+  return {
+    operation_id: operationId,
+    requirement,
+    unavailable_behavior: requirement === "required" ? "block_activation" : "degrade_with_safe_status",
+    state,
+    callable: state === "available",
+    provider_count: state === "missing" ? 0 : 1,
+    failure_code: state === "available" ? null : "provider_unavailable",
+    safe_message: state === "available" ? "Capability dependency is available." : "Capability provider is unavailable.",
+    checked_at: "2026-09-01T12:05:00.000Z",
+    ...overrides,
+  };
+}
+
+function providerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}): appsApi.InstalledPackageStatus {
+  return {
+    projection_version: 1,
+    identity: {
+      package_id: "ai.braindrive.internet-search.searxng",
+      display_name: "Internet Search Provider",
+      publisher_id: "ai.braindrive",
+      installation_id: crypto.randomUUID(),
+      package_digest: `sha256:${"7".repeat(64)}`,
+    },
+    package_kind: ["capability_provider"],
+    state: "enabled",
+    generation: 1,
+    version: { installed: "1.0.0", previous_package_digest: null },
+    trust: { status: "verified", policy_version: 1, checked_at: "2026-09-01T12:00:00.000Z" },
+    source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
+    components: [
+      {
+        component_id: "search.provider",
+        component_kind: "capability_provider",
+        display_name: "Search Provider",
+        owner_component_id: null,
+        state: "enabled",
+        health: "not_applicable",
+        launchable: false,
+        owner_visible_actions: ["enable", "disable", "update", "uninstall", "health", "launch"],
+        provided_operations: ["web.search@1", "web.read@1"],
+        required_capabilities: [],
+        capability_dependency_status: [],
+        dependency_readiness: dependencyReady,
+        sidecar_count: 1,
+        target_support: [],
+      },
+      {
+        component_id: "search.runtime",
+        component_kind: "sidecar",
+        display_name: "Search Runtime",
+        owner_component_id: "search.provider",
+        state: "running",
+        health: "healthy",
+        launchable: false,
+        owner_visible_actions: ["start", "stop", "restart", "health", "launch"],
+        provided_operations: [],
+        required_capabilities: [],
+        capability_dependency_status: [],
+        dependency_readiness: dependencyReady,
+        sidecar_count: 0,
+        target_support: [{ target: "docker_linux_x64", runtime_kind: "container" }],
+      },
+    ],
+    operations: [
+      { operation_id: "web.search@1", provider_component_id: "search.provider", result_classification: "generic_envelope" },
+      { operation_id: "web.read@1", provider_component_id: "search.provider", result_classification: "generic_envelope" },
+    ],
+    capability_dependencies: [],
+    capability_dependency_status: [],
+    dependency_readiness: dependencyReady,
+    retention: {
+      runtime_authority: "ephemeral_remove_on_stop_or_uninstall",
+      sidecar_runtime_state: "remove_on_uninstall",
+      provider_cache: "delete_by_default_unless_owner_preserves",
+      diagnostics: "bounded_redacted",
+      evidence: "content_free_bounded",
+    },
+    available_actions: ["disable", "update", "uninstall", "launch"],
+    updated_at: "2026-09-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}): appsApi.InstalledPackageStatus {
+  return {
+    ...providerPackage(),
+    identity: {
+      package_id: "ai.braindrive.shared-index",
+      display_name: "Shared Index Service",
+      publisher_id: "ai.braindrive",
+      installation_id: crypto.randomUUID(),
+      package_digest: `sha256:${"8".repeat(64)}`,
+    },
+    package_kind: ["dependency_service"],
+    state: "disabled",
+    version: { installed: "0.4.0", previous_package_digest: null },
+    source: { kind: "repository_fixture", label: "Shared service package fixture" },
+    components: [{
+      component_id: "index.service",
+      component_kind: "dependency_service",
+      display_name: "Index Service",
+      owner_component_id: null,
+      state: "unavailable",
+      health: "unhealthy",
+      launchable: false,
+      owner_visible_actions: ["enable", "disable", "health"],
+      provided_operations: [],
+      required_capabilities: [{
+        operation_id: "web.search@1",
+        requirement: "optional",
+        unavailable_behavior: "degrade_with_safe_status",
+      }],
+      capability_dependency_status: [dependencyStatus("web.search@1", "optional", "unhealthy", {
+        failure_code: "provider_unhealthy",
+        safe_message: "Capability provider is unhealthy.",
+      })],
+      dependency_readiness: {
+        ...dependencyReady,
+        status: "degraded",
+        optional_available: false,
+        degraded_operation_ids: ["web.search@1"],
+      },
+      sidecar_count: 0,
+      target_support: [{ target: "desktop_macos_universal", runtime_kind: "packaged_process" }],
+    }],
+    operations: [],
+    capability_dependencies: [{
+      operation_id: "web.search@1",
+      requirement: "optional",
+      unavailable_behavior: "degrade_with_safe_status",
+    }],
+    capability_dependency_status: [dependencyStatus("web.search@1", "optional", "unhealthy", {
+      failure_code: "provider_unhealthy",
+      safe_message: "Capability provider is unhealthy.",
+    })],
+    dependency_readiness: {
+      ...dependencyReady,
+      status: "degraded",
+      optional_available: false,
+      degraded_operation_ids: ["web.search@1"],
+    },
+    available_actions: ["enable", "update", "uninstall"],
+    updated_at: "2026-09-01T12:30:00.000Z",
+    ...overrides,
+  };
+}
+
+function consumerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}): appsApi.InstalledPackageStatus {
+  const blocked = dependencyStatus("web.search@1", "required", "missing");
+  return {
+    ...providerPackage(),
+    identity: {
+      package_id: "ai.braindrive.research-consumer",
+      display_name: "Research Consumer",
+      publisher_id: "ai.braindrive",
+      installation_id: crypto.randomUUID(),
+      package_digest: `sha256:${"9".repeat(64)}`,
+    },
+    package_kind: ["app"],
+    components: [{
+      component_id: "research.app",
+      component_kind: "app",
+      display_name: "Research Consumer",
+      owner_component_id: null,
+      state: "enabled",
+      health: "not_applicable",
+      launchable: true,
+      owner_visible_actions: ["enable", "disable", "stop", "update", "uninstall", "health"],
+      provided_operations: [],
+      required_capabilities: [{
+        operation_id: "web.search@1",
+        requirement: "required",
+        unavailable_behavior: "block_activation",
+      }],
+      capability_dependency_status: [blocked],
+      dependency_readiness: {
+        ...dependencyReady,
+        status: "blocked",
+        required_available: false,
+        blocking_operation_ids: ["web.search@1"],
+      },
+      sidecar_count: 0,
+      target_support: [],
+    }],
+    operations: [],
+    capability_dependencies: [{
+      operation_id: "web.search@1",
+      requirement: "required",
+      unavailable_behavior: "block_activation",
+    }],
+    capability_dependency_status: [blocked],
+    dependency_readiness: {
+      ...dependencyReady,
+      status: "blocked",
+      required_available: false,
+      blocking_operation_ids: ["web.search@1"],
+    },
+    available_actions: ["disable", "update", "uninstall"],
+    ...overrides,
+  };
+}
+
 describe("manifest-driven Apps surface", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [brief, base] }); });
 
@@ -238,6 +455,242 @@ describe("manifest-driven Apps surface", () => {
     const resumeInstall = screen.getByRole("button", { name: "Install Resume Builder" });
     expect(resumeInstall).toBeEnabled();
     expect(screen.getByRole("alert")).toHaveTextContent("revoked");
+  });
+
+  it("shows blocked dependencies on legacy app cards without Install, Launch, or Enable controls", async () => {
+    const blockedSearch = dependencyStatus("web.search@1", "required", "missing");
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
+      catalog_version: 1,
+      apps: [installed({
+        route_key: "research-consumer",
+        identity: {
+          ...base.identity,
+          app_id: "ai.braindrive.research-consumer",
+          display_name: "Research Consumer",
+          installation_id: crypto.randomUUID(),
+          package_digest: `sha256:${"9".repeat(64)}`,
+        },
+        capabilities: { requested: ["web.search"], granted: ["web.search"] },
+        capability_dependency_status: [blockedSearch],
+        dependency_readiness: {
+          ...dependencyReady,
+          status: "blocked",
+          required_available: false,
+          blocking_operation_ids: ["web.search@1"],
+        },
+        available_actions: ["disable", "uninstall"],
+      })],
+      packages: [consumerPackage()],
+    });
+    const { container } = renderApps(<AppsPage />);
+    const appCatalog = await screen.findByTestId("app-catalog");
+
+    expect(within(appCatalog).getByRole("heading", { name: "Research Consumer" })).toBeInTheDocument();
+    expect(within(appCatalog).getByRole("alert", { name: "Research Consumer dependency readiness" })).toHaveTextContent("Required dependency blocked: web.search@1");
+    expect(within(appCatalog).queryByRole("button", { name: "Install Research Consumer" })).not.toBeInTheDocument();
+    expect(within(appCatalog).queryByRole("button", { name: "Launch" })).not.toBeInTheDocument();
+    expect(within(appCatalog).queryByRole("button", { name: "Enable Research Consumer" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show detailed cards" }));
+    expect(container.querySelector('[data-app-key="research-consumer"]')).toHaveTextContent("Dependencies: Required: web.search@1 - missing");
+  });
+
+  it("renders app readiness states and Search/Read disclosure from owner-safe projections", async () => {
+    const selectionRequired = dependencyStatus("web.search@1", "required", "selection_required", {
+      callable: false,
+      provider_count: 2,
+      failure_code: "provider_selection_required",
+      safe_message: "Choose an Internet Search provider before launch.",
+    });
+    const optionalMissing = dependencyStatus("web.read@1", "optional", "missing", {
+      callable: false,
+      provider_count: 0,
+      safe_message: "Internet Read is unavailable.",
+    });
+    const unknownRequired = dependencyStatus("web.search@1", "required", "unknown", {
+      callable: false,
+      provider_count: 0,
+      failure_code: "unknown",
+      safe_message: "Dependency readiness could not be checked.",
+    });
+    const readySearch = dependencyStatus("web.search@1", "required", "available");
+    const blockedApp = installed({
+      route_key: "selection-required",
+      identity: { ...base.identity, app_id: "ai.braindrive.selection-required", display_name: "Selection Required", installation_id: crypto.randomUUID(), package_digest: `sha256:${"1".repeat(64)}` },
+      capability_dependency_status: [selectionRequired],
+      dependency_readiness: { ...dependencyReady, status: "blocked", required_available: false, blocking_operation_ids: ["web.search@1"] },
+      available_actions: ["launch", "disable", "uninstall"],
+    });
+    const degradedApp = installed({
+      route_key: "optional-degraded",
+      identity: { ...base.identity, app_id: "ai.braindrive.optional-degraded", display_name: "Optional Degraded", installation_id: crypto.randomUUID(), package_digest: `sha256:${"2".repeat(64)}` },
+      capability_dependency_status: [optionalMissing],
+      dependency_readiness: { ...dependencyReady, status: "degraded", optional_available: false, degraded_operation_ids: ["web.read@1"] },
+      available_actions: ["launch", "disable"],
+    });
+    const unknownApp = installed({
+      route_key: "unknown-readiness",
+      identity: { ...base.identity, app_id: "ai.braindrive.unknown-readiness", display_name: "Unknown Readiness", installation_id: crypto.randomUUID(), package_digest: `sha256:${"3".repeat(64)}` },
+      capability_dependency_status: [unknownRequired],
+      dependency_readiness: { status: "unknown", required_available: false, optional_available: true, blocking_operation_ids: ["web.search@1"], degraded_operation_ids: [] },
+      available_actions: ["launch", "disable"],
+    });
+    const readyApp = installed({
+      route_key: "ready-search",
+      identity: { ...base.identity, app_id: "ai.braindrive.ready-search", display_name: "Ready Search", installation_id: crypto.randomUUID(), package_digest: `sha256:${"4".repeat(64)}` },
+      capability_dependency_status: [readySearch],
+      dependency_readiness: { ...dependencyReady, blocking_operation_ids: [], degraded_operation_ids: [] },
+      available_actions: ["launch"],
+    });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [blockedApp, degradedApp, unknownApp, readyApp], packages: [] });
+    vi.mocked(appsApi.launchApp).mockResolvedValue(launch);
+
+    const user = userEvent.setup();
+    const { container } = renderApps(<AppsPage />);
+    await screen.findByRole("heading", { name: "Selection Required" });
+
+    const blockedCard = container.querySelector('[data-app-key="selection-required"]') as HTMLElement;
+    const degradedCard = container.querySelector('[data-app-key="optional-degraded"]') as HTMLElement;
+    const unknownCard = container.querySelector('[data-app-key="unknown-readiness"]') as HTMLElement;
+    const readyCard = container.querySelector('[data-app-key="ready-search"]') as HTMLElement;
+
+    expect(within(blockedCard).getByRole("alert", { name: "Selection Required dependency readiness" })).toHaveTextContent("Required dependency blocked: web.search@1");
+    expect(blockedCard).toHaveTextContent("Owner/admin provider selection is required before launch. BrainDrive will not choose a provider silently.");
+    expect(within(blockedCard).queryByRole("button", { name: "Launch" })).not.toBeInTheDocument();
+
+    expect(within(degradedCard).getByRole("status", { name: "Optional Degraded dependency readiness" })).toHaveTextContent("Optional dependency degraded: web.read@1");
+    expect(degradedCard).toHaveTextContent("This app can launch only in its declared degraded mode");
+    expect(degradedCard).toHaveTextContent("Queries and URLs may be sent to the selected provider. Provider keys and unrelated owner data are not sent.");
+    expect(degradedCard).toHaveTextContent("Owner-managed provider costs are handled outside BrainDrive");
+    await user.click(within(degradedCard).getByRole("button", { name: "Launch" }));
+    expect(appsApi.launchApp).toHaveBeenCalledWith("optional-degraded", "direct");
+
+    expect(within(unknownCard).getByRole("status", { name: "Unknown Readiness dependency readiness" })).toHaveTextContent("Dependency readiness unknown: web.search@1");
+    expect(unknownCard).toHaveTextContent("Refresh Apps or ask an owner/admin to check provider status before launch.");
+    expect(within(unknownCard).queryByRole("button", { name: "Launch" })).not.toBeInTheDocument();
+
+    expect(within(readyCard).getByRole("status", { name: "Ready Search dependency readiness" })).toHaveTextContent("Dependencies ready: web.search@1");
+    expect(readyCard).toHaveTextContent("All declared dependencies are available for this app.");
+    expect(container.querySelector('[data-testid="app-catalog"]')?.textContent ?? "").not.toMatch(/searxng|localhost|127\.|0\.0\.0\.0|\bport\b|endpoint|private_binding|host_path|payload\/|adapter|secret|credential|BrainDrive billing|credits/i);
+  });
+
+  it("renders providers and dependency services from the safe package projection without Launch", async () => {
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
+      catalog_version: 1,
+      apps: [installed()],
+      packages: [providerPackage(), dependencyPackage()],
+    });
+    const user = userEvent.setup();
+    const { container } = renderApps(<AppsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Internet Search Provider" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Shared Index Service" })).toBeInTheDocument();
+    expect(screen.getByText("Capability provider")).toBeInTheDocument();
+    expect(screen.getByText("Dependency service")).toBeInTheDocument();
+    expect(screen.getByText(/Operations: web\.search@1, web\.read@1/)).toBeInTheDocument();
+    expect(screen.getByText(/Docker Linux x64/)).toBeInTheDocument();
+    expect(screen.getByText(/Desktop macOS universal/)).toBeInTheDocument();
+    expect(screen.getByRole("alert", { name: "Shared Index Service package health" })).toHaveTextContent("Unhealthy or unavailable");
+    expect(screen.getByRole("status", { name: "Shared Index Service dependency readiness" })).toHaveTextContent("Optional dependency degraded: web.search@1");
+
+    expect(screen.queryByRole("button", { name: "Launch Internet Search Provider" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Launch Shared Index Service" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disable Internet Search Provider" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start Search Runtime" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Show detailed cards" }));
+    expect(screen.getAllByText(/bounded redacted diagnostics/)).toHaveLength(2);
+    expect(screen.getAllByText(/content free bounded evidence/)).toHaveLength(2);
+    expect(screen.getAllByText("Optional: web.search@1 - unhealthy").length).toBeGreaterThan(0);
+
+    const serialized = container.querySelector('[data-testid="package-catalog"]')?.textContent ?? "";
+    expect(serialized).not.toMatch(/https?:\/\/|127\.0\.0\.1|localhost|:\d{4,5}|secret|credential|private_binding|host_path|payload\/|adapter|service_name/i);
+  });
+
+  it("shows required generic dependency blocks without offering start or provider install actions", async () => {
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
+      catalog_version: 1,
+      apps: [],
+      packages: [consumerPackage()],
+    });
+    const { container } = renderApps(<AppsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Research Consumer" })).toBeInTheDocument();
+    expect(screen.getByRole("alert", { name: "Research Consumer dependency readiness" })).toHaveTextContent("Required dependency blocked: web.search@1");
+    expect(container.querySelector('[data-package-id="ai.braindrive.research-consumer"]')).toHaveTextContent("Required: web.search@1 - missing");
+    expect(screen.queryByRole("button", { name: "Start Research Consumer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Install.*Provider/i })).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid="package-catalog"]')?.textContent ?? "").not.toMatch(/searxng|localhost|127\.|0\.0\.0\.0|\bport\b|endpoint|private_binding|host_path|payload\/|adapter|secret|credential/i);
+  });
+
+  it("renders package selection-required and unknown states without provider mutation controls", async () => {
+    const selectionRequired = dependencyStatus("web.search@1", "required", "selection_required", {
+      callable: false,
+      provider_count: 2,
+      failure_code: "provider_selection_required",
+      safe_message: "Choose an Internet Search provider before dependent apps use Search.",
+    });
+    const unknownOptional = dependencyStatus("web.read@1", "optional", "unknown", {
+      callable: false,
+      provider_count: 0,
+      failure_code: "unknown",
+      safe_message: "Read provider readiness could not be checked.",
+    });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
+      catalog_version: 1,
+      apps: [],
+      packages: [
+        consumerPackage({
+          capability_dependency_status: [selectionRequired],
+          dependency_readiness: { ...dependencyReady, status: "blocked", required_available: false, blocking_operation_ids: ["web.search@1"] },
+          available_actions: ["launch", "disable", "update"],
+        }),
+        dependencyPackage({
+          identity: { ...dependencyPackage().identity, package_id: "ai.braindrive.read-cache", display_name: "Read Cache" },
+          capability_dependency_status: [unknownOptional],
+          dependency_readiness: { status: "unknown", required_available: true, optional_available: false, blocking_operation_ids: [], degraded_operation_ids: ["web.read@1"] },
+          available_actions: ["launch", "enable", "update"],
+        }),
+      ],
+    });
+    const { container } = renderApps(<AppsPage />);
+
+    const researchPackage = await screen.findByRole("heading", { name: "Research Consumer" });
+    const blockedCard = researchPackage.closest("article") as HTMLElement;
+    const readCacheCard = screen.getByRole("heading", { name: "Read Cache" }).closest("article") as HTMLElement;
+
+    expect(within(blockedCard).getByRole("alert", { name: "Research Consumer dependency readiness" })).toHaveTextContent("Required dependency blocked: web.search@1");
+    expect(blockedCard).toHaveTextContent("Owner/admin provider selection is required before dependent apps can use this operation. BrainDrive will not choose a provider silently.");
+    expect(within(blockedCard).queryByRole("button", { name: "Launch Research Consumer" })).not.toBeInTheDocument();
+    expect(within(blockedCard).queryByRole("button", { name: /Choose|Select/i })).not.toBeInTheDocument();
+
+    expect(within(readCacheCard).getByRole("status", { name: "Read Cache dependency readiness" })).toHaveTextContent("Dependency readiness unknown: web.read@1");
+    expect(readCacheCard).toHaveTextContent("Refresh Apps or ask an owner/admin to check provider readiness before dependent apps rely on this package.");
+    expect(readCacheCard).toHaveTextContent("Apps using these operations may send queries and URLs to the selected provider.");
+    expect(readCacheCard).toHaveTextContent("This package is not a launchable app unless the Host projection includes a launchable app component.");
+    expect(container.querySelector('[data-testid="package-catalog"]')?.textContent ?? "").not.toMatch(/https?:\/\/|127\.0\.0\.1|localhost|:\d{4,5}|secret|credential|private_binding|host_path|payload\/|adapter|service_name|BrainDrive billing|credits/i);
+  });
+
+  it("keeps provider projection text inert and filters adversarial launch actions", async () => {
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
+      catalog_version: 1,
+      apps: [],
+      packages: [providerPackage({
+        identity: {
+          ...providerPackage().identity,
+          display_name: '<button>Launch</button><script>bad()</script>',
+        },
+        source: { kind: "repository_fixture", label: '<a href="https://evil.invalid">source</a>' },
+      })],
+    });
+    const { container } = renderApps(<AppsPage />);
+
+    expect(await screen.findByText('<button>Launch</button><script>bad()</script>')).toBeInTheDocument();
+    expect(screen.queryAllByRole("button").filter((button) => button.textContent === "Launch")).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Show detailed cards" }));
+    expect(screen.getByText('<a href="https://evil.invalid">source</a>')).toBeInTheDocument();
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector('a[href="https://evil.invalid"]')).toBeNull();
   });
 
   it("scopes lifecycle busy state to only the selected app card", async () => {

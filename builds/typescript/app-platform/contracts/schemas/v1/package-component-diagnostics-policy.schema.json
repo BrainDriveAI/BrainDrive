@@ -1,0 +1,40 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-diagnostics-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostics_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "store_raw_provider_payloads": {
+      "type": "boolean",
+      "const": false
+    },
+    "store_private_bindings": {
+      "type": "boolean",
+      "const": false
+    },
+    "store_host_paths": {
+      "type": "boolean",
+      "const": false
+    },
+    "store_credentials": {
+      "type": "boolean",
+      "const": false
+    },
+    "durable_projection": {
+      "type": "string",
+      "const": "safe_status_and_typed_failures_only"
+    }
+  },
+  "required": [
+    "diagnostics_policy_version",
+    "store_raw_provider_payloads",
+    "store_private_bindings",
+    "store_host_paths",
+    "store_credentials",
+    "durable_projection"
+  ],
+  "additionalProperties": false
+}

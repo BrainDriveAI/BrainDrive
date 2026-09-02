@@ -79,7 +79,7 @@ function expectNoUnsafe(value: unknown): void {
 describe("Internet Search diagnostics and retention", () => {
   it("declares the accepted local V1 content-minimized retention policy", () => {
     expect(INTERNET_SEARCH_DIAGNOSTIC_RETENTION_POLICY).toEqual({
-      policy_id: "internet-search-local-v1-diagnostics",
+      policy_id: "package-provider-diagnostics-v1",
       retained_event_classes: ["operation", "sidecar_lifecycle", "qualification_stale"],
       local_retention_days: 14,
       raw_page_content: "excluded_ephemeral",
@@ -89,6 +89,7 @@ describe("Internet Search diagnostics and retention", () => {
       credentials: "excluded",
       host_paths: "excluded",
       provider_endpoints: "excluded",
+      support_bundle_export: "safe_projection_only",
       delivery_evidence: "separate_sanitized_bundle",
     });
   });
@@ -125,17 +126,22 @@ describe("Internet Search diagnostics and retention", () => {
       event_type: "operation",
       operation_id: "web.search@1",
       status: "success",
+      provider_execution: "executed",
       failure_code: null,
       result_count: 1,
       completed_item_count: 1,
+      package_id: "ai.braindrive.internet-search.searxng",
+      provider_component_id: "search.provider",
+      provider_profile_class: "capability_provider",
       usage: { call_count: 1, bytes_class: null },
       duration_ms: 42,
-      retention_policy_id: "internet-search-local-v1-diagnostics",
+      retention_policy_id: "package-provider-diagnostics-v1",
     });
     expect(InternetSearchDiagnosticEventSchema.parse(read)).toMatchObject({
       event_type: "operation",
       operation_id: "web.read@1",
       status: "partial",
+      provider_execution: "executed",
       failure_code: "content_too_large",
       result_count: 1,
       completed_item_count: 1,
@@ -151,10 +157,18 @@ describe("Internet Search diagnostics and retention", () => {
         "duration_ms",
         "event_type",
         "failure_code",
+        "installation_id",
         "limit_profile_id",
         "occurred_at",
         "operation_id",
+        "package_digest",
+        "package_id",
+        "package_version",
+        "provider_component_id",
+        "provider_execution",
+        "provider_profile_class",
         "provider_profile_id",
+        "provider_selection",
         "request_id",
         "result_count",
         "retention_expires_after_days",
@@ -165,6 +179,109 @@ describe("Internet Search diagnostics and retention", () => {
       ]);
       expectNoUnsafe(event);
     }
+  });
+
+  it("keeps failure and empty-result receipt diagnostics distinct without raw query or content", () => {
+    const emptySearch = projectInternetSearchOperationDiagnostic({
+      operationId: "web.search@1",
+      envelope: searchEnvelope({ results: [], usage: { search_call: 1 } }),
+      unsafeInput: { query: "CANARY_RAW_QUERY_TEXT", authorization: "Bearer CANARY_TOKEN" },
+    });
+    const partialRead = projectInternetSearchOperationDiagnostic({
+      operationId: "web.read@1",
+      envelope: readEnvelope(),
+      unsafeInput: { url: "https://public.example/private?token=CANARY_TOKEN" },
+    });
+    const preProviderFailure = projectInternetSearchOperationDiagnostic({
+      operationId: "web.search@1",
+      envelope: searchEnvelope({
+        status: "failure",
+        provider: null,
+        usage: { search_call: 0 },
+        results: [],
+        failure: createInternetSearchFailure("not_authorized"),
+      }),
+      unsafeInput: { query: "CANARY_RAW_QUERY_TEXT" },
+    });
+    const timeout = projectInternetSearchOperationDiagnostic({
+      operationId: "web.search@1",
+      envelope: searchEnvelope({
+        status: "failure",
+        provider: null,
+        usage: { search_call: 0 },
+        results: [],
+        failure: createInternetSearchFailure("timeout"),
+      }),
+      unsafeInput: { query: "CANARY_RAW_QUERY_TEXT" },
+    });
+    const cancelled = projectInternetSearchOperationDiagnostic({
+      operationId: "web.read@1",
+      envelope: readEnvelope({
+        status: "cancelled",
+        provider: null,
+        usage: { read_call: 0, bytes_read: 0 },
+        result: null,
+        failure: createInternetSearchFailure("cancelled"),
+      }),
+      unsafeInput: { url: "https://public.example/page" },
+    });
+    const invalidProvider = projectInternetSearchOperationDiagnostic({
+      operationId: "web.search@1",
+      envelope: searchEnvelope({
+        status: "failure",
+        provider: null,
+        usage: { search_call: 0 },
+        results: [],
+        failure: createInternetSearchFailure("invalid_provider_response"),
+      }),
+      unsafeInput: { raw_provider_response: "CANARY_RAW_PROVIDER_PAYLOAD" },
+    });
+
+    expect(emptySearch).toMatchObject({
+      status: "success",
+      failure_code: null,
+      provider_execution: "executed",
+      result_count: 0,
+      completed_item_count: 0,
+      usage: { call_count: 1, bytes_class: null },
+    });
+    expect(partialRead).toMatchObject({
+      status: "partial",
+      failure_code: "content_too_large",
+      provider_execution: "executed",
+      result_count: 1,
+      completed_item_count: 1,
+      usage: { call_count: 1, bytes_class: "limit" },
+    });
+    expect(preProviderFailure).toMatchObject({
+      status: "failure",
+      failure_code: "not_authorized",
+      provider_execution: "not_executed",
+      result_count: 0,
+      usage: { call_count: 0, bytes_class: null },
+    });
+    expect(timeout).toMatchObject({
+      status: "failure",
+      failure_code: "timeout",
+      provider_execution: "executed",
+      result_count: 0,
+      usage: { call_count: 0, bytes_class: null },
+    });
+    expect(cancelled).toMatchObject({
+      status: "cancelled",
+      failure_code: "cancelled",
+      provider_execution: "executed",
+      result_count: 0,
+      usage: { call_count: 0, bytes_class: "none" },
+    });
+    expect(invalidProvider).toMatchObject({
+      status: "failure",
+      failure_code: "invalid_provider_response",
+      provider_execution: "executed",
+      result_count: 0,
+      usage: { call_count: 0, bytes_class: null },
+    });
+    expectNoUnsafe([emptySearch, partialRead, preProviderFailure, timeout, cancelled, invalidProvider]);
   });
 
   it("projects sidecar lifecycle diagnostics without raw endpoint or unsafe error details", () => {
@@ -184,12 +301,15 @@ describe("Internet Search diagnostics and retention", () => {
       diagnostic_version: 1,
       event_type: "sidecar_lifecycle",
       sequence: 7,
-      state: "unhealthy",
+      package_id: "ai.braindrive.internet-search.searxng",
+      component_id: "search.runtime",
+      owner_component_id: "search.provider",
+      state: "failed",
+      health: "unhealthy",
       action: "health",
-      endpoint_class: "container_internal",
-      public_bind: false,
+      binding_class: "container_internal_authenticated",
       error_code: "unknown",
-      retention_policy_id: "internet-search-local-v1-diagnostics",
+      retention_policy_id: "package-provider-diagnostics-v1",
     });
     expectNoUnsafe(projected);
   });
@@ -197,12 +317,14 @@ describe("Internet Search diagnostics and retention", () => {
   it("marks material qualification changes stale without overclaiming evidence-only changes", () => {
     expect(markInternetSearchQualificationStale({
       changed_at: now,
-      change_class: "provider",
+      change_class: "provider_version_change",
     })).toMatchObject({
       event_type: "qualification_stale",
+      package_id: "ai.braindrive.internet-search.searxng",
+      provider_component_id: "search.provider",
       qualification_status: "stale",
       requires_rerun: true,
-      affected_evidence: ["capability_conformance", "provider_qualification", "dependent_product_results"],
+      affected_evidence: ["schema_conformance", "operation_contract_conformance", "provider_qualification", "dependent_product_results"],
     });
 
     expect(markInternetSearchQualificationStale({
@@ -244,8 +366,9 @@ describe("Internet Search diagnostics and retention", () => {
 
   it("documents support-bundle Search diagnostics as unclaimed until a narrow export is accepted", () => {
     expect(INTERNET_SEARCH_SUPPORT_BUNDLE_DIAGNOSTICS_STATUS).toEqual({
-      status: "not_claimed",
-      reason: "Search-specific support-bundle export requires a separate allowlisted integration review.",
+      status: "safe_projection_only",
+      raw_provider_payload_export: "not_claimed",
+      reason: "Support bundles may include only bounded generic diagnostic projections; raw provider payload exports require separate allowlisted review.",
     });
   });
 });

@@ -55,6 +55,7 @@ Developer orientation: start with the [developer index](../../../docs/developers
 - `reset-new-user.ps1`
 - `restore.sh`
 - `restore.ps1`
+- `render-package-sidecars.mjs`
 - `sign-release-manifest.sh`
 - `sign-release-manifest.ps1`
 - `smoke-test-release.sh`
@@ -133,6 +134,7 @@ What it does:
 - Starts services for selected mode.
 - Runs startup update policy check for `local` and `prod` before `docker compose up -d`.
 - Creates required volumes in `dev` mode.
+- Renders package-declared Docker sidecars for `dev` and `local` into `.generated/package-sidecars.<mode>.yml` and `.generated/package-sidecars.<mode>.json`, then includes that generated override in Compose.
 - In `prod`, generates a missing signup bootstrap token before Compose validation so existing installations continue to start safely.
 
 Usage:
@@ -146,10 +148,11 @@ Key behavior:
 - `prod` requires `.env` and real `DOMAIN`.
 - If `check-update` returns fail-closed errors, startup halts.
 - Required native Docker commands fail closed before access or completion output.
+- The generated sidecar descriptor file is mounted into the app as `BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE`; provider-specific sidecar endpoint env vars are not part of the target Docker path.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config read:
-- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `DOMAIN`, `BRAINDRIVE_DOCKER_PLATFORM`
+- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `DOMAIN`, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_DOCKER_SIDECAR_MANIFESTS`
 
 ### stop (`stop.sh`, `stop.ps1`)
 

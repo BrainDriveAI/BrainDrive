@@ -22,9 +22,7 @@ services:
       PAA_AUDIT_FILE_SINK_ENABLED: ${PAA_AUDIT_FILE_SINK_ENABLED:-true}
       PAA_AUDIT_MAX_FILE_BYTES: ${PAA_AUDIT_MAX_FILE_BYTES:-5242880}
       PAA_AUDIT_RETENTION_DAYS: ${PAA_AUDIT_RETENTION_DAYS:-14}
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL: http://internet-search-searxng:8080
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_TRANSPORT: container_internal
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_HEALTH_PATH: /healthz
+      BRAINDRIVE_APP_PLATFORM_TARGET: docker_linux_x64
       TZ: ${TZ:-UTC}
     volumes:
       - braindrive_memory:/data/memory
@@ -35,14 +33,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
-    security_opt:
-      - no-new-privileges:true
-
-  internet-search-searxng:
-    image: ${BRAINDRIVE_SEARXNG_IMAGE:-searxng/searxng:latest}
-    restart: unless-stopped
-    expose:
-      - "8080"
     security_opt:
       - no-new-privileges:true
 

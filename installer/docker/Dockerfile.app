@@ -40,6 +40,7 @@ COPY --from=build-runtime /src/builds/typescript/config.json /app/typescript/con
 COPY --from=build-runtime /src/builds/typescript/adapters /app/typescript/adapters
 COPY --from=build-runtime /src/builds/typescript/mcp /app/typescript/mcp
 COPY --from=build-runtime /src/builds/typescript/memory/starter-pack /app/typescript/memory/starter-pack
+COPY builds/internet_search /app/internet_search
 
 COPY --from=build-mcp /src/builds/mcp_release/package.json /src/builds/mcp_release/package-lock.json /app/mcp_release/
 COPY --from=build-mcp /src/builds/mcp_release/node_modules /app/mcp_release/node_modules

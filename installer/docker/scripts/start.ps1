@@ -18,6 +18,9 @@ if ($Mode -eq "prod") {
 } elseif ($Mode -eq "dev") {
   $composeFile = "compose.dev.yml"
 }
+$generatedDir = Join-Path $rootDir ".generated"
+$sidecarComposeFile = Join-Path $generatedDir "package-sidecars.$Mode.yml"
+$sidecarDescriptorFile = Join-Path $generatedDir "package-sidecars.$Mode.json"
 
 function Get-EnvValue {
   param([string]$Key)
@@ -65,10 +68,19 @@ if ($Mode -eq "dev") {
     -FailureMessage "Could not create the BrainDrive secrets volume" | Out-Null
 }
 
+$composeArguments = @("compose", "-f", $composeFile)
+if ($Mode -eq "dev" -or $Mode -eq "local") {
+  Invoke-CheckedNativeCommand `
+    -Command "node" `
+    -Arguments @("$scriptDir/render-package-sidecars.mjs", "--mode", $Mode, "--out", $sidecarComposeFile, "--descriptors", $sidecarDescriptorFile) `
+    -FailureMessage "Could not render package-declared Docker sidecars"
+  $composeArguments += @("-f", $sidecarComposeFile)
+}
+
 try {
   Invoke-CheckedNativeCommand `
     -Command "docker" `
-    -Arguments @("compose", "-f", $composeFile, "up", "-d") `
+    -Arguments ($composeArguments + @("up", "-d")) `
     -FailureMessage "Could not start the BrainDrive stack"
 } catch {
   if ($Mode -eq "prod") {
@@ -79,7 +91,7 @@ try {
 
 Invoke-CheckedNativeCommand `
   -Command "docker" `
-  -Arguments @("compose", "-f", $composeFile, "ps") `
+  -Arguments ($composeArguments + @("ps")) `
   -FailureMessage "Could not read the BrainDrive service status"
 
 Write-BrainDriveAccessInfo -Mode $Mode -Prefix "Start complete."

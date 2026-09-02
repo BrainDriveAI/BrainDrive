@@ -1,0 +1,106 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-qualification-diagnostic-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostic_version": {
+      "type": "number",
+      "const": 1
+    },
+    "event_type": {
+      "type": "string",
+      "const": "qualification_stale"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "provider_component_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "change_class": {
+      "type": "string",
+      "enum": [
+        "manifest_change",
+        "adapter_change",
+        "sidecar_target_change",
+        "runtime_target_change",
+        "network_policy_change",
+        "permission_change",
+        "operation_contract_change",
+        "provider_version_change",
+        "security_boundary_change",
+        "retention_policy_change",
+        "diagnostics_policy_change",
+        "documentation_only",
+        "evidence_only",
+        "unrelated"
+      ]
+    },
+    "qualification_status": {
+      "type": "string",
+      "enum": [
+        "current",
+        "stale"
+      ]
+    },
+    "requires_rerun": {
+      "type": "boolean"
+    },
+    "affected_evidence": {
+      "maxItems": 7,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "schema_conformance",
+          "provider_qualification",
+          "runtime_target_qualification",
+          "operation_contract_conformance",
+          "security_redaction_scan",
+          "dependent_product_results",
+          "support_bundle_review"
+        ]
+      }
+    },
+    "retention_policy_id": {
+      "type": "string",
+      "const": "package-provider-diagnostics-v1"
+    },
+    "retention_expires_after_days": {
+      "type": "number",
+      "const": 14
+    }
+  },
+  "required": [
+    "diagnostic_version",
+    "event_type",
+    "occurred_at",
+    "package_id",
+    "provider_component_id",
+    "change_class",
+    "qualification_status",
+    "requires_rerun",
+    "affected_evidence",
+    "retention_policy_id",
+    "retention_expires_after_days"
+  ],
+  "additionalProperties": false
+}

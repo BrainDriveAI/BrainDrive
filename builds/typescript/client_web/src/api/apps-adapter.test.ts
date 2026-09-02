@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, AppDocumentError, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability, finalizeResumeBuilderExport, getApp, getAppCatalog, hasInternetSearchDependency, isInternetSearchOperationId, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -333,6 +333,76 @@ describe("Apps gateway adapter", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/apps", undefined);
   });
 
+  it("accepts additive safe installed package projections without exposing package internals", async () => {
+    const packageProjection = {
+      projection_version: 1,
+      identity: {
+        package_id: "ai.braindrive.synthetic-provider",
+        display_name: "Synthetic Provider",
+        publisher_id: "ai.braindrive",
+        installation_id: crypto.randomUUID(),
+        package_digest: `sha256:${"1".repeat(64)}`,
+      },
+      package_kind: ["capability_provider"],
+      state: "enabled",
+      generation: 1,
+      version: { installed: "1.0.0", previous_package_digest: null },
+      trust: { status: "verified", policy_version: 1, checked_at: "2026-09-01T12:00:00.000Z" },
+      source: { kind: "repository_fixture", label: "Synthetic package fixture" },
+      components: [{
+        component_id: "synthetic.provider",
+        component_kind: "capability_provider",
+        display_name: "Synthetic Provider",
+        owner_component_id: null,
+        state: "enabled",
+        health: "not_applicable",
+        launchable: false,
+        owner_visible_actions: ["enable", "disable", "update", "uninstall", "health"],
+        provided_operations: ["web.search@1"],
+        required_capabilities: [],
+        capability_dependency_status: [],
+        dependency_readiness: {
+          status: "ready",
+          required_available: true,
+          optional_available: true,
+          blocking_operation_ids: [],
+          degraded_operation_ids: [],
+        },
+        sidecar_count: 1,
+        target_support: [],
+      }],
+      operations: [{ operation_id: "web.search@1", provider_component_id: "synthetic.provider", result_classification: "generic_envelope" }],
+      capability_dependencies: [],
+      capability_dependency_status: [],
+      dependency_readiness: {
+        status: "ready",
+        required_available: true,
+        optional_available: true,
+        blocking_operation_ids: [],
+        degraded_operation_ids: [],
+      },
+      retention: {
+        runtime_authority: "ephemeral_remove_on_stop_or_uninstall",
+        sidecar_runtime_state: "remove_on_uninstall",
+        provider_cache: "delete_by_default_unless_owner_preserves",
+        diagnostics: "bounded_redacted",
+        evidence: "content_free_bounded",
+      },
+      available_actions: ["disable", "update", "uninstall"],
+      updated_at: "2026-09-01T12:00:00.000Z",
+    };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ catalog_version: 1, apps: [status], packages: [packageProjection] }), { status: 200 }));
+
+    const catalog = await getAppCatalog();
+    expect(catalog.packages?.[0]).toMatchObject({
+      identity: { package_id: "ai.braindrive.synthetic-provider" },
+      components: [expect.objectContaining({ component_kind: "capability_provider", launchable: false })],
+    });
+    expect(catalog.packages?.[0].available_actions).not.toContain("launch");
+    expect(JSON.stringify(catalog.packages?.[0])).not.toMatch(/payload\/|adapter|export_name|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
+    expect(fetchMock).toHaveBeenCalledWith("/api/apps", undefined);
+  });
+
   it("finalizes a host export with opaque artifact identity and no path", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ receipt_revision_id: crypto.randomUUID(), safe_destination_label: "resume.pdf", outcome: "cancelled" }), { status: 200 }));
     await finalizeResumeBuilderExport({ artifact_revision_id: crypto.randomUUID(), artifact_digest: `sha256:${"a".repeat(64)}`, safe_destination_label: "resume.pdf", outcome: "cancelled" });
@@ -436,5 +506,38 @@ describe("Apps gateway adapter", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toEqual(request);
     expect(fetchMock.mock.calls.map(([url]) => String(url)).join("\n")).not.toMatch(/searxng|localhost|127\.|0\.0\.0\.0|\bport\b|provider|endpoint/i);
     expect(() => discoverInternetSearchCapability("searxng-local")).toThrow("Invalid Internet Search operation id");
+  });
+
+  it("recognizes only canonical Search/Read dependency operation ids for owner-surface disclosure", () => {
+    expect(isInternetSearchOperationId("web.search@1")).toBe(true);
+    expect(isInternetSearchOperationId("web.read@1")).toBe(true);
+    expect(isInternetSearchOperationId("web.search")).toBe(false);
+    expect(isInternetSearchOperationId("searxng-local")).toBe(false);
+    expect(hasInternetSearchDependency([
+      {
+        operation_id: "web.search@1",
+        requirement: "required",
+        unavailable_behavior: "block_activation",
+        state: "selection_required",
+        callable: false,
+        provider_count: 2,
+        failure_code: "provider_selection_required",
+        safe_message: "Choose a provider for Internet Search.",
+        checked_at: "2026-09-02T12:00:00.000Z",
+      },
+    ])).toBe(true);
+    expect(hasInternetSearchDependency([
+      {
+        operation_id: "search.provider.local",
+        requirement: "optional",
+        unavailable_behavior: "degrade_with_safe_status",
+        state: "unavailable",
+        callable: false,
+        provider_count: 1,
+        failure_code: "provider_unavailable",
+        safe_message: "Provider unavailable.",
+        checked_at: null,
+      },
+    ])).toBe(false);
   });
 });

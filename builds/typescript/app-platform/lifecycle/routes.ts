@@ -1,12 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
-import { CapabilityNameSchema } from "../contracts/package.js";
+import { GrantedCapabilityNameSchema } from "../contracts/package.js";
 import { AppRouteKeySchema } from "../contracts/app-registry.js";
+import type { CapabilityDependency } from "../contracts/package-components.js";
 import { AppPlatformError } from "./errors.js";
 import { MODERN_FIXTURE_VERSION } from "./fixture-repository.js";
 import { manifestCapabilities, manifestDataCompatibility, type RuntimePackageManifest } from "./package-verifier.js";
 import type { AppLifecycleService, LifecycleResponse } from "./service.js";
+import type { CapabilityDependencyAvailability, CapabilityDependencyReadiness, CapabilityDependencyResolution, CapabilityDependencyResolver, InstalledPackageStore } from "./installed-package-store.js";
 
 const bindingSchema = z.object({
   operation_id: z.string().uuid(),
@@ -27,7 +29,7 @@ const uninstallSchema = installedActionSchema.extend({ confirm_retained_data: z.
 const operationQuerySchema = z.object({ installation_id: z.string().uuid() }).strict();
 const sessionSchema = z.object({
   audience: z.enum(["app_data", "app_inference", "app_export", "app_bridge"]),
-  capabilities: z.array(CapabilityNameSchema).min(1),
+  capabilities: z.array(GrantedCapabilityNameSchema).min(1),
   operation_id: z.string().uuid(),
   view_id: z.string().uuid().optional(),
 }).strict();
@@ -43,10 +45,19 @@ export type AppLifecycleRouteEntry = {
   service: AppLifecycleService;
   availableVersion?: string;
 };
+export type AppLifecycleRouteOptions = {
+  packageStore?: InstalledPackageStore;
+  capabilityDependencyResolver?: CapabilityDependencyResolver | null;
+};
+export type AppDependencyRouteGate = {
+  capability_dependency_status: CapabilityDependencyAvailability[];
+  dependency_readiness: CapabilityDependencyReadiness;
+};
+type AppDependencyRouteEntry = { routeKey: string; service: { appId: string } };
 
 export type AppLifecycleRoutePlatform = ReturnType<typeof createAppLifecycleRoutePlatform>;
 
-export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycleRouteEntry[], maxActiveApps = 2) {
+export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycleRouteEntry[], maxActiveApps = 2, options: AppLifecycleRouteOptions = {}) {
   const entries = rawEntries.map((entry) => ({ ...entry, routeKey: AppRouteKeySchema.parse(entry.routeKey) }))
     .sort((left, right) => left.routeKey.localeCompare(right.routeKey));
   if (entries.length === 0 || new Set(entries.map((entry) => entry.routeKey)).size !== entries.length || new Set(entries.map((entry) => entry.service.appId)).size !== entries.length
@@ -54,6 +65,8 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
     throw new AppPlatformError("descriptor_invalid", "Lifecycle route registry is empty or ambiguous");
   }
   const byRouteKey = new Map(entries.map((entry) => [entry.routeKey, entry]));
+  const packageStore = options.packageStore ?? null;
+  const capabilityDependencyResolver = options.capabilityDependencyResolver ?? null;
   let admissionTail = Promise.resolve();
   return Object.freeze({
     entries: Object.freeze(entries),
@@ -69,6 +82,7 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
       admissionTail = new Promise<void>((resolve) => { release = resolve; });
       await prior;
       try {
+        await assertLegacyAppDependenciesReady(selected, packageStore, capabilityDependencyResolver);
         const states = await Promise.all(entries.map(async (entry) => ({ entry, state: (await entry.service.status()).state })));
         const active = states.filter(({ state }) => ["active", "staged", "updating", "rollback_pending"].includes(state));
         const selectedActive = active.some(({ entry }) => entry.service.appId === selected.service.appId);
@@ -80,6 +94,8 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
         return await action();
       } finally { release(); }
     },
+    packageStore,
+    capabilityDependencyResolver,
   });
 }
 
@@ -89,19 +105,20 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
     : createAppLifecycleRoutePlatform([{ routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: serviceOrPlatform }]);
   app.get("/apps", async (request, reply) => {
     if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
-    const apps = await Promise.all(platform.entries.map((entry) => ownerSafeDescriptor(entry)));
+    const apps = await Promise.all(platform.entries.map((entry) => ownerSafeDescriptor(entry, platform)));
+    const packages = platform.packageStore ? await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver }) : [];
     platform.entries.forEach((entry, index) => {
       const descriptor = apps[index]!;
       auditRouteDecision(entry, "app.catalog.projection", descriptor.version.installed ?? descriptor.version.available, "included", null, descriptor.identity.package_digest);
     });
-    return reply.send({ catalog_version: 1, apps });
+    return reply.send({ catalog_version: 1, apps, packages });
   });
 
   for (const route of ["/apps/:appKey", "/apps/:appKey/status", "/apps/:appKey/inspect"]) {
     app.get(route, async (request, reply) => {
       const entry = resolveEntry(request, reply, platform);
       if (!entry || !authorizeOwner(request, reply, entry.service)) return;
-      return reply.send(await ownerSafeDescriptor(entry));
+      return reply.send(await ownerSafeDescriptor(entry, platform));
     });
   }
 
@@ -151,6 +168,7 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
     const parsed = sessionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     try {
+      await assertLegacyAppDependenciesReady(entry, platform.packageStore, platform.capabilityDependencyResolver);
       const issued = await service.issueSession({ audience: parsed.data.audience, capabilities: parsed.data.capabilities, operationId: parsed.data.operation_id, viewId: parsed.data.view_id });
       const claims = issued.claims;
       return reply.send({ token_version: 1, token: issued.token, claims: { audience: claims.audience, installation_id: claims.installation_id, operation_id: claims.operation_id, capabilities: claims.capabilities, expires_at: claims.expires_at, view_id: claims.view_id } });
@@ -235,7 +253,7 @@ async function routeMutate<S extends z.ZodType, T extends LifecycleResponse>(req
   try {
     const requestedVersion = typeof parsed.data === "object" && parsed.data !== null && "version" in parsed.data && typeof parsed.data.version === "string" ? parsed.data.version : null;
     const response = admissionRequired ? await platform.activate(entry, requestedVersion, () => action(entry.service, parsed.data)) : await action(entry.service, parsed.data);
-    return reply.send({ ...(await ownerSafeDescriptor(entry)), operation: safeOperation(response.operation) });
+    return reply.send({ ...(await ownerSafeDescriptor(entry, platform)), operation: safeOperation(response.operation) });
   } catch (error) { return sendSafeError(reply, error); }
 }
 
@@ -262,7 +280,132 @@ function authorizeOwner(request: FastifyRequest, reply: FastifyReply, service: A
   return true;
 }
 
-async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
+export async function assertLegacyAppDependenciesReady(
+  entry: AppDependencyRouteEntry,
+  packageStore: InstalledPackageStore | null,
+  dependencyResolver: CapabilityDependencyResolver | null,
+): Promise<void> {
+  const gate = await legacyAppDependencyGate(entry, packageStore, dependencyResolver);
+  if (gate.dependency_readiness.status !== "blocked") return;
+  throw new AppPlatformError("provider_unavailable", "Required app capability dependency is unavailable", 409, {
+    blockingOperationIds: gate.dependency_readiness.blocking_operation_ids,
+    dependencyReadiness: gate.dependency_readiness,
+  });
+}
+
+export async function legacyAppDependencyGate(
+  entry: AppDependencyRouteEntry,
+  packageStore: InstalledPackageStore | null,
+  dependencyResolver: CapabilityDependencyResolver | null,
+): Promise<AppDependencyRouteGate> {
+  const dependencies = packageStore ? await appPackageDependencies(packageStore, entry.service.appId, entry.routeKey) : [];
+  const statuses = await resolveDependencyStatuses(dependencies, dependencyResolver);
+  return {
+    capability_dependency_status: statuses,
+    dependency_readiness: dependencyReadiness(statuses),
+  };
+}
+
+async function appPackageDependencies(packageStore: InstalledPackageStore, appId: string, routeKey: string): Promise<SafeRouteDependency[]> {
+  const dependencies = new Map<string, SafeRouteDependency>();
+  for (const record of await packageStore.listPackages()) {
+    let matched = false;
+    for (const component of record.manifest.components) {
+      if (component.component_kind !== "app" || component.app_id !== appId || component.route_key !== routeKey) continue;
+      matched = true;
+      for (const dependency of component.requested_capabilities) mergeDependency(dependencies, dependency);
+    }
+    if (matched) for (const dependency of record.manifest.capability_dependencies) mergeDependency(dependencies, dependency);
+  }
+  return [...dependencies.values()];
+}
+
+type SafeRouteDependency = Pick<CapabilityDependency, "operation_id" | "requirement" | "unavailable_behavior">;
+
+function mergeDependency(dependencies: Map<string, SafeRouteDependency>, dependency: CapabilityDependency): void {
+  const safe = safeDependency(dependency);
+  const prior = dependencies.get(safe.operation_id);
+  if (!prior || prior.requirement === "optional" && safe.requirement === "required") {
+    dependencies.set(safe.operation_id, safe);
+  }
+}
+
+function safeDependency(dependency: CapabilityDependency): SafeRouteDependency {
+  return {
+    operation_id: dependency.operation_id,
+    requirement: dependency.requirement,
+    unavailable_behavior: dependency.unavailable_behavior,
+  };
+}
+
+async function resolveDependencyStatuses(dependencies: readonly SafeRouteDependency[], resolver: CapabilityDependencyResolver | null): Promise<CapabilityDependencyAvailability[]> {
+  const resolutions = new Map<string, CapabilityDependencyResolution>();
+  return await Promise.all(dependencies.map(async (dependency) => {
+    let resolution = resolutions.get(dependency.operation_id);
+    if (!resolution) {
+      resolution = resolver ? await safeResolveDependency(resolver, dependency.operation_id) : dependencyResolution(dependency.operation_id, "unknown", false, 0, "unknown", "Capability dependency readiness has not been checked.", null);
+      resolutions.set(dependency.operation_id, resolution);
+    }
+    const state = dependencyState(resolution);
+    return {
+      operation_id: dependency.operation_id,
+      requirement: dependency.requirement,
+      unavailable_behavior: dependency.unavailable_behavior,
+      state,
+      callable: resolution.callable && state === "available",
+      provider_count: resolution.provider_count,
+      failure_code: resolution.callable ? null : resolution.failure_code,
+      safe_message: resolution.callable ? "Capability dependency is available." : resolution.safe_message,
+      checked_at: resolution.checked_at,
+    };
+  }));
+}
+
+function dependencyState(resolution: CapabilityDependencyResolution): CapabilityDependencyResolution["state"] {
+  if (resolution.callable) return "available";
+  if (resolution.state === "unavailable" && resolution.provider_count === 0) return "missing";
+  return resolution.state;
+}
+
+async function safeResolveDependency(resolver: CapabilityDependencyResolver, operationId: string): Promise<CapabilityDependencyResolution> {
+  try { return await resolver.resolveDependency(operationId); }
+  catch { return dependencyResolution(operationId, "unknown", false, 0, "unknown", "Capability dependency readiness could not be checked.", null); }
+}
+
+function dependencyReadiness(dependencies: readonly CapabilityDependencyAvailability[]): CapabilityDependencyReadiness {
+  const blocking = dependencies.filter((dependency) => dependency.requirement === "required" && !dependency.callable).map((dependency) => dependency.operation_id);
+  const degraded = dependencies.filter((dependency) => dependency.requirement === "optional" && !dependency.callable).map((dependency) => dependency.operation_id);
+  const hasUnknown = dependencies.some((dependency) => dependency.state === "unknown");
+  return {
+    status: blocking.length > 0 ? "blocked" : degraded.length > 0 ? "degraded" : hasUnknown ? "unknown" : "ready",
+    required_available: blocking.length === 0,
+    optional_available: degraded.length === 0,
+    blocking_operation_ids: blocking,
+    degraded_operation_ids: degraded,
+  };
+}
+
+function dependencyResolution(
+  operationId: string,
+  state: CapabilityDependencyResolution["state"],
+  callable: boolean,
+  providerCount: number,
+  failureCode: CapabilityDependencyResolution["failure_code"],
+  safeMessage: string,
+  checkedAt: string | null,
+): CapabilityDependencyResolution {
+  return {
+    operation_id: operationId,
+    state,
+    callable,
+    provider_count: providerCount,
+    failure_code: failureCode,
+    safe_message: safeMessage,
+    checked_at: checkedAt,
+  };
+}
+
+async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppLifecycleRoutePlatform) {
   const service = entry.service;
   const descriptor = await service.ownerDescriptor();
   const { record, grant, storedPackage } = descriptor;
@@ -287,6 +430,8 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
     : undefined;
   const pending = record.pending_operation_id ? await service.dependencies.store.readOperation(record.pending_operation_id) : null;
   const trustStatus = record.state === "quarantined" ? "quarantined" : trust?.executable_allowed ? "verified" : "not_verified";
+  const dependencyGate = await legacyAppDependencyGate(entry, platform.packageStore, platform.capabilityDependencyResolver);
+  const packageUsable = !availabilityError && record.state !== "quarantined" && Boolean(manifest && trust?.executable_allowed) && dependencyGate.dependency_readiness.status !== "blocked";
   return {
     contract_version: 1,
     identity: {
@@ -319,6 +464,7 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
       requested: manifest ? manifestCapabilities(manifest) : [],
       granted: grant?.revoked_at ? [] : grant?.capabilities ?? [],
     },
+    ...dependencyGate,
     retention: {
       owner_data_preserved: retention.ownerDataPreserved,
       retained_data_present: shouldInspectRetainedData ? retained ? retained.state !== "missing" : false : null,
@@ -367,7 +513,7 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
       error_code: availabilityError?.code ?? (record.state === "quarantined" ? "package_revoked" : null),
       safe_message: availabilityError ? unavailablePackageMessage(availabilityError.code) : record.state === "quarantined" ? unavailablePackageMessage("package_revoked") : null,
     },
-    available_actions: lifecycleActions(record.state, descriptor.packageVersion, availableVersion, !availabilityError && record.state !== "quarantined" && Boolean(manifest && trust?.executable_allowed)),
+    available_actions: lifecycleActions(record.state, descriptor.packageVersion, availableVersion, packageUsable),
     updated_at: record.updated_at,
   };
 }

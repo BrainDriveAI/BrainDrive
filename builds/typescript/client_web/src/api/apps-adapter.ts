@@ -7,6 +7,91 @@ export type AppLifecycleState = "not_installed" | "staged" | "active" | "disable
 
 export type AppLifecycleAction = "install" | "reinstall" | "update" | "disable" | "enable" | "rollback" | "uninstall" | "recover";
 
+export type InstalledPackageLifecycleState = "enabled" | "disabled" | "updating" | "uninstalled" | "quarantined" | "failed";
+export type InstalledPackageComponentKind = "app" | "capability_provider" | "dependency_service" | "sidecar";
+export type InstalledPackageComponentState = "enabled" | "disabled" | "stopped" | "running" | "uninstalled" | "unavailable" | "failed";
+export type InstalledPackageComponentHealth = "not_applicable" | "unknown" | "healthy" | "unhealthy";
+export type CapabilityDependencyState = "available" | "missing" | "unavailable" | "disabled" | "unhealthy" | "unauthorized" | "selection_required" | "unsupported_target" | "unknown";
+
+export type CapabilityDependencyStatus = {
+  operation_id: string;
+  requirement: "required" | "optional";
+  unavailable_behavior: "block_activation" | "degrade_with_safe_status";
+  state: CapabilityDependencyState;
+  callable: boolean;
+  provider_count: number;
+  failure_code: "provider_unavailable" | "provider_unhealthy" | "provider_selection_required" | "unsupported_target" | "not_authorized" | "invalid_request" | "unknown" | null;
+  safe_message: string;
+  checked_at: string | null;
+};
+
+export type CapabilityDependencyReadiness = {
+  status: "ready" | "blocked" | "degraded" | "unknown";
+  required_available: boolean;
+  optional_available: boolean;
+  blocking_operation_ids: string[];
+  degraded_operation_ids: string[];
+};
+
+export type InstalledPackageComponentStatus = {
+  component_id: string;
+  component_kind: InstalledPackageComponentKind;
+  display_name: string;
+  owner_component_id: string | null;
+  state: InstalledPackageComponentState;
+  health: InstalledPackageComponentHealth;
+  launchable: boolean;
+  owner_visible_actions: string[];
+  provided_operations: string[];
+  required_capabilities: Array<{
+    operation_id: string;
+    requirement: "required" | "optional";
+    unavailable_behavior: "block_activation" | "degrade_with_safe_status";
+  }>;
+  capability_dependency_status: CapabilityDependencyStatus[];
+  dependency_readiness: CapabilityDependencyReadiness;
+  sidecar_count: number;
+  target_support: Array<{
+    target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
+    runtime_kind: "container" | "packaged_process";
+  }>;
+};
+
+export type InstalledPackageStatus = {
+  projection_version: 1;
+  identity: {
+    package_id: string;
+    display_name: string;
+    publisher_id: string;
+    installation_id: string;
+    package_digest: `sha256:${string}`;
+  };
+  package_kind: Array<"app" | "capability_provider" | "dependency_service">;
+  state: InstalledPackageLifecycleState;
+  generation: number;
+  version: { installed: string; previous_package_digest: `sha256:${string}` | null };
+  trust: { status: "verified" | "not_verified" | "quarantined"; policy_version: 1; checked_at: string | null };
+  source: { kind: "repository_fixture" | "local_package"; label: string };
+  components: InstalledPackageComponentStatus[];
+  operations: Array<{ operation_id: string; provider_component_id: string; result_classification: "generic_envelope" }>;
+  capability_dependencies: Array<{
+    operation_id: string;
+    requirement: "required" | "optional";
+    unavailable_behavior: "block_activation" | "degrade_with_safe_status";
+  }>;
+  capability_dependency_status: CapabilityDependencyStatus[];
+  dependency_readiness: CapabilityDependencyReadiness;
+  retention: {
+    runtime_authority: "ephemeral_remove_on_stop_or_uninstall";
+    sidecar_runtime_state: "remove_on_uninstall";
+    provider_cache: "delete_by_default_unless_owner_preserves";
+    diagnostics: "bounded_redacted";
+    evidence: "content_free_bounded";
+  };
+  available_actions: string[];
+  updated_at: string;
+};
+
 export type AppLifecycleOperationView = {
   operation_version: 1;
   operation_id: string;
@@ -81,6 +166,8 @@ export type AppStatus = {
   };
   progress: AppLifecycleOperationView | null;
   recovery: { available: boolean; action: string };
+  capability_dependency_status?: CapabilityDependencyStatus[];
+  dependency_readiness?: CapabilityDependencyReadiness;
   catalog?: {
     summary: string;
     icon: { package_path: string; media_type: "image/png" | "image/webp"; content_digest: string } | null;
@@ -100,7 +187,7 @@ export type AppStatus = {
   request_resolution?: "confirmed_response" | "refreshed_after_ambiguous_response";
 };
 
-export type AppCatalog = { catalog_version: 1; apps: AppStatus[] };
+export type AppCatalog = { catalog_version: 1; apps: AppStatus[]; packages?: InstalledPackageStatus[] };
 
 export type RetainedAppDataActionResult = {
   operation_id: string;
@@ -437,8 +524,16 @@ export class AppDocumentError extends GatewayError {
 
 export type InternetSearchOperationId = "web.search@1" | "web.read@1";
 
+export function isInternetSearchOperationId(value: string): value is InternetSearchOperationId {
+  return value === "web.search@1" || value === "web.read@1";
+}
+
+export function hasInternetSearchDependency<T extends { operation_id: string }>(statuses: readonly T[] | undefined): boolean {
+  return statuses?.some((status) => isInternetSearchOperationId(status.operation_id)) ?? false;
+}
+
 function internetSearchOperationId(value: string): InternetSearchOperationId {
-  if (value === "web.search@1" || value === "web.read@1") return value;
+  if (isInternetSearchOperationId(value)) return value;
   throw new Error("Invalid Internet Search operation id");
 }
 

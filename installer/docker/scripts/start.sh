@@ -54,6 +54,9 @@ if [[ "${MODE}" == "prod" ]]; then
 elif [[ "${MODE}" == "dev" ]]; then
   COMPOSE_FILE="compose.dev.yml"
 fi
+GENERATED_DIR="${ROOT_DIR}/.generated"
+SIDECAR_COMPOSE_FILE="${GENERATED_DIR}/package-sidecars.${MODE}.yml"
+SIDECAR_DESCRIPTOR_FILE="${GENERATED_DIR}/package-sidecars.${MODE}.json"
 
 if [[ "${MODE}" == "prod" ]]; then
   braindrive_initialize_prod_auth_bootstrap ".env"
@@ -85,13 +88,19 @@ if [[ "${MODE}" == "dev" ]]; then
   docker volume create braindrive_secrets >/dev/null
 fi
 
-if ! docker compose -f "${COMPOSE_FILE}" up -d; then
+COMPOSE_ARGS=(-f "${COMPOSE_FILE}")
+if [[ "${MODE}" == "dev" || "${MODE}" == "local" ]]; then
+  node "${SCRIPT_DIR}/render-package-sidecars.mjs" --mode "${MODE}" --out "${SIDECAR_COMPOSE_FILE}" --descriptors "${SIDECAR_DESCRIPTOR_FILE}"
+  COMPOSE_ARGS+=(-f "${SIDECAR_COMPOSE_FILE}")
+fi
+
+if ! docker compose "${COMPOSE_ARGS[@]}" up -d; then
   if [[ "${MODE}" == "prod" ]]; then
     echo "Prod start failed. If you are running locally, use: ./scripts/start.sh local" >&2
   fi
   exit 1
 fi
 
-docker compose -f "${COMPOSE_FILE}" ps
+docker compose "${COMPOSE_ARGS[@]}" ps
 
 braindrive_print_access_info_and_open "${MODE}" "Start complete."

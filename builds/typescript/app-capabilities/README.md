@@ -41,6 +41,10 @@ The package reaches that lifecycle through its already granted `resume.operation
 
 Lifecycle close revokes view authority, connection close revokes connection authority, and current lifecycle/grant revision and generation are checked again immediately before data routing. The router invokes only the exact reviewed adapter for the selected app/capability/version with opaque IDs and safe projections. Export destination selection stays in the trusted top-level host; the sandbox receives only a safe label/outcome or opaque artifact identity.
 
+The generic provider router also exposes an owner-safe dependency resolver for package-component projections. It checks exact operation IDs such as `web.search@1` and `web.read@1` through the provider registry and returns only availability state, callable status, provider count, typed failure code, and safe owner text. It does not expose provider bindings, direct endpoints, sidecar controls, hidden provider choices, credentials, or auto-install/start/switch authority to a consumer app.
+
+SC-009 operation diagnostics for provider-routed calls use the generic package diagnostics contract in `app-platform/contracts/diagnostics.ts`. Receipts are Host-owned and content-free: operation ID, provider package/component identity, provider class, selected-policy class, status, safe failure code, count/usage classes, bounded duration, and retention policy. They do not retain requests, prompts, raw provider responses, result payloads, endpoints, local ports, credentials, owner-private content, or host paths. A selected provider change is only valid when owner/admin policy selects it and the receipt records that selection class; silent fallback remains out of scope.
+
 See [SPEC-05-M4-VERIFICATION.md](SPEC-05-M4-VERIFICATION.md) for the reproducible evidence matrix.
 
 Brief Builder separately registers `brief.records.read`, `brief.records.write`, and host-confirmed `brief.approvals.confirm` against its own owner-data service. It requests the existing protected transport capability `app.inference.request`; no Resume or Career capability is renamed to serve the Brief domain.

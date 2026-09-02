@@ -20,6 +20,22 @@
     "routeKey": "brief-builder",
     "primaryResource": "ui://brief-builder/main",
     "dataSchemaVersion": 1,
-    "inferencePurpose": "brief.generate@1"
+    "inferencePurpose": "brief.generate@1",
+    "capabilityDependencies": [
+      {
+        "operationId": "web.search@1",
+        "requirement": "optional",
+        "unavailableBehavior": "degrade_with_safe_status",
+        "providerSelection": "owner_or_admin_policy",
+        "silentInstallOrSwitch": false
+      },
+      {
+        "operationId": "web.read@1",
+        "requirement": "optional",
+        "unavailableBehavior": "degrade_with_safe_status",
+        "providerSelection": "owner_or_admin_policy",
+        "silentInstallOrSwitch": false
+      }
+    ]
   }
 }

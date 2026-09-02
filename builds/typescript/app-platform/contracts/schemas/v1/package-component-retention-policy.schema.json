@@ -1,0 +1,40 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-retention-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "retention_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "runtime_binding": {
+      "type": "string",
+      "const": "ephemeral_remove_on_stop_or_uninstall"
+    },
+    "sidecar_runtime_state": {
+      "type": "string",
+      "const": "remove_on_uninstall"
+    },
+    "provider_cache": {
+      "type": "string",
+      "const": "delete_by_default_unless_owner_preserves"
+    },
+    "diagnostics": {
+      "type": "string",
+      "const": "bounded_redacted"
+    },
+    "evidence": {
+      "type": "string",
+      "const": "content_free_bounded"
+    }
+  },
+  "required": [
+    "retention_policy_version",
+    "runtime_binding",
+    "sidecar_runtime_state",
+    "provider_cache",
+    "diagnostics",
+    "evidence"
+  ],
+  "additionalProperties": false
+}

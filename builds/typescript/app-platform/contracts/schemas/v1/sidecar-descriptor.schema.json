@@ -1,0 +1,243 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/sidecar-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sidecar_version": {
+      "type": "number",
+      "const": 1
+    },
+    "component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "owner_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "owning_app_private",
+            "provider_adapter_only",
+            "host_only"
+          ]
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "container_internal",
+            "loopback",
+            "ipc"
+          ]
+        },
+        "public_bind": {
+          "type": "boolean",
+          "const": false
+        },
+        "consumer_projection": {
+          "type": "string",
+          "const": "never"
+        }
+      },
+      "required": [
+        "visibility",
+        "transport",
+        "public_bind",
+        "consumer_projection"
+      ],
+      "additionalProperties": false
+    },
+    "targets": {
+      "minItems": 1,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "enum": [
+                  "docker_linux_x64",
+                  "desktop_windows_x64",
+                  "desktop_macos_universal"
+                ]
+              },
+              "runtime_kind": {
+                "type": "string",
+                "const": "container"
+              },
+              "image": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 256,
+                "pattern": "^[a-z0-9][a-z0-9./:_-]*$"
+              },
+              "container_port": {
+                "default": 8080,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              },
+              "network": {
+                "type": "string",
+                "const": "private"
+              },
+              "public_network": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "target",
+              "runtime_kind",
+              "image",
+              "network",
+              "public_network"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "enum": [
+                  "docker_linux_x64",
+                  "desktop_windows_x64",
+                  "desktop_macos_universal"
+                ]
+              },
+              "runtime_kind": {
+                "type": "string",
+                "const": "packaged_process"
+              },
+              "artifact_path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "entrypoint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "bind": {
+                "type": "string",
+                "enum": [
+                  "loopback",
+                  "ipc"
+                ]
+              },
+              "public_network": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "target",
+              "runtime_kind",
+              "artifact_path",
+              "entrypoint",
+              "bind",
+              "public_network"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "health": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "http_path",
+            "process_exit",
+            "ipc_ping"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^\\/[A-Za-z0-9._~/-]{0,128}$"
+        },
+        "interval_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "kind",
+        "interval_ms",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "start_policy": {
+          "type": "string",
+          "enum": [
+            "owner_explicit",
+            "host_on_package_activation"
+          ]
+        },
+        "restart_policy": {
+          "type": "string",
+          "enum": [
+            "never",
+            "bounded"
+          ]
+        },
+        "stop_on_disable": {
+          "type": "boolean",
+          "const": true
+        },
+        "cleanup_on_uninstall": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "start_policy",
+        "restart_policy",
+        "stop_on_disable",
+        "cleanup_on_uninstall"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "sidecar_version",
+    "component_id",
+    "display_name",
+    "owner_component_id",
+    "binding",
+    "targets",
+    "health",
+    "lifecycle"
+  ],
+  "additionalProperties": false
+}

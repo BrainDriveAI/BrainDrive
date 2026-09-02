@@ -82,6 +82,7 @@ pnpm-debug.log*
 
 # Local scratch artifacts from manual verification and agent runs
 .tmp/
+installer/docker/.generated/
 
 # Environment files and local secrets
 .env

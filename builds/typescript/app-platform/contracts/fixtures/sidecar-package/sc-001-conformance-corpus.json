@@ -1,0 +1,446 @@
+{
+  "corpus_version": 1,
+  "roadmap_id": "SC-001",
+  "valid_cases": [
+    {
+      "fixture_id": "valid-app-owned-sidecar",
+      "requirements": ["SC-REQ-001", "SC-REQ-002", "SC-REQ-024", "SC-REQ-025"],
+      "manifest": {
+        "manifest_version": 2,
+        "package_id": "ai.braindrive.notes-assistant",
+        "publisher_id": "ai.braindrive",
+        "package_version": "1.0.0",
+        "package_kind": ["app"],
+        "catalog": {
+          "display_name": "Notes Assistant",
+          "summary": "Synthetic app package with an app-private sidecar.",
+          "icon": null,
+          "retention_summary": "Runtime authority is removed on uninstall."
+        },
+        "archive": {
+          "format": "zip",
+          "profile": "braindrive-package-v2",
+          "compression": "store",
+          "layout_version": 1,
+          "manifest_path": "manifest.json",
+          "undeclared_entries": "reject",
+          "links_and_device_nodes": "reject"
+        },
+        "files": [
+          { "path": "payload/app/index.html", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          { "path": "payload/sidecars/notes-worker/windows-x64/index.exe", "kind": "file", "mode": "executable", "size_bytes": 256, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+          { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+          { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }
+        ],
+        "components": [
+          {
+            "component_id": "notes.app",
+            "component_kind": "app",
+            "display_name": "Notes Assistant",
+            "lifecycle_actions": ["enable", "disable", "start", "stop", "update", "uninstall", "health"],
+            "sidecars": ["notes.worker"],
+            "app_id": "ai.braindrive.notes-assistant",
+            "route_key": "notes-assistant",
+            "launchable": true,
+            "requested_capabilities": []
+          }
+        ],
+        "sidecars": [
+          {
+            "sidecar_version": 1,
+            "component_id": "notes.worker",
+            "display_name": "Notes Worker",
+            "owner_component_id": "notes.app",
+            "binding": {
+              "visibility": "owning_app_private",
+              "transport": "loopback",
+              "public_bind": false,
+              "consumer_projection": "never"
+            },
+            "targets": [
+              {
+                "target": "desktop_windows_x64",
+                "runtime_kind": "packaged_process",
+                "artifact_path": "payload/sidecars/notes-worker/windows-x64/index.exe",
+                "entrypoint": "payload/sidecars/notes-worker/windows-x64/index.exe",
+                "bind": "loopback",
+                "public_network": false
+              }
+            ],
+            "health": { "kind": "http_path", "path": "/healthz", "interval_ms": 30000, "timeout_ms": 5000 },
+            "lifecycle": {
+              "start_policy": "host_on_package_activation",
+              "restart_policy": "bounded",
+              "stop_on_disable": true,
+              "cleanup_on_uninstall": true
+            }
+          }
+        ],
+        "provided_operations": [],
+        "capability_dependencies": [],
+        "configuration": {
+          "configuration_version": 1,
+          "non_secret_settings_schema": null,
+          "secrets": []
+        },
+        "permissions": {
+          "permission_policy_version": 1,
+          "network": ["loopback_to_own_sidecars"],
+          "filesystem": ["package_read", "declared_cache"],
+          "process": ["supervised_sidecar"],
+          "credentials": []
+        },
+        "retention_policy": {
+          "retention_policy_version": 1,
+          "runtime_binding": "ephemeral_remove_on_stop_or_uninstall",
+          "sidecar_runtime_state": "remove_on_uninstall",
+          "provider_cache": "delete_by_default_unless_owner_preserves",
+          "diagnostics": "bounded_redacted",
+          "evidence": "content_free_bounded"
+        },
+        "diagnostics": {
+          "diagnostics_policy_version": 1,
+          "store_raw_provider_payloads": false,
+          "store_private_bindings": false,
+          "store_host_paths": false,
+          "store_credentials": false,
+          "durable_projection": "safe_status_and_typed_failures_only"
+        },
+        "evidence": {
+          "evidence_policy_version": 1,
+          "required_evidence": ["schema_conformance", "negative_manifest_cases", "unsafe_binding_denial", "secret_redaction_scan"],
+          "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
+          "durable_evidence_content": "content_free_no_endpoints_no_secrets"
+        }
+      }
+    },
+    {
+      "fixture_id": "valid-provider-sidecar",
+      "requirements": ["SC-REQ-001", "SC-REQ-002", "SC-REQ-003", "SC-REQ-021"],
+      "manifest": {
+        "manifest_version": 2,
+        "package_id": "ai.braindrive.internet-search.searxng",
+        "publisher_id": "ai.braindrive",
+        "package_version": "1.0.0",
+        "package_kind": ["capability_provider"],
+        "catalog": {
+          "display_name": "Internet Search Provider",
+          "summary": "Synthetic provider package with a private search sidecar.",
+          "icon": null,
+          "retention_summary": "Provider cache is deleted by default on uninstall."
+        },
+        "archive": {
+          "format": "zip",
+          "profile": "braindrive-package-v2",
+          "compression": "store",
+          "layout_version": 1,
+          "manifest_path": "manifest.json",
+          "undeclared_entries": "reject",
+          "links_and_device_nodes": "reject"
+        },
+        "files": [
+          { "path": "payload/provider/read.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+          { "path": "payload/provider/search.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+          { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
+          { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
+        ],
+        "components": [
+          {
+            "component_id": "search.provider",
+            "component_kind": "capability_provider",
+            "display_name": "Internet Search Provider",
+            "lifecycle_actions": ["enable", "disable", "start", "stop", "restart", "update", "uninstall", "health"],
+            "sidecars": ["search.runtime"],
+            "provider_id": "ai.braindrive.internet-search.searxng.provider",
+            "launchable": false,
+            "provides": ["web.search@1", "web.read@1"]
+          }
+        ],
+        "sidecars": [
+          {
+            "sidecar_version": 1,
+            "component_id": "search.runtime",
+            "display_name": "Search Runtime",
+            "owner_component_id": "search.provider",
+            "binding": {
+              "visibility": "provider_adapter_only",
+              "transport": "container_internal",
+              "public_bind": false,
+              "consumer_projection": "never"
+            },
+            "targets": [
+              {
+                "target": "docker_linux_x64",
+                "runtime_kind": "container",
+                "image": "searxng/searxng:2026.9",
+                "network": "private",
+                "public_network": false
+              }
+            ],
+            "health": { "kind": "http_path", "path": "/healthz", "interval_ms": 30000, "timeout_ms": 5000 },
+            "lifecycle": {
+              "start_policy": "owner_explicit",
+              "restart_policy": "bounded",
+              "stop_on_disable": true,
+              "cleanup_on_uninstall": true
+            }
+          }
+        ],
+        "provided_operations": [
+          {
+            "operation_id": "web.search@1",
+            "provider_component_id": "search.provider",
+            "adapter": {
+              "package_path": "payload/provider/search.js",
+              "export_name": "handleSearch",
+              "abi": "braindrive-operation-adapter-v1"
+            },
+            "input_contract": {
+              "schema_id": "web.search.input",
+              "schema_version": 1,
+              "content_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+            },
+            "result_contract": {
+              "schema_id": "web.search.result",
+              "schema_version": 1,
+              "content_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "required_sidecars": ["search.runtime"],
+            "result_classification": "generic_envelope"
+          },
+          {
+            "operation_id": "web.read@1",
+            "provider_component_id": "search.provider",
+            "adapter": {
+              "package_path": "payload/provider/read.js",
+              "export_name": "handleRead",
+              "abi": "braindrive-operation-adapter-v1"
+            },
+            "input_contract": {
+              "schema_id": "web.read.input",
+              "schema_version": 1,
+              "content_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+            },
+            "result_contract": {
+              "schema_id": "web.read.result",
+              "schema_version": 1,
+              "content_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+            },
+            "required_sidecars": [],
+            "result_classification": "generic_envelope"
+          }
+        ],
+        "capability_dependencies": [],
+        "configuration": {
+          "configuration_version": 1,
+          "non_secret_settings_schema": null,
+          "secrets": [
+            {
+              "secret_id": "search.provider-key",
+              "required": false,
+              "storage": "braindrive_vault_reference",
+              "runtime_delivery": "scoped_runtime_injection",
+              "consumer_projection": "never"
+            }
+          ]
+        },
+        "permissions": {
+          "permission_policy_version": 1,
+          "network": ["provider_upstream_https"],
+          "filesystem": ["package_read", "declared_cache"],
+          "process": ["supervised_sidecar"],
+          "credentials": ["search.provider-key"]
+        },
+        "retention_policy": {
+          "retention_policy_version": 1,
+          "runtime_binding": "ephemeral_remove_on_stop_or_uninstall",
+          "sidecar_runtime_state": "remove_on_uninstall",
+          "provider_cache": "delete_by_default_unless_owner_preserves",
+          "diagnostics": "bounded_redacted",
+          "evidence": "content_free_bounded"
+        },
+        "diagnostics": {
+          "diagnostics_policy_version": 1,
+          "store_raw_provider_payloads": false,
+          "store_private_bindings": false,
+          "store_host_paths": false,
+          "store_credentials": false,
+          "durable_projection": "safe_status_and_typed_failures_only"
+        },
+        "evidence": {
+          "evidence_policy_version": 1,
+          "required_evidence": ["schema_conformance", "negative_manifest_cases", "unsafe_binding_denial", "secret_redaction_scan"],
+          "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
+          "durable_evidence_content": "content_free_no_endpoints_no_secrets"
+        }
+      }
+    },
+    {
+      "fixture_id": "valid-combined-app-provider",
+      "requirements": ["SC-REQ-001", "SC-REQ-002", "SC-REQ-024"],
+      "manifest_from": "valid-provider-sidecar",
+      "overrides": {
+        "package_id": "ai.braindrive.research-workbench",
+        "package_kind": ["app", "capability_provider"]
+      }
+    },
+    {
+      "fixture_id": "valid-dependency-service",
+      "requirements": ["SC-REQ-001", "SC-REQ-002", "SC-REQ-024"],
+      "manifest_from": "valid-app-owned-sidecar",
+      "overrides": {
+        "package_id": "ai.braindrive.local-index",
+        "package_kind": ["dependency_service"]
+      }
+    }
+  ],
+  "invalid_cases": [
+    {
+      "fixture_id": "invalid-public-bind",
+      "base": "valid-provider-sidecar",
+      "expected_code": "unsafe_binding",
+      "mutation_path": ["sidecars", 0, "binding", "public_bind"],
+      "mutation_value": true
+    },
+    {
+      "fixture_id": "invalid-unmanaged-secret",
+      "base": "valid-provider-sidecar",
+      "expected_code": "unmanaged_secret",
+      "mutation_path": ["configuration", "secrets", 0, "storage"],
+      "mutation_value": "environment_value"
+    },
+    {
+      "fixture_id": "invalid-host-handler-authority",
+      "base": "valid-provider-sidecar",
+      "expected_code": "forbidden_field",
+      "mutation_path": ["provided_operations", 0, "host_handler"],
+      "mutation_value": "host.internal.execute"
+    },
+    {
+      "fixture_id": "invalid-unsupported-target",
+      "base": "valid-provider-sidecar",
+      "expected_code": "unsupported_target",
+      "mutation_path": ["sidecars", 0, "targets", 0, "target"],
+      "mutation_value": "desktop_linux_x64"
+    },
+    {
+      "fixture_id": "invalid-missing-operation-contract",
+      "base": "valid-provider-sidecar",
+      "expected_code": "missing_operation_contract",
+      "mutation_path": ["provided_operations"],
+      "mutation_value": []
+    },
+    {
+      "fixture_id": "invalid-authority-widening-auto-switch",
+      "base": "valid-provider-sidecar",
+      "expected_code": "authority_widening",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.search@1",
+          "requirement": "optional",
+          "unavailable_behavior": "degrade_with_safe_status",
+          "provider_selection": "silent_fallback",
+          "silent_install_or_switch": true
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-unversioned-capability-dependency",
+      "base": "valid-provider-sidecar",
+      "expected_code": "schema_validation_failed",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.search",
+          "requirement": "required",
+          "unavailable_behavior": "block_activation",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-malformed-capability-dependency",
+      "base": "valid-provider-sidecar",
+      "expected_code": "schema_validation_failed",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.search@0",
+          "requirement": "required",
+          "unavailable_behavior": "block_activation",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-unsupported-capability-dependency",
+      "base": "valid-provider-sidecar",
+      "expected_code": "missing_operation_contract",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "mail.send@1",
+          "requirement": "required",
+          "unavailable_behavior": "block_activation",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-duplicate-capability-dependency",
+      "base": "valid-provider-sidecar",
+      "expected_code": "duplicate_identity",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.search@1",
+          "requirement": "required",
+          "unavailable_behavior": "block_activation",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        },
+        {
+          "operation_id": "web.search@1",
+          "requirement": "optional",
+          "unavailable_behavior": "degrade_with_safe_status",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-required-capability-degrades",
+      "base": "valid-provider-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.search@1",
+          "requirement": "required",
+          "unavailable_behavior": "degrade_with_safe_status",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    },
+    {
+      "fixture_id": "invalid-optional-capability-blocks",
+      "base": "valid-provider-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["capability_dependencies"],
+      "mutation_value": [
+        {
+          "operation_id": "web.read@1",
+          "requirement": "optional",
+          "unavailable_behavior": "block_activation",
+          "provider_selection": "owner_or_admin_policy",
+          "silent_install_or_switch": false
+        }
+      ]
+    }
+  ]
+}

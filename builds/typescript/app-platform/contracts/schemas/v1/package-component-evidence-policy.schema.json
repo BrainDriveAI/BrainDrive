@@ -1,0 +1,57 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-evidence-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "evidence_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "required_evidence": {
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "schema_conformance",
+          "negative_manifest_cases",
+          "unsafe_binding_denial",
+          "secret_redaction_scan"
+        ]
+      }
+    },
+    "stale_on": {
+      "minItems": 1,
+      "maxItems": 11,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "manifest_change",
+          "adapter_change",
+          "sidecar_target_change",
+          "runtime_target_change",
+          "network_policy_change",
+          "permission_change",
+          "operation_contract_change",
+          "provider_version_change",
+          "security_boundary_change",
+          "retention_policy_change",
+          "diagnostics_policy_change"
+        ]
+      }
+    },
+    "durable_evidence_content": {
+      "type": "string",
+      "const": "content_free_no_endpoints_no_secrets"
+    }
+  },
+  "required": [
+    "evidence_policy_version",
+    "required_evidence",
+    "stale_on",
+    "durable_evidence_content"
+  ],
+  "additionalProperties": false
+}

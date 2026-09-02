@@ -1,0 +1,83 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-diagnostics-retention-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_id": {
+      "type": "string",
+      "const": "package-provider-diagnostics-v1"
+    },
+    "retained_event_classes": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "const": "operation"
+        },
+        {
+          "type": "string",
+          "const": "sidecar_lifecycle"
+        },
+        {
+          "type": "string",
+          "const": "qualification_stale"
+        }
+      ]
+    },
+    "local_retention_days": {
+      "type": "number",
+      "const": 14
+    },
+    "raw_page_content": {
+      "type": "string",
+      "const": "excluded_ephemeral"
+    },
+    "raw_provider_responses": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "raw_queries": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "prompts": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "credentials": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "host_paths": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "provider_endpoints": {
+      "type": "string",
+      "const": "excluded"
+    },
+    "support_bundle_export": {
+      "type": "string",
+      "const": "safe_projection_only"
+    },
+    "delivery_evidence": {
+      "type": "string",
+      "const": "separate_sanitized_bundle"
+    }
+  },
+  "required": [
+    "policy_id",
+    "retained_event_classes",
+    "local_retention_days",
+    "raw_page_content",
+    "raw_provider_responses",
+    "raw_queries",
+    "prompts",
+    "credentials",
+    "host_paths",
+    "provider_endpoints",
+    "support_bundle_export",
+    "delivery_evidence"
+  ],
+  "additionalProperties": false
+}

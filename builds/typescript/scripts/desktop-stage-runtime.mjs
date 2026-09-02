@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptRoot, "..");
 const mcpRoot = path.resolve(projectRoot, "..", "mcp_release");
+const internetSearchRoot = path.resolve(projectRoot, "..", "internet_search");
 const resumeBuilderRoot = path.resolve(projectRoot, "..", "resume_builder");
 const briefBuilderRoot = path.resolve(projectRoot, "..", "brief_builder");
 const outputRoot = path.join(projectRoot, "src-tauri", "desktop-runtime");
@@ -80,6 +81,10 @@ async function main() {
     "BrainDrive desktop web build",
   );
   await assertPathExists(
+    path.join(internetSearchRoot, "manifest.json"),
+    "Internet Search provider package manifest",
+  );
+  await assertPathExists(
     path.join(resumeBuilderRoot, "resources", "main.html"),
     "Resume Builder packaged UI resource",
   );
@@ -95,6 +100,7 @@ async function main() {
 
   await copyDirectory(path.join(projectRoot, "dist"), path.join(outputRoot, "typescript", "dist"));
   await copyDirectory(path.join(projectRoot, "client_web", "dist"), path.join(outputRoot, "web"));
+  await copyDirectory(internetSearchRoot, path.join(outputRoot, "internet_search"));
   await copyDirectory(path.join(resumeBuilderRoot, "resources"), path.join(outputRoot, "resume_builder", "resources"));
   await copyDirectory(path.join(briefBuilderRoot, "resources"), path.join(outputRoot, "brief_builder", "resources"));
   await copyDirectory(path.join(projectRoot, "adapters"), path.join(outputRoot, "typescript", "adapters"));

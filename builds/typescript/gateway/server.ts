@@ -22,6 +22,7 @@ import { BriefDomainService } from "../brief-domain/service.js";
 import { BriefInferenceBroker } from "../brief-inference/broker.js";
 import { createLiveBriefProviderResolver } from "../brief-inference/compatibility.js";
 import { createBriefCapabilityRegistrations } from "../app-capabilities/brief-registry.js";
+import { dependencyResolverFromCapabilityProviderRegistry } from "../app-capabilities/provider-router.js";
 import { AppInferenceDispatcher } from "../app-inference/dispatcher.js";
 import { AppInferencePurposeRegistry } from "../app-inference/registry.js";
 import { createBriefInferencePurposeRegistration } from "../app-inference/brief-registration.js";
@@ -33,23 +34,11 @@ import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
-import {
-  createDefaultInternetSearchCapabilityRegistry,
-  type InternetSearchCapabilityRegistry,
-} from "../internet-search/registry.js";
 import { registerInternetSearchCapabilityRoutes } from "../internet-search/routes.js";
 import {
-  createConfiguredStaticWebReadAdapter,
-  type WebReadExecutor,
-} from "../internet-search/read-adapter.js";
-import {
-  createConfiguredSearxngWebSearchAdapter,
-  type WebSearchExecutor,
-} from "../internet-search/search-adapter.js";
-import {
-  createConfiguredSearxngSidecarLifecycle,
-  type SearxngSidecarLifecycle,
-} from "../internet-search/sidecar.js";
+  createInternetSearchProviderRuntime,
+  type InternetSearchProviderRuntime,
+} from "../internet-search/provider-package.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -325,10 +314,7 @@ function isSyntheticLocalEmail(email: string): boolean {
 
 export type BuildServerDependencies = {
   installedAppInferenceProviderResolver?: InstalledAppInferenceProviderResolver;
-  internetSearchCapabilityRegistry?: InternetSearchCapabilityRegistry;
-  internetSearchSidecarLifecycle?: SearxngSidecarLifecycle | null;
-  internetSearchSearchExecutor?: WebSearchExecutor | null;
-  internetSearchReadExecutor?: WebReadExecutor | null;
+  internetSearchRuntime?: InternetSearchProviderRuntime;
 };
 
 export async function buildServer(rootDir = process.cwd(), dependencies: BuildServerDependencies = {}) {
@@ -624,23 +610,16 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
           persistAuthState,
         })
       : null;
-  const internetSearchSidecarLifecycle =
-    dependencies.internetSearchSidecarLifecycle ?? createConfiguredSearxngSidecarLifecycle();
-  const internetSearchCapabilityRegistry =
-    dependencies.internetSearchCapabilityRegistry
-    ?? createDefaultInternetSearchCapabilityRegistry({ statusProvider: internetSearchSidecarLifecycle });
-  const internetSearchSearchExecutor =
-    dependencies.internetSearchSearchExecutor
-    ?? createConfiguredSearxngWebSearchAdapter({ statusProvider: internetSearchSidecarLifecycle });
-  const internetSearchReadExecutor =
-    dependencies.internetSearchReadExecutor
-    ?? createConfiguredStaticWebReadAdapter({ statusProvider: internetSearchSidecarLifecycle });
-  if (internetSearchSidecarLifecycle) {
-    await internetSearchSidecarLifecycle.start();
-    app.addHook("onClose", async () => {
-      await internetSearchSidecarLifecycle.close();
-    });
-  }
+  const internetSearchRuntime = dependencies.internetSearchRuntime ?? await createInternetSearchProviderRuntime({
+    rootDir,
+    memoryRoot: runtimeConfig.memory_root,
+    stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
+    target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+    env: process.env,
+  });
+  app.addHook("onClose", async () => {
+    await internetSearchRuntime.close();
+  });
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -858,16 +837,22 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
       { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: appLifecycleService },
       { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.2.0", service: briefLifecycleService! },
-    ], 2));
+    ], 2, {
+      packageStore: internetSearchRuntime.packageStore,
+      capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
+    }));
     appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
-      { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost! },
-      { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost! },
-    ]);
+      { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost!, service: appLifecycleService },
+      { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost!, service: briefLifecycleService! },
+    ], {
+      packageStore: internetSearchRuntime.packageStore,
+      capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
+      appCapabilityRouter: internetSearchRuntime.operationRouter,
+    });
     registerAppMcpHostRoutes(app, appMcpHostRoutePlatform);
   }
-  registerInternetSearchCapabilityRoutes(app, internetSearchCapabilityRegistry, {
-    searchExecutor: internetSearchSearchExecutor,
-    readExecutor: internetSearchReadExecutor,
+  registerInternetSearchCapabilityRoutes(app, internetSearchRuntime.capabilityRegistry, {
+    operationRouter: internetSearchRuntime.operationRouter,
   });
 
   app.post("/message", async (request, reply) => {

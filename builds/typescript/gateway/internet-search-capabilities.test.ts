@@ -1,15 +1,20 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { PermissionSet } from "../contracts.js";
 import {
-  INTERNET_SEARCH_LOCAL_V1_REGISTRATION,
-  InternetSearchCapabilityRegistry,
-} from "../internet-search/registry.js";
+  createInternetSearchProviderRuntime,
+  INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+  type InternetSearchProviderRuntime,
+} from "../internet-search/provider-package.js";
 import { registerInternetSearchCapabilityRoutes } from "../internet-search/routes.js";
 import { createMemoryInternetSearchDiagnosticSink } from "../internet-search/diagnostics.js";
 import { InternetSearchOperationCoordinator } from "../internet-search/operation-metadata.js";
-import type { InternetSearchCapabilityStatusProvider } from "../internet-search/registry.js";
+import type { InternetSearchRouteCapabilityRegistry } from "../internet-search/routes.js";
 import type { WebReadExecutor } from "../internet-search/read-adapter.js";
 import type { WebSearchExecutor } from "../internet-search/search-adapter.js";
 
@@ -22,15 +27,40 @@ const basePermissions: PermissionSet = {
   administration: true,
 };
 
-function createApp(options: {
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function createApp(options: {
   toolAccess: boolean;
-  registry?: InternetSearchCapabilityRegistry;
+  capabilityRegistry?: InternetSearchRouteCapabilityRegistry;
   searchExecutor?: WebSearchExecutor | null;
   readExecutor?: WebReadExecutor | null;
   operationCoordinator?: InternetSearchOperationCoordinator;
   diagnosticsSink?: ReturnType<typeof createMemoryInternetSearchDiagnosticSink>;
+  afterRuntime?: (runtime: InternetSearchProviderRuntime) => Promise<void>;
+  withShim?: boolean;
 }) {
   const app = Fastify({ logger: false });
+  const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc005-gateway-"));
+  roots.push(root);
+  const runtime = await createInternetSearchProviderRuntime({
+    rootDir: process.cwd(),
+    memoryRoot: path.join(root, "memory"),
+    stateRoot: path.join(root, "state"),
+    env: options.withShim === false ? {} : {
+      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL: "http://internet-search-searxng:8080",
+      BRAINDRIVE_INTERNET_SEARCH_HEALTH_TIMEOUT_MS: "25",
+      BRAINDRIVE_INTERNET_SEARCH_STARTUP_TIMEOUT_MS: "25",
+      BRAINDRIVE_INTERNET_SEARCH_READINESS_POLL_MS: "1",
+    },
+    fetchImpl: async () => new Response("ok", { status: 200 }),
+    searchExecutor: options.searchExecutor ?? null,
+    readExecutor: options.readExecutor ?? null,
+  });
+  await options.afterRuntime?.(runtime);
   app.addHook("preHandler", async (request) => {
     request.authContext = {
       actorId: "owner",
@@ -41,15 +71,9 @@ function createApp(options: {
   });
   registerInternetSearchCapabilityRoutes(
     app,
-    options.registry ?? new InternetSearchCapabilityRegistry([{
-      ...INTERNET_SEARCH_LOCAL_V1_REGISTRATION,
-      lifecycle_state: "available",
-      health: { state: "healthy", checked_at: "2026-09-01T00:00:00.000Z" },
-      safe_message: "Internet Search is available.",
-    }]),
+    options.capabilityRegistry ?? runtime.capabilityRegistry,
     {
-      searchExecutor: options.searchExecutor,
-      readExecutor: options.readExecutor,
+      operationRouter: runtime.operationRouter,
       operationCoordinator: options.operationCoordinator,
       diagnosticsSink: options.diagnosticsSink,
     },
@@ -59,7 +83,7 @@ function createApp(options: {
 
 describe("Internet Search capability discovery gateway route", () => {
   it("returns a safe generic projection for an authorized operation lookup", async () => {
-    const app = createApp({ toolAccess: true });
+    const app = await createApp({ toolAccess: true });
     const response = await app.inject({ method: "GET", url: "/capabilities/web.search@1" });
 
     expect(response.statusCode).toBe(200);
@@ -76,7 +100,7 @@ describe("Internet Search capability discovery gateway route", () => {
   });
 
   it("does not enumerate provider state for a caller without discovery authority", async () => {
-    const app = createApp({ toolAccess: false });
+    const app = await createApp({ toolAccess: false });
     const response = await app.inject({ method: "GET", url: "/capabilities/web.search@1" });
 
     expect(response.statusCode).toBe(200);
@@ -92,7 +116,7 @@ describe("Internet Search capability discovery gateway route", () => {
   });
 
   it("rejects non-Internet-Search operation IDs at the route boundary", async () => {
-    const app = createApp({ toolAccess: true });
+    const app = await createApp({ toolAccess: true });
     const response = await app.inject({ method: "GET", url: "/capabilities/searxng-local" });
 
     expect(response.statusCode).toBe(400);
@@ -100,17 +124,7 @@ describe("Internet Search capability discovery gateway route", () => {
   });
 
   it("gates public discovery on sidecar readiness without projecting provider internals", async () => {
-    const statusProvider: InternetSearchCapabilityStatusProvider = {
-      snapshot: () => ({
-        installed: true,
-        enabled: true,
-        lifecycle_state: "available",
-        health: { state: "healthy", checked_at: "2026-09-01T00:00:00.000Z" },
-        safe_message: "Internet Search is available.",
-      }),
-    };
-    const registry = new InternetSearchCapabilityRegistry(undefined, { statusProvider });
-    const app = createApp({ toolAccess: true, registry });
+    const app = await createApp({ toolAccess: true });
 
     const response = await app.inject({ method: "GET", url: "/capabilities/web.read@1" });
 
@@ -126,24 +140,39 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("refreshes sidecar health before authorized discovery", async () => {
     let refreshed = false;
-    const statusProvider: InternetSearchCapabilityStatusProvider = {
-      snapshot: () => ({
-        installed: true,
-        enabled: true,
-        lifecycle_state: refreshed ? "available" : "unavailable",
-        health: {
-          state: refreshed ? "healthy" : "unhealthy",
-          checked_at: refreshed ? "2026-09-01T00:00:01.000Z" : "2026-09-01T00:00:00.000Z",
-        },
-        safe_message: refreshed ? "Internet Search is available." : "Internet Search needs attention.",
-      }),
+    const capabilityRegistry: InternetSearchRouteCapabilityRegistry = {
       refresh: async () => {
         refreshed = true;
-        return statusProvider.snapshot();
       },
+      discover: async (operationId, options) => ({
+        discovery_version: 1,
+        operation_id: operationId,
+        state: options.authorized && refreshed ? "available" : "unavailable",
+        callable: options.authorized && refreshed,
+        capability: options.authorized ? {
+          capability_id: "internet-search",
+          version: "1.0.0",
+          operations: [
+            { operation_id: "web.search@1", capability: "web.search", version: 1 },
+            { operation_id: "web.read@1", capability: "web.read", version: 1 },
+          ],
+        } : null,
+        provider_profile: options.authorized ? {
+          profile_id: "local-owner-managed",
+          display_name: "Local Internet Search",
+          management: "owner_managed_local",
+          billing: "none",
+          disclosure: {
+            last_reviewed_at: "2026-09-01T00:00:00.000Z",
+            summary: "Use is mediated by the local owner-managed Internet Search provider package.",
+          },
+        } : null,
+        health: options.authorized ? { state: refreshed ? "healthy" : "unhealthy", checked_at: "2026-09-01T00:00:01.000Z" } : null,
+        grant: { required: true, authorized: options.authorized },
+        message: refreshed ? "Internet Search is available." : "Internet Search is unavailable.",
+      }),
     };
-    const registry = new InternetSearchCapabilityRegistry(undefined, { statusProvider });
-    const app = createApp({ toolAccess: true, registry });
+    const app = await createApp({ toolAccess: true, capabilityRegistry });
 
     const response = await app.inject({ method: "GET", url: "/capabilities/web.search@1" });
 
@@ -182,7 +211,7 @@ describe("Internet Search capability discovery gateway route", () => {
         failure: null,
       }),
     };
-    const app = createApp({ toolAccess: true, searchExecutor });
+    const app = await createApp({ toolAccess: true, searchExecutor });
     const response = await app.inject({
       method: "POST",
       url: "/capabilities/web.search@1/call",
@@ -230,7 +259,7 @@ describe("Internet Search capability discovery gateway route", () => {
         failure: null,
       }),
     };
-    const app = createApp({ toolAccess: true, searchExecutor, diagnosticsSink });
+    const app = await createApp({ toolAccess: true, searchExecutor, diagnosticsSink });
     const response = await app.inject({
       method: "POST",
       url: "/capabilities/web.search@1/call",
@@ -251,11 +280,111 @@ describe("Internet Search capability discovery gateway route", () => {
       event_type: "operation",
       operation_id: "web.search@1",
       status: "success",
+      provider_execution: "executed",
       result_count: 1,
       completed_item_count: 1,
       duration_ms: expect.any(Number),
     })]);
     expect(JSON.stringify(diagnosticsSink.events())).not.toMatch(/CANARY_|https?:|localhost|127\.0\.0\.1|18080|\bport\b|credential|secret|vault|\/home\/canary|owner-private|prompt/i);
+  });
+
+  it("records not-executed diagnostics for pre-provider authorization and budget failures", async () => {
+    const unauthorizedDiagnostics = createMemoryInternetSearchDiagnosticSink();
+    let unauthorizedCalled = false;
+    const unauthorizedApp = await createApp({
+      toolAccess: false,
+      diagnosticsSink: unauthorizedDiagnostics,
+      searchExecutor: {
+        search: async (request) => {
+          unauthorizedCalled = true;
+          return {
+            capability: "web.search",
+            version: 1,
+            request_id: request.request_id,
+            run_id: request.run_id,
+            status: "success",
+            retrieved_at: "2026-09-01T00:00:00.000Z",
+            provider: { profile: "local-owner-managed", attribution: "host-mediated-search" },
+            usage: { search_call: 1 },
+            results: [],
+            failure: null,
+          };
+        },
+      },
+    });
+    await unauthorizedApp.inject({
+      method: "POST",
+      url: "/capabilities/web.search@1/call",
+      payload: {
+        request_id: "00000000-0000-4000-8000-000000000521",
+        run_id: "00000000-0000-4000-8000-000000000621",
+        input: {
+          query: "CANARY_RAW_QUERY_TEXT",
+          token: "CANARY_BEARER_TOKEN",
+          host_path: "/home/canary/private",
+        },
+      },
+    });
+    expect(unauthorizedCalled).toBe(false);
+    expect(unauthorizedDiagnostics.events()).toEqual([expect.objectContaining({
+      event_type: "operation",
+      operation_id: "web.search@1",
+      status: "failure",
+      failure_code: "not_authorized",
+      provider_execution: "not_executed",
+      result_count: 0,
+      completed_item_count: 0,
+      usage: { call_count: 0, bytes_class: null },
+    })]);
+
+    const budgetDiagnostics = createMemoryInternetSearchDiagnosticSink();
+    let budgetCalls = 0;
+    const budgetApp = await createApp({
+      toolAccess: true,
+      diagnosticsSink: budgetDiagnostics,
+      searchExecutor: {
+        search: async (request) => {
+          budgetCalls += 1;
+          return {
+            capability: "web.search",
+            version: 1,
+            request_id: request.request_id,
+            run_id: request.run_id,
+            status: "success",
+            retrieved_at: "2026-09-01T00:00:00.000Z",
+            provider: { profile: "local-owner-managed", attribution: "host-mediated-search" },
+            usage: { search_call: 1 },
+            results: [],
+            failure: null,
+          };
+        },
+      },
+    });
+    const run_id = "00000000-0000-4000-8000-000000000622";
+    for (let index = 0; index < 6; index += 1) {
+      await budgetApp.inject({
+        method: "POST",
+        url: "/capabilities/web.search@1/call",
+        payload: {
+          request_id: `00000000-0000-4000-8000-00000000063${index}`,
+          run_id,
+          input: { query: `example ${index}` },
+        },
+      });
+    }
+
+    expect(budgetCalls).toBe(5);
+    expect(budgetDiagnostics.events().at(-1)).toMatchObject({
+      event_type: "operation",
+      operation_id: "web.search@1",
+      status: "failure",
+      failure_code: "budget_exceeded",
+      provider_execution: "not_executed",
+      result_count: 0,
+      completed_item_count: 0,
+      usage: { call_count: 0, bytes_class: null },
+    });
+    expect(JSON.stringify([unauthorizedDiagnostics.events(), budgetDiagnostics.events()])).not.toMatch(/CANARY_|https?:|localhost|127\.0\.0\.1|18080|\bport\b|credential|secret|vault|\/home\/canary|owner-private|prompt|authorization|bearer|token/i);
   });
 
   it("replays exact repeated web.search@1 operations and rejects conflicting reuse without invoking the executor", async () => {
@@ -277,7 +406,7 @@ describe("Internet Search capability discovery gateway route", () => {
         };
       },
     };
-    const app = createApp({ toolAccess: true, searchExecutor });
+    const app = await createApp({ toolAccess: true, searchExecutor });
     const payload = {
       request_id: "00000000-0000-4000-8000-000000000507",
       run_id: "00000000-0000-4000-8000-000000000607",
@@ -306,7 +435,7 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("stops web.search@1 before executor invocation when the run search budget is exhausted", async () => {
     let calls = 0;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: true,
       searchExecutor: {
         search: async (request) => {
@@ -363,7 +492,7 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("returns a typed not_authorized search envelope without enumerating provider details", async () => {
     let called = false;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: false,
       searchExecutor: {
         search: async (request) => {
@@ -405,14 +534,9 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("gates web.search@1 execution when discovery is not callable", async () => {
     let called = false;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: true,
-      registry: new InternetSearchCapabilityRegistry([{
-        ...INTERNET_SEARCH_LOCAL_V1_REGISTRATION,
-        lifecycle_state: "unavailable",
-        health: { state: "unhealthy", checked_at: "2026-09-01T00:00:00.000Z" },
-        safe_message: "Internet Search needs attention.",
-      }]),
+      withShim: false,
       searchExecutor: {
         search: async (request) => {
           called = true;
@@ -477,7 +601,7 @@ describe("Internet Search capability discovery gateway route", () => {
         failure: null,
       }),
     };
-    const app = createApp({ toolAccess: true, readExecutor });
+    const app = await createApp({ toolAccess: true, readExecutor });
     const response = await app.inject({
       method: "POST",
       url: "/capabilities/web.read@1/call",
@@ -501,7 +625,7 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("stops web.read@1 before executor invocation when the run read budget is exhausted", async () => {
     let calls = 0;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: true,
       readExecutor: {
         read: async (request) => {
@@ -569,7 +693,7 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("returns a typed not_authorized read envelope without invoking the executor", async () => {
     let called = false;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: false,
       readExecutor: {
         read: async (request) => {
@@ -613,14 +737,8 @@ describe("Internet Search capability discovery gateway route", () => {
 
   it("gates web.read@1 execution when discovery is not callable", async () => {
     let called = false;
-    const app = createApp({
+    const app = await createApp({
       toolAccess: true,
-      registry: new InternetSearchCapabilityRegistry([{
-        ...INTERNET_SEARCH_LOCAL_V1_REGISTRATION,
-        lifecycle_state: "unavailable",
-        health: { state: "unhealthy", checked_at: "2026-09-01T00:00:00.000Z" },
-        safe_message: "Internet Search needs attention.",
-      }]),
       readExecutor: {
         read: async (request) => {
           called = true;
@@ -637,6 +755,12 @@ describe("Internet Search capability discovery gateway route", () => {
             failure: null,
           };
         },
+      },
+      afterRuntime: async (runtime) => {
+        await runtime.packageStore.disablePackage(
+          INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+          "2026-09-01T00:00:00.000Z",
+        );
       },
     });
 

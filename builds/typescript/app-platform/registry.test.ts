@@ -11,7 +11,8 @@ import {
 } from "./contracts/app-registry.js";
 import { canonicalInputDigest, canonicalJsonDocumentDigest } from "./contracts/common.js";
 import { LegacyResumePackageManifestSchema, parseLegacyResumePackageManifestForMigration } from "./contracts/package.js";
-import { FirstPartyAppRegistry } from "./registry.js";
+import { BRIEF_BUILDER_FIRST_PARTY_REGISTRATION } from "./first-party-registrations.js";
+import { FirstPartyAppRegistry, canonicalCapabilityOperationId } from "./registry.js";
 
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
 
@@ -406,6 +407,57 @@ describe("FirstPartyAppRegistry", () => {
       expect(() => registry.resolveVerifiedApp("resume-builder", verifiedPackage(GenericPackageManifestSchema.parse(candidate), "resume-builder")))
         .toThrowError(expect.objectContaining({ code: "registration_missing" }));
     }
+  });
+
+  it("maps legacy first-party Search and Read capability keys to canonical operation IDs", () => {
+    expect(canonicalCapabilityOperationId({ name: "web.search", version: 1 })).toBe("web.search@1");
+    expect(canonicalCapabilityOperationId({ name: "web.read", version: 1 })).toBe("web.read@1");
+
+    const registration = {
+      ...briefRegistration,
+      capability_registrations: [
+        ...briefRegistration.capability_registrations,
+        {
+          ...briefRegistration.capability_registrations[0],
+          key: { name: "web.search", version: 1 },
+          binding_id: "capability.brief-builder.web-search",
+          input_schema_id: "web.search.input.v1",
+          result_schema_id: "web.search.result.v1",
+          audit_projection_id: "audit.brief-builder.web-search.v1",
+          owner_component_id: "brief-builder.domain",
+        },
+        {
+          ...briefRegistration.capability_registrations[0],
+          key: { name: "web.read", version: 1 },
+          binding_id: "capability.brief-builder.web-read",
+          input_schema_id: "web.read.input.v1",
+          result_schema_id: "web.read.result.v1",
+          audit_projection_id: "audit.brief-builder.web-read.v1",
+          owner_component_id: "brief-builder.domain",
+        },
+      ],
+    } satisfies FirstPartyAppRegistration;
+    const manifestWithSearch = GenericPackageManifestSchema.parse({
+      ...briefManifest,
+      requested_capabilities: [
+        { name: "brief.records.read", version: 1 },
+        { name: "web.search", version: 1 },
+        { name: "web.read", version: 1 },
+      ],
+    });
+
+    const resolved = new FirstPartyAppRegistry([registration]).resolveVerifiedApp(
+      "brief-builder",
+      verifiedPackage(manifestWithSearch, "brief-builder"),
+    );
+    const canonical = resolved.reviewed_authority.capabilities.map((item) => canonicalCapabilityOperationId(item.key));
+    expect(canonical).toEqual(["brief.records.read@1", "web.search@1", "web.read@1"]);
+    expect(new Set(canonical).size).toBe(canonical.length);
+
+    const firstPartyCanonical = BRIEF_BUILDER_FIRST_PARTY_REGISTRATION.capability_registrations
+      .map((item) => canonicalCapabilityOperationId(item.key))
+      .filter((operationId) => operationId.startsWith("web."));
+    expect(firstPartyCanonical).toEqual(["web.search@1", "web.read@1"]);
   });
 
   it("rejects incomplete or internally mismatched host registrations before package resolution", () => {

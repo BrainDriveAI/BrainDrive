@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "./common.js";
 import { PackagePathSchema, SupervisorPolicySchema } from "./package.js";
+import { ComponentIdSchema, PackageIdSchema, RuntimeTargetSchema } from "./package-components.js";
 
 export const SupervisorProtocolVersionSchema = z.literal(1);
 
@@ -364,3 +365,44 @@ export interface InstalledAppSupervisor {
   cleanup(request: z.infer<typeof SupervisorCleanupRequestSchema>): Promise<z.infer<typeof SupervisorCleanupResultSchema>>;
   reconcile(request: z.infer<typeof SupervisorReconcileRequestSchema>): Promise<z.infer<typeof SupervisorReconcileResultSchema>>;
 }
+
+export const SidecarRuntimeBindingAudienceSchema = z.enum(["provider_adapter_only", "owning_app_private", "host_only"]);
+
+export const SidecarRuntimeBindingProjectionSchema = z
+  .object({
+    binding_version: z.literal(1),
+    binding_id: OpaqueIdSchema,
+    package_id: PackageIdSchema,
+    installation_id: OpaqueIdSchema,
+    component_id: ComponentIdSchema,
+    owner_component_id: ComponentIdSchema,
+    runtime_id: OpaqueIdSchema,
+    binding_generation: z.number().int().positive(),
+    target: RuntimeTargetSchema,
+    transport: z.enum(["container_internal", "loopback", "ipc"]),
+    endpoint_class: z.enum(["container_internal_authenticated", "loopback_authenticated", "ipc_authenticated"]),
+    audience: SidecarRuntimeBindingAudienceSchema,
+    public_bind: z.literal(false),
+    created_at: TimestampSchema,
+  })
+  .strict();
+
+export const SidecarLifecycleDiagnosticEventSchema = z
+  .object({
+    diagnostic_version: z.literal(1),
+    sequence: z.number().int().positive(),
+    package_id: PackageIdSchema,
+    installation_id: OpaqueIdSchema,
+    component_id: ComponentIdSchema,
+    owner_component_id: ComponentIdSchema,
+    action: z.enum(["start", "readiness", "health", "stop", "restart", "uninstall", "cleanup", "binding_rotated", "binding_denied"]),
+    state: z.enum(["starting", "running", "stopped", "uninstalled", "unavailable", "failed"]),
+    health: z.enum(["unknown", "healthy", "unhealthy"]),
+    target: RuntimeTargetSchema.nullable(),
+    runtime_kind: z.enum(["container", "packaged_process"]).nullable(),
+    binding_class: z.enum(["container_internal_authenticated", "loopback_authenticated", "ipc_authenticated"]).nullable(),
+    restart_attempt: z.number().int().min(0).max(3),
+    error_code: z.string().regex(/^[a-z0-9_]{1,64}$/).nullable(),
+    occurred_at: TimestampSchema,
+  })
+  .strict();

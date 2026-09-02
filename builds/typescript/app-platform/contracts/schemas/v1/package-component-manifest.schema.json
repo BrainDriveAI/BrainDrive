@@ -1,0 +1,1179 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component-manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "type": "number",
+      "const": 2
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "publisher_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+    },
+    "package_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "package_kind": {
+      "minItems": 1,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "app",
+          "capability_provider",
+          "dependency_service"
+        ]
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "package_path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "media_type": {
+                  "type": "string",
+                  "enum": [
+                    "image/png",
+                    "image/webp"
+                  ]
+                },
+                "content_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "package_path",
+                "media_type",
+                "content_digest"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retention_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "display_name",
+        "summary",
+        "icon",
+        "retention_summary"
+      ],
+      "additionalProperties": false
+    },
+    "archive": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "zip"
+        },
+        "profile": {
+          "type": "string",
+          "const": "braindrive-package-v2"
+        },
+        "compression": {
+          "type": "string",
+          "const": "store"
+        },
+        "layout_version": {
+          "type": "number",
+          "const": 1
+        },
+        "manifest_path": {
+          "type": "string",
+          "const": "manifest.json"
+        },
+        "undeclared_entries": {
+          "type": "string",
+          "const": "reject"
+        },
+        "links_and_device_nodes": {
+          "type": "string",
+          "const": "reject"
+        }
+      },
+      "required": [
+        "format",
+        "profile",
+        "compression",
+        "layout_version",
+        "manifest_path",
+        "undeclared_entries",
+        "links_and_device_nodes"
+      ],
+      "additionalProperties": false
+    },
+    "files": {
+      "minItems": 3,
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "const": "file"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "read_only",
+              "executable"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 268435456
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "mode",
+          "size_bytes",
+          "digest"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "components": {
+      "minItems": 1,
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "component_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "lifecycle_actions": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "enable",
+                    "disable",
+                    "start",
+                    "stop",
+                    "restart",
+                    "update",
+                    "uninstall",
+                    "health"
+                  ]
+                }
+              },
+              "sidecars": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 128,
+                  "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                }
+              },
+              "component_kind": {
+                "type": "string",
+                "const": "app"
+              },
+              "app_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 160,
+                "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+              },
+              "route_key": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              "launchable": {
+                "type": "boolean",
+                "const": true
+              },
+              "requested_capabilities": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "operation_id": {
+                      "type": "string",
+                      "minLength": 5,
+                      "maxLength": 128,
+                      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+                    },
+                    "requirement": {
+                      "type": "string",
+                      "enum": [
+                        "required",
+                        "optional"
+                      ]
+                    },
+                    "unavailable_behavior": {
+                      "type": "string",
+                      "enum": [
+                        "block_activation",
+                        "degrade_with_safe_status"
+                      ]
+                    },
+                    "provider_selection": {
+                      "type": "string",
+                      "const": "owner_or_admin_policy"
+                    },
+                    "silent_install_or_switch": {
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "operation_id",
+                    "requirement",
+                    "unavailable_behavior",
+                    "provider_selection",
+                    "silent_install_or_switch"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "component_id",
+              "display_name",
+              "lifecycle_actions",
+              "sidecars",
+              "component_kind",
+              "app_id",
+              "route_key",
+              "launchable",
+              "requested_capabilities"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "component_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "lifecycle_actions": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "enable",
+                    "disable",
+                    "start",
+                    "stop",
+                    "restart",
+                    "update",
+                    "uninstall",
+                    "health"
+                  ]
+                }
+              },
+              "sidecars": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 128,
+                  "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                }
+              },
+              "component_kind": {
+                "type": "string",
+                "const": "capability_provider"
+              },
+              "provider_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 160,
+                "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+              },
+              "launchable": {
+                "type": "boolean",
+                "const": false
+              },
+              "provides": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 5,
+                  "maxLength": 128,
+                  "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+                }
+              }
+            },
+            "required": [
+              "component_id",
+              "display_name",
+              "lifecycle_actions",
+              "sidecars",
+              "component_kind",
+              "provider_id",
+              "launchable",
+              "provides"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "component_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "lifecycle_actions": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "enable",
+                    "disable",
+                    "start",
+                    "stop",
+                    "restart",
+                    "update",
+                    "uninstall",
+                    "health"
+                  ]
+                }
+              },
+              "sidecars": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 128,
+                  "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                }
+              },
+              "component_kind": {
+                "type": "string",
+                "const": "dependency_service"
+              },
+              "service_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 160,
+                "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+              },
+              "launchable": {
+                "type": "boolean",
+                "const": false
+              },
+              "provides": {
+                "type": "array",
+                "prefixItems": []
+              }
+            },
+            "required": [
+              "component_id",
+              "display_name",
+              "lifecycle_actions",
+              "sidecars",
+              "component_kind",
+              "service_id",
+              "launchable",
+              "provides"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "sidecars": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sidecar_version": {
+            "type": "number",
+            "const": 1
+          },
+          "component_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "owner_component_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "binding": {
+            "type": "object",
+            "properties": {
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "owning_app_private",
+                  "provider_adapter_only",
+                  "host_only"
+                ]
+              },
+              "transport": {
+                "type": "string",
+                "enum": [
+                  "container_internal",
+                  "loopback",
+                  "ipc"
+                ]
+              },
+              "public_bind": {
+                "type": "boolean",
+                "const": false
+              },
+              "consumer_projection": {
+                "type": "string",
+                "const": "never"
+              }
+            },
+            "required": [
+              "visibility",
+              "transport",
+              "public_bind",
+              "consumer_projection"
+            ],
+            "additionalProperties": false
+          },
+          "targets": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "docker_linux_x64",
+                        "desktop_windows_x64",
+                        "desktop_macos_universal"
+                      ]
+                    },
+                    "runtime_kind": {
+                      "type": "string",
+                      "const": "container"
+                    },
+                    "image": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 256,
+                      "pattern": "^[a-z0-9][a-z0-9./:_-]*$"
+                    },
+                    "container_port": {
+                      "default": 8080,
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 65535
+                    },
+                    "network": {
+                      "type": "string",
+                      "const": "private"
+                    },
+                    "public_network": {
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "runtime_kind",
+                    "image",
+                    "network",
+                    "public_network"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "docker_linux_x64",
+                        "desktop_windows_x64",
+                        "desktop_macos_universal"
+                      ]
+                    },
+                    "runtime_kind": {
+                      "type": "string",
+                      "const": "packaged_process"
+                    },
+                    "artifact_path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "entrypoint": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "bind": {
+                      "type": "string",
+                      "enum": [
+                        "loopback",
+                        "ipc"
+                      ]
+                    },
+                    "public_network": {
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "runtime_kind",
+                    "artifact_path",
+                    "entrypoint",
+                    "bind",
+                    "public_network"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "health": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "http_path",
+                  "process_exit",
+                  "ipc_ping"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^\\/[A-Za-z0-9._~/-]{0,128}$"
+              },
+              "interval_ms": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 60000
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 30000
+              }
+            },
+            "required": [
+              "kind",
+              "interval_ms",
+              "timeout_ms"
+            ],
+            "additionalProperties": false
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "start_policy": {
+                "type": "string",
+                "enum": [
+                  "owner_explicit",
+                  "host_on_package_activation"
+                ]
+              },
+              "restart_policy": {
+                "type": "string",
+                "enum": [
+                  "never",
+                  "bounded"
+                ]
+              },
+              "stop_on_disable": {
+                "type": "boolean",
+                "const": true
+              },
+              "cleanup_on_uninstall": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "start_policy",
+              "restart_policy",
+              "stop_on_disable",
+              "cleanup_on_uninstall"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "sidecar_version",
+          "component_id",
+          "display_name",
+          "owner_component_id",
+          "binding",
+          "targets",
+          "health",
+          "lifecycle"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "provided_operations": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+          },
+          "provider_component_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "adapter": {
+            "type": "object",
+            "properties": {
+              "package_path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "export_name": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,127}$"
+              },
+              "abi": {
+                "type": "string",
+                "const": "braindrive-operation-adapter-v1"
+              }
+            },
+            "required": [
+              "package_path",
+              "export_name",
+              "abi"
+            ],
+            "additionalProperties": false
+          },
+          "input_contract": {
+            "type": "object",
+            "properties": {
+              "schema_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+              },
+              "schema_version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "schema_id",
+              "schema_version",
+              "content_digest"
+            ],
+            "additionalProperties": false
+          },
+          "result_contract": {
+            "type": "object",
+            "properties": {
+              "schema_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+              },
+              "schema_version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "schema_id",
+              "schema_version",
+              "content_digest"
+            ],
+            "additionalProperties": false
+          },
+          "required_sidecars": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 128,
+              "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+            }
+          },
+          "result_classification": {
+            "type": "string",
+            "const": "generic_envelope"
+          }
+        },
+        "required": [
+          "operation_id",
+          "provider_component_id",
+          "adapter",
+          "input_contract",
+          "result_contract",
+          "required_sidecars",
+          "result_classification"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "capability_dependencies": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+          },
+          "requirement": {
+            "type": "string",
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "unavailable_behavior": {
+            "type": "string",
+            "enum": [
+              "block_activation",
+              "degrade_with_safe_status"
+            ]
+          },
+          "provider_selection": {
+            "type": "string",
+            "const": "owner_or_admin_policy"
+          },
+          "silent_install_or_switch": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "operation_id",
+          "requirement",
+          "unavailable_behavior",
+          "provider_selection",
+          "silent_install_or_switch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "configuration_version": {
+          "type": "number",
+          "const": 1
+        },
+        "non_secret_settings_schema": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "schema_id": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 128,
+                  "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+                },
+                "schema_version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 65535
+                },
+                "content_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "schema_id",
+                "schema_version",
+                "content_digest"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secrets": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "secret_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "storage": {
+                "type": "string",
+                "const": "braindrive_vault_reference"
+              },
+              "runtime_delivery": {
+                "type": "string",
+                "const": "scoped_runtime_injection"
+              },
+              "consumer_projection": {
+                "type": "string",
+                "const": "never"
+              }
+            },
+            "required": [
+              "secret_id",
+              "required",
+              "storage",
+              "runtime_delivery",
+              "consumer_projection"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "configuration_version",
+        "non_secret_settings_schema",
+        "secrets"
+      ],
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "permission_policy_version": {
+          "type": "number",
+          "const": 1
+        },
+        "network": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "public_https",
+              "loopback_to_own_sidecars",
+              "provider_upstream_https"
+            ]
+          }
+        },
+        "filesystem": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "package_read",
+              "app_storage",
+              "declared_cache"
+            ]
+          }
+        },
+        "process": {
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "supervised_sidecar"
+            ]
+          }
+        },
+        "credentials": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        }
+      },
+      "required": [
+        "permission_policy_version",
+        "network",
+        "filesystem",
+        "process",
+        "credentials"
+      ],
+      "additionalProperties": false
+    },
+    "retention_policy": {
+      "type": "object",
+      "properties": {
+        "retention_policy_version": {
+          "type": "number",
+          "const": 1
+        },
+        "runtime_binding": {
+          "type": "string",
+          "const": "ephemeral_remove_on_stop_or_uninstall"
+        },
+        "sidecar_runtime_state": {
+          "type": "string",
+          "const": "remove_on_uninstall"
+        },
+        "provider_cache": {
+          "type": "string",
+          "const": "delete_by_default_unless_owner_preserves"
+        },
+        "diagnostics": {
+          "type": "string",
+          "const": "bounded_redacted"
+        },
+        "evidence": {
+          "type": "string",
+          "const": "content_free_bounded"
+        }
+      },
+      "required": [
+        "retention_policy_version",
+        "runtime_binding",
+        "sidecar_runtime_state",
+        "provider_cache",
+        "diagnostics",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "properties": {
+        "diagnostics_policy_version": {
+          "type": "number",
+          "const": 1
+        },
+        "store_raw_provider_payloads": {
+          "type": "boolean",
+          "const": false
+        },
+        "store_private_bindings": {
+          "type": "boolean",
+          "const": false
+        },
+        "store_host_paths": {
+          "type": "boolean",
+          "const": false
+        },
+        "store_credentials": {
+          "type": "boolean",
+          "const": false
+        },
+        "durable_projection": {
+          "type": "string",
+          "const": "safe_status_and_typed_failures_only"
+        }
+      },
+      "required": [
+        "diagnostics_policy_version",
+        "store_raw_provider_payloads",
+        "store_private_bindings",
+        "store_host_paths",
+        "store_credentials",
+        "durable_projection"
+      ],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "evidence_policy_version": {
+          "type": "number",
+          "const": 1
+        },
+        "required_evidence": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "schema_conformance",
+              "negative_manifest_cases",
+              "unsafe_binding_denial",
+              "secret_redaction_scan"
+            ]
+          }
+        },
+        "stale_on": {
+          "minItems": 1,
+          "maxItems": 11,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "manifest_change",
+              "adapter_change",
+              "sidecar_target_change",
+              "runtime_target_change",
+              "network_policy_change",
+              "permission_change",
+              "operation_contract_change",
+              "provider_version_change",
+              "security_boundary_change",
+              "retention_policy_change",
+              "diagnostics_policy_change"
+            ]
+          }
+        },
+        "durable_evidence_content": {
+          "type": "string",
+          "const": "content_free_no_endpoints_no_secrets"
+        }
+      },
+      "required": [
+        "evidence_policy_version",
+        "required_evidence",
+        "stale_on",
+        "durable_evidence_content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "manifest_version",
+    "package_id",
+    "publisher_id",
+    "package_version",
+    "package_kind",
+    "catalog",
+    "archive",
+    "files",
+    "components",
+    "sidecars",
+    "provided_operations",
+    "capability_dependencies",
+    "configuration",
+    "permissions",
+    "retention_policy",
+    "diagnostics",
+    "evidence"
+  ],
+  "additionalProperties": false
+}

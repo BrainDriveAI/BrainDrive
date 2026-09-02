@@ -88,9 +88,6 @@ services:
       BRAINDRIVE_APP_PLATFORM_ENABLED: ${BRAINDRIVE_APP_PLATFORM_ENABLED:-true}
       BRAINDRIVE_APP_PLATFORM_TARGET: docker_linux_x64
       BRAINDRIVE_APP_STATE_ROOT: /data/app-platform
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL: http://internet-search-searxng:8080
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_TRANSPORT: container_internal
-      BRAINDRIVE_INTERNET_SEARCH_SIDECAR_HEALTH_PATH: /healthz
       BRAINDRIVE_DESKTOP_API_TOKEN: ${BRAINDRIVE_DESKTOP_API_TOKEN:-}
       TZ: ${TZ:-UTC}
       BRAINDRIVE_DEV_HOST_UID: ${BRAINDRIVE_DEV_HOST_UID:-1000}
@@ -99,6 +96,7 @@ services:
       CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
     volumes:
       - ../../builds/typescript:/app/typescript
+      - ../../builds/internet_search:/app/internet_search:ro
       - ../../builds/resume_builder:/app/resume_builder:ro
       - ../../builds/brief_builder:/app/brief_builder:ro
       - braindrive_dev_app_node_modules:/app/typescript/node_modules
@@ -137,14 +135,6 @@ services:
         condition: service_healthy
     ports:
       - "${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}:5073"
-
-  internet-search-searxng:
-    image: ${BRAINDRIVE_SEARXNG_IMAGE:-searxng/searxng:latest}
-    restart: unless-stopped
-    expose:
-      - "8080"
-    security_opt:
-      - no-new-privileges:true
 
 volumes:
   braindrive_dev_app_node_modules:

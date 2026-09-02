@@ -1,0 +1,38 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/sidecar-binding-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "owning_app_private",
+        "provider_adapter_only",
+        "host_only"
+      ]
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "container_internal",
+        "loopback",
+        "ipc"
+      ]
+    },
+    "public_bind": {
+      "type": "boolean",
+      "const": false
+    },
+    "consumer_projection": {
+      "type": "string",
+      "const": "never"
+    }
+  },
+  "required": [
+    "visibility",
+    "transport",
+    "public_bind",
+    "consumer_projection"
+  ],
+  "additionalProperties": false
+}

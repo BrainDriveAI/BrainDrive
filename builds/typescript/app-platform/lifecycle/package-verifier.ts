@@ -20,6 +20,12 @@ import { AppPlatformError } from "./errors.js";
 import type { FixtureRepository } from "./fixture-repository.js";
 import { readStoredZip } from "./zip.js";
 
+export {
+  PackageComponentManifestSchema,
+  parsePackageComponentManifestForConformance,
+  type PackageComponentManifest,
+} from "../contracts/package-components.js";
+
 type Manifest = z.infer<typeof PackageManifestSchema>;
 export type GenericManifest = z.infer<typeof GenericPackageManifestSchema>;
 export type RuntimePackageManifest = Manifest | GenericManifest;

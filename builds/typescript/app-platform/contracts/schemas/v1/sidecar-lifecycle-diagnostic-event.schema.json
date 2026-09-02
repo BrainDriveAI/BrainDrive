@@ -1,0 +1,155 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/sidecar-lifecycle-diagnostic-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostic_version": {
+      "type": "number",
+      "const": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "installation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "owner_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "start",
+        "readiness",
+        "health",
+        "stop",
+        "restart",
+        "uninstall",
+        "cleanup",
+        "binding_rotated",
+        "binding_denied"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "running",
+        "stopped",
+        "uninstalled",
+        "unavailable",
+        "failed"
+      ]
+    },
+    "health": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "healthy",
+        "unhealthy"
+      ]
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "docker_linux_x64",
+            "desktop_windows_x64",
+            "desktop_macos_universal"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_kind": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "container",
+            "packaged_process"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "binding_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "container_internal_authenticated",
+            "loopback_authenticated",
+            "ipc_authenticated"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "restart_attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{1,64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "diagnostic_version",
+    "sequence",
+    "package_id",
+    "installation_id",
+    "component_id",
+    "owner_component_id",
+    "action",
+    "state",
+    "health",
+    "target",
+    "runtime_kind",
+    "binding_class",
+    "restart_attempt",
+    "error_code",
+    "occurred_at"
+  ],
+  "additionalProperties": false
+}

@@ -19,6 +19,7 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain('send("web.read@1"');
     expect(html).toContain("External untrusted source material");
     expect(html).toContain("external-untrusted");
+    expect(html).toContain('supported_capabilities:["brief.records.read","brief.records.write","brief.approvals.confirm","app.inference.request","web.search@1","web.read@1"]');
     expect(html).toContain('class="brief-document"');
     expect(html).toContain("Key points");
     expect(html).toContain("View supporting sources");
@@ -42,6 +43,31 @@ describe("Brief Builder primary resource", () => {
 
   it("declares only the accepted package identity and surface", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-    expect(packageJson).toMatchObject({ name: "@braindrive/brief-builder", version: "1.2.0", braindrive: { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", primaryResource: "ui://brief-builder/main", inferencePurpose: "brief.generate@1" } });
+    expect(packageJson).toMatchObject({
+      name: "@braindrive/brief-builder",
+      version: "1.2.0",
+      braindrive: {
+        appId: "ai.braindrive.brief-builder",
+        routeKey: "brief-builder",
+        primaryResource: "ui://brief-builder/main",
+        inferencePurpose: "brief.generate@1",
+        capabilityDependencies: [
+          {
+            operationId: "web.search@1",
+            requirement: "optional",
+            unavailableBehavior: "degrade_with_safe_status",
+            providerSelection: "owner_or_admin_policy",
+            silentInstallOrSwitch: false,
+          },
+          {
+            operationId: "web.read@1",
+            requirement: "optional",
+            unavailableBehavior: "degrade_with_safe_status",
+            providerSelection: "owner_or_admin_policy",
+            silentInstallOrSwitch: false,
+          },
+        ],
+      },
+    });
   });
 });

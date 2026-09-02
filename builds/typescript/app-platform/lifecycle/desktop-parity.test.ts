@@ -76,4 +76,25 @@ describe("Docker and packaged desktop lifecycle parity", () => {
     expect(macStates).toEqual(dockerStates);
     expect(macStates).toEqual(["active", "disabled", "active", "active", "active", "not_installed", "active"]);
   }, 45_000);
+
+  it("stages package manifests for desktop without Docker Desktop sidecar assumptions", async () => {
+    const [nodeStage, powershellStage, tauriReadme, manifest] = await Promise.all([
+      readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.mjs"), "utf8"),
+      readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.ps1"), "utf8"),
+      readFile(path.resolve(process.cwd(), "src-tauri/README.md"), "utf8"),
+      readFile(path.resolve(process.cwd(), "../internet_search/manifest.json"), "utf8"),
+    ]);
+
+    expect(nodeStage).toContain("internetSearchRoot");
+    expect(nodeStage).toContain("outputRoot, \"internet_search\"");
+    expect(powershellStage).toContain("$InternetSearchRoot");
+    expect(powershellStage).toContain("internet_search");
+    for (const stageScript of [nodeStage, powershellStage]) {
+      expect(stageScript).not.toMatch(/Docker Desktop|docker compose|internet-search-searxng|BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL/i);
+    }
+    const internetSearchManifest = JSON.parse(manifest) as { sidecars: Array<{ targets: Array<{ target: string; runtime_kind: string }> }> };
+    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.target))).toEqual(["docker_linux_x64"]);
+    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.runtime_kind))).toEqual(["container"]);
+    expect(tauriReadme).toMatch(/SearXNG.*unsupported/i);
+  });
 });

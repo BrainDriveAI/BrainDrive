@@ -1,0 +1,280 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/package-component.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lifecycle_actions": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable",
+              "start",
+              "stop",
+              "restart",
+              "update",
+              "uninstall",
+              "health"
+            ]
+          }
+        },
+        "sidecars": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        },
+        "component_kind": {
+          "type": "string",
+          "const": "app"
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "route_key": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "launchable": {
+          "type": "boolean",
+          "const": true
+        },
+        "requested_capabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operation_id": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+              },
+              "requirement": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional"
+                ]
+              },
+              "unavailable_behavior": {
+                "type": "string",
+                "enum": [
+                  "block_activation",
+                  "degrade_with_safe_status"
+                ]
+              },
+              "provider_selection": {
+                "type": "string",
+                "const": "owner_or_admin_policy"
+              },
+              "silent_install_or_switch": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "operation_id",
+              "requirement",
+              "unavailable_behavior",
+              "provider_selection",
+              "silent_install_or_switch"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "component_id",
+        "display_name",
+        "lifecycle_actions",
+        "sidecars",
+        "component_kind",
+        "app_id",
+        "route_key",
+        "launchable",
+        "requested_capabilities"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lifecycle_actions": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable",
+              "start",
+              "stop",
+              "restart",
+              "update",
+              "uninstall",
+              "health"
+            ]
+          }
+        },
+        "sidecars": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        },
+        "component_kind": {
+          "type": "string",
+          "const": "capability_provider"
+        },
+        "provider_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "launchable": {
+          "type": "boolean",
+          "const": false
+        },
+        "provides": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+          }
+        }
+      },
+      "required": [
+        "component_id",
+        "display_name",
+        "lifecycle_actions",
+        "sidecars",
+        "component_kind",
+        "provider_id",
+        "launchable",
+        "provides"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lifecycle_actions": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable",
+              "start",
+              "stop",
+              "restart",
+              "update",
+              "uninstall",
+              "health"
+            ]
+          }
+        },
+        "sidecars": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        },
+        "component_kind": {
+          "type": "string",
+          "const": "dependency_service"
+        },
+        "service_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "launchable": {
+          "type": "boolean",
+          "const": false
+        },
+        "provides": {
+          "type": "array",
+          "prefixItems": []
+        }
+      },
+      "required": [
+        "component_id",
+        "display_name",
+        "lifecycle_actions",
+        "sidecars",
+        "component_kind",
+        "service_id",
+        "launchable",
+        "provides"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/sidecar-target.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "docker_linux_x64",
+            "desktop_windows_x64",
+            "desktop_macos_universal"
+          ]
+        },
+        "runtime_kind": {
+          "type": "string",
+          "const": "container"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 256,
+          "pattern": "^[a-z0-9][a-z0-9./:_-]*$"
+        },
+        "container_port": {
+          "default": 8080,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65535
+        },
+        "network": {
+          "type": "string",
+          "const": "private"
+        },
+        "public_network": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "target",
+        "runtime_kind",
+        "image",
+        "network",
+        "public_network"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "docker_linux_x64",
+            "desktop_windows_x64",
+            "desktop_macos_universal"
+          ]
+        },
+        "runtime_kind": {
+          "type": "string",
+          "const": "packaged_process"
+        },
+        "artifact_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "bind": {
+          "type": "string",
+          "enum": [
+            "loopback",
+            "ipc"
+          ]
+        },
+        "public_network": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "target",
+        "runtime_kind",
+        "artifact_path",
+        "entrypoint",
+        "bind",
+        "public_network"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
