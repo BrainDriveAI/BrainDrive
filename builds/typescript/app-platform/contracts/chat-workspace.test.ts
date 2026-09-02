@@ -262,6 +262,57 @@ describe("chat workspace descriptor contracts", () => {
     expect(parsed.actions[0].result_schema.schema).toEqual(emptyObjectSchema());
   });
 
+  it("accepts owner-editable package resources only through bound seeded app documents", () => {
+    const workspace = awaitedWorkspace() as {
+      documents: Array<Record<string, unknown>>;
+      resources: Array<Record<string, unknown>>;
+    };
+    workspace.resources[0] = { ...workspace.resources[0]!, owner_editable: true };
+    workspace.documents[2] = {
+      ...workspace.documents[2]!,
+      editable: true,
+      model_access: "read_write_draft",
+      data_binding_id: "agent.instructions.owner",
+      initial_content: {
+        initial_content_version: 1,
+        source: "package_file",
+        package_path: "payload/resources/agent-instructions.md",
+        media_type: "text/markdown",
+        content_digest: digest("f"),
+        seed_policy: "when_missing",
+      },
+      presentation: {
+        presentation_version: 1,
+        renderer: "markdown_document",
+        chrome: "document",
+        title: "Agent Instructions.md",
+        subtitle: "Owner editable app instructions",
+        header_actions: [
+          { type: "back_to_chat", label: "Back to chat" },
+          { type: "edit_document", label: "Edit" },
+        ],
+      },
+    };
+
+    const parsed = ChatWorkspaceDescriptorSchema.parse(workspace);
+
+    expect(parsed.resources[0].owner_editable).toBe(true);
+    expect(parsed.documents.find((document) => document.document_id === "instructions")).toMatchObject({
+      editable: true,
+      resource_id: "agent.instructions",
+      data_binding_id: "agent.instructions.owner",
+    });
+  });
+
+  it("rejects owner-editable resources that do not declare an editable seeded override document", () => {
+    const workspace = ChatWorkspaceDescriptorSchema.parse(awaitedWorkspace());
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse({
+      ...workspace,
+      resources: [{ ...workspace.resources[0]!, owner_editable: true }],
+    }).success).toBe(false);
+  });
+
   it("rejects initial document content that does not bind a declared immutable package file", () => {
     const parsed = manifest();
     const workspace = parsed.presentations!.workspaces[0]!;

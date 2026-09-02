@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
+import type { ChatEvent } from "@/api/types";
 import type { Message } from "@/types/ui";
 
 import Composer from "./Composer";
@@ -41,6 +42,8 @@ type ChatPanelProps = {
   emptyStateIntro?: ProjectIntro;
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
+  onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
+  statusNotice?: { tone: "info" | "success" | "error"; message: string } | null;
   queuedMessage?: { id: string; content: string } | null;
 };
 
@@ -67,6 +70,8 @@ export default function ChatPanel({
   emptyStateIntro,
   onSendMessage,
   onOpenSettings,
+  onStreamEvent,
+  statusNotice,
   queuedMessage
 }: ChatPanelProps) {
   const [mobileComposerHeight, setMobileComposerHeight] = useState(0);
@@ -96,7 +101,8 @@ export default function ChatPanel({
     conversationId: activeConversationId,
     projectId: activeProjectId ?? null,
     draftKey,
-    initialMessages: historyMessages
+    initialMessages: historyMessages,
+    onStreamEvent,
   });
 
   useEffect(() => {
@@ -296,6 +302,18 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
+              {statusNotice ? (
+                <div
+                  role={statusNotice.tone === "error" ? "alert" : "status"}
+                  className={`rounded-xl border px-4 py-3 text-sm ${
+                    statusNotice.tone === "error"
+                      ? "border-bd-danger-border bg-bd-danger-bg text-bd-danger"
+                      : "border-bd-border bg-bd-bg-secondary text-bd-text-primary"
+                  }`}
+                >
+                  {statusNotice.message}
+                </div>
+              ) : null}
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">

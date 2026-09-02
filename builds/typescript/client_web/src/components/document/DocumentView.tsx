@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
 
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
@@ -12,6 +12,39 @@ type DocumentViewProps = {
   file: ProjectFile;
   onBack: () => void;
 };
+
+const DOCUMENT_DRAFT_PREFIX = "braindrive:document-draft:";
+
+function documentDraftKey(projectId: string, filePath: string): string {
+  return `${DOCUMENT_DRAFT_PREFIX}${projectId}:${filePath}`;
+}
+
+function readStoredDraft(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredDraft(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable in private or constrained browser contexts.
+  }
+}
+
+function removeStoredDraft(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable in private or constrained browser contexts.
+  }
+}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -33,40 +66,72 @@ export default function DocumentView({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const draftKey = useMemo(() => documentDraftKey(projectId, file.path), [file.path, projectId]);
 
   const loadContent = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setNotice(null);
 
     try {
       const nextContent = await readFileContent(projectId, file.path);
+      const storedDraft = readStoredDraft(draftKey);
       setContent(nextContent);
-      setDraft(nextContent);
+      if (storedDraft !== null && storedDraft !== nextContent) {
+        setDraft(storedDraft);
+        setIsEditing(true);
+        setError("Unsaved changes were restored. Review and save or cancel them.");
+      } else {
+        setDraft(nextContent);
+        if (storedDraft === nextContent) removeStoredDraft(draftKey);
+      }
     } catch (loadError) {
-      setError(getErrorMessage(loadError));
+      const storedDraft = readStoredDraft(draftKey);
+      if (storedDraft !== null) {
+        setDraft(storedDraft);
+        setIsEditing(true);
+        setError(`${getErrorMessage(loadError)} Unsaved changes were restored.`);
+      } else {
+        setError(getErrorMessage(loadError));
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [file.path, projectId]);
+  }, [draftKey, file.path, projectId]);
 
   useEffect(() => {
     setIsEditing(false);
     setContent("");
     setDraft("");
     setError(null);
+    setNotice(null);
     void loadContent();
   }, [loadContent]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    if (draft !== content) {
+      writeStoredDraft(draftKey, draft);
+    } else {
+      removeStoredDraft(draftKey);
+    }
+  }, [content, draft, draftKey, isEditing]);
 
   async function handleSave() {
     setIsSaving(true);
     setError(null);
+    setNotice(null);
 
     try {
       await writeFileContent(projectId, file.path, draft);
+      removeStoredDraft(draftKey);
       setIsEditing(false);
       await loadContent();
+      setNotice(`Saved ${file.displayName ?? file.name}.`);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
+      setNotice(null);
     } finally {
       setIsSaving(false);
     }
@@ -75,7 +140,9 @@ export default function DocumentView({
   function handleCancel() {
     setDraft(content);
     setError(null);
+    setNotice(null);
     setIsEditing(false);
+    removeStoredDraft(draftKey);
   }
 
   return (
@@ -175,6 +242,12 @@ export default function DocumentView({
             </div>
           )}
 
+          {notice ? (
+            <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-bd-success/35 bg-bd-success/10 px-4 py-3 text-sm text-bd-text-primary">
+              {notice}
+            </div>
+          ) : null}
+
           {isLoading ? (
             <div className="flex flex-1 items-center justify-center py-12 text-bd-text-secondary">
               <div className="flex items-center gap-3">
@@ -185,7 +258,10 @@ export default function DocumentView({
           ) : isEditing ? (
             <textarea
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setNotice(null);
+              }}
               spellCheck={false}
               className="min-h-[420px] flex-1 resize-none rounded-2xl border border-bd-border bg-bd-bg-secondary px-5 py-4 font-mono text-[14px] leading-7 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
             />

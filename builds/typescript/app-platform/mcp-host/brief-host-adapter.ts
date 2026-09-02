@@ -10,6 +10,7 @@ import { AppDocumentStorageService } from "../storage/app-document-store.js";
 import { BridgeMessageSchema, parseBridgeMessage } from "../contracts/mcp-app.js";
 import type { AppLifecycleService } from "../lifecycle/service.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
+import type { AppResourceDescriptor } from "../contracts/app-registry.js";
 import type { AppRuntimeConnection } from "../lifecycle/process-supervisor.js";
 import { McpConnectionManager } from "../../mcp/host/connection-manager.js";
 import { SdkMcpPeer } from "../../mcp/host/sdk-peer.js";
@@ -30,8 +31,10 @@ import {
   assertAppChatMetadataMatchesSession,
   buildAppChatModelContext,
   type AppChatActionExecutionRequest,
+  type AppChatResourcePromptContent,
 } from "./app-chat-model.js";
 import { readVerifiedPackageResource } from "./app-package-resource.js";
+import { readOrSeedAppDocument } from "./app-document-content.js";
 import type { AppDocumentRole, AppDocumentStorageAuthority, AppStorageRetentionClass } from "../contracts/app-storage.js";
 
 type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
@@ -200,7 +203,16 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
     await this.#documentStorage.initialize();
     const authority = this.storageAuthority(session, descriptor.grant!);
     await this.#documentStorage.bindActiveAuthority(authority);
-    const record = await this.#documentStorage.readDocument(authority, document.document_id);
+    const record = await this.#documentStorage.readDocument(authority, document.document_id)
+      ?? await readOrSeedAppDocument({
+        documentStorage: this.#documentStorage,
+        authority,
+        storedPackage: descriptor.storedPackage!,
+        document,
+        operationId: randomUUID(),
+        idempotencyKey: `document-seed-${randomUUID()}`,
+        audit: this.audit,
+      });
     return {
       result_version: 1,
       state: record ? "current" : "missing",
@@ -305,6 +317,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
       session,
       workspace,
       storedPackage: descriptor.storedPackage!,
+      resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
       executeAction: (actionRequest) => this.executeChatWorkspaceAction(actionRequest),
     });
     return {
@@ -484,7 +497,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
       this.close(session.sessionId);
       throw new AppPlatformError("session_closed", "Brief Builder app-chat session closed because grant authority changed", 410);
     }
-    return session;
+    return this.#chatSessions.renew(this.appId, session.sessionId);
   }
 
   private async requireChatSessionForDocument(sessionId: string, documentId: string): Promise<{
@@ -499,10 +512,43 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
     });
     const document = selection.workspace.documents.find((candidate) => candidate.document_id === documentId);
     if (!document) throw new AppPlatformError("not_found_within_scope", "App document is not declared for this workspace", 404);
-    if (document.role === "conversation" || document.role === "advanced_resource" || !document.data_binding_id) {
+    if (document.role === "conversation" || !document.data_binding_id) {
       throw new AppPlatformError("denied", "Workspace item is not bound to app document storage", 403);
     }
     return { session, descriptor, document };
+  }
+
+  private async resolveOwnerEditableResourcePrompt(
+    resource: AppResourceDescriptor,
+    session: AppChatSessionRecord,
+    descriptor: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>,
+    workspace: ReturnType<typeof selectAppChatWorkspace>["workspace"],
+  ): Promise<AppChatResourcePromptContent | null> {
+    const document = workspace.documents.find((candidate) =>
+      candidate.resource_id === resource.resource_id &&
+      candidate.editable &&
+      Boolean(candidate.data_binding_id)
+    );
+    if (!document) return null;
+    const authority = this.storageAuthority(session, descriptor.grant!);
+    await this.#documentStorage.initialize();
+    await this.#documentStorage.bindActiveAuthority(authority);
+    const record = await readOrSeedAppDocument({
+      documentStorage: this.#documentStorage,
+      authority,
+      storedPackage: descriptor.storedPackage!,
+      document,
+      operationId: randomUUID(),
+      idempotencyKey: `resource-override-seed-${randomUUID()}`,
+      audit: this.audit,
+    });
+    if (!record) return null;
+    return {
+      content: appDocumentPromptText(record.content),
+      contentDigest: record.content_digest as `sha256:${string}`,
+      source: "owner_override",
+      ownerRevision: record.revision,
+    };
   }
 
   private async requireChatSessionForStorage(sessionId: string): Promise<{
@@ -578,4 +624,8 @@ function defaultRetentionClassForDocument(document: ReturnType<typeof selectAppC
   if (role === "recovery_document") return "rollback_recovery_window";
   if (role === "action_result_document") return "durable_operation_lookup";
   return "durable_owner_data";
+}
+
+function appDocumentPromptText(content: unknown): string {
+  return typeof content === "string" ? content : JSON.stringify(content, null, 2);
 }

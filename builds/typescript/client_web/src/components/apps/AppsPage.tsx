@@ -162,6 +162,24 @@ export default function AppsPage({
     setSelected((current) => current ? { ...current, launch } : current);
   }, [selected]);
 
+  const renewChatWorkspaceSession = useCallback(async (appKey: string, currentLaunch: Extract<AppLaunch, { kind: "chat_workspace" }>) => {
+    let launch: Extract<AppLaunch, { kind: "chat_workspace" }>;
+    try {
+      launch = await launchAppChatWorkspace(appKey, {
+        presentationId: currentLaunch.presentation.presentation_id,
+        workspaceId: currentLaunch.workspace.workspace_id,
+        resume: currentLaunch,
+      });
+    } catch {
+      launch = await launchAppChatWorkspace(appKey, {
+        presentationId: currentLaunch.presentation.presentation_id,
+        workspaceId: currentLaunch.workspace.workspace_id,
+      });
+    }
+    setSelected((current) => current && current.appKey === appKey ? { ...current, launch } : current);
+    return launch;
+  }, []);
+
   const closeConfirmation = () => {
     const appKey = confirmUninstallKey;
     setConfirmUninstallKey(null);
@@ -176,7 +194,7 @@ export default function AppsPage({
   };
 
   if (selected) return isChatWorkspaceLaunch(selected.launch)
-    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
+    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
     : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (

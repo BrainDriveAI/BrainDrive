@@ -28,6 +28,7 @@ type SidebarProps = {
   selectedProjectId: string | null;
   selectedProject: Project | null;
   projectFiles: ProjectFile[];
+  activeFilePath?: string | null;
   isLoadingProjects: boolean;
   isLoadingFiles: boolean;
   onSelectProject: (projectId: string) => void;
@@ -52,6 +53,7 @@ export default function Sidebar({
   selectedProjectId,
   selectedProject,
   projectFiles,
+  activeFilePath,
   isLoadingProjects,
   isLoadingFiles,
   onSelectProject,
@@ -253,6 +255,13 @@ export default function Sidebar({
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
           {isProjectView ? (
             <div className="space-y-1 px-2">
+              <ProjectConversationButton
+                isActive={activeFilePath === null}
+                onReturnToChat={() => {
+                  onReturnToChat();
+                  onClose?.();
+                }}
+              />
               {isLoadingFiles ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">Loading files...</div>
               ) : projectFiles.length === 0 ? (
@@ -555,6 +564,29 @@ function SidebarFileSection({
         ))}
       </div>
     </div>
+  );
+}
+
+function ProjectConversationButton({
+  isActive,
+  onReturnToChat,
+}: {
+  isActive: boolean;
+  onReturnToChat: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={isActive ? "page" : undefined}
+      onClick={onReturnToChat}
+      className={[
+        "mb-3 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover",
+        isActive ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
+      ].join(" ")}
+    >
+      <Bot size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+      <span className="truncate">Conversation</span>
+    </button>
   );
 }
 

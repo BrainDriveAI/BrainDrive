@@ -298,6 +298,7 @@ export default function AppShell({
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
           projectFiles={projectFiles}
+          activeFilePath={activeFile?.path ?? null}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
           onSelectProject={handleSelectProject}
@@ -333,6 +334,7 @@ export default function AppShell({
               selectedProjectId={selectedProjectId}
               selectedProject={selectedProject}
               projectFiles={projectFiles}
+              activeFilePath={activeFile?.path ?? null}
               isLoadingProjects={isLoadingProjects}
               isLoadingFiles={isLoadingFiles}
               onSelectProject={handleSelectProject}

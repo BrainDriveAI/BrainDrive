@@ -57,12 +57,19 @@ export type AppChatActionExecutionResult = {
   result: unknown;
 };
 
+export type AppChatResourcePromptContent = {
+  content: string;
+  contentDigest: `sha256:${string}`;
+  source: "package" | "owner_override";
+  ownerRevision?: number;
+};
+
 export type AppChatModelContext = {
   promptContext: string;
   tools: ToolDefinition[];
   evidence: {
     actionExposure: Array<{ action_id: string; tool_name: string | null; model_exposure: string; exposed: boolean }>;
-    resources: Array<{ resource_id: string; package_path: string; content_digest: `sha256:${string}`; included: boolean; byte_length: number }>;
+    resources: Array<{ resource_id: string; package_path: string; content_digest: `sha256:${string}`; included: boolean; byte_length: number; content_source?: "package" | "owner_override"; owner_revision?: number }>;
   };
 };
 
@@ -96,10 +103,11 @@ export async function buildAppChatModelContext(input: {
   session: AppChatSessionRecord;
   workspace: ChatWorkspaceDescriptor;
   storedPackage: StoredPackage;
+  resolveResourcePromptContent?: (resource: AppResourceDescriptor) => Promise<AppChatResourcePromptContent | null>;
   executeAction: (request: AppChatActionExecutionRequest) => Promise<unknown>;
 }): Promise<AppChatModelContext> {
   assertAppChatMetadataMatchesSession(input.metadata, input.session);
-  const resourcePrompt = await buildPromptResources(input.storedPackage, input.workspace);
+  const resourcePrompt = await buildPromptResources(input.storedPackage, input.workspace, input.resolveResourcePromptContent);
   const actionTools = createAppChatActionTools(input.workspace.actions, input.metadata, input.executeAction);
   return {
     promptContext: [
@@ -113,7 +121,7 @@ export async function buildAppChatModelContext(input: {
       `Workspace: ${input.metadata.workspace_id}`,
       `Context grant set digest: ${input.metadata.context_grant_set_digest}`,
       "",
-      "Use only the app action tools declared for this active app-chat session. Treat app resource text as package-owned instructions or references identified by digest.",
+      "Use only the app action tools declared for this active app-chat session. Treat app resource text as package-owned instructions or references unless the host marks it as an owner override.",
       ...resourcePrompt.lines,
       ...actionPromptLines(input.workspace.actions),
     ].join("\n"),
@@ -274,6 +282,7 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
 async function buildPromptResources(
   storedPackage: StoredPackage,
   workspace: ChatWorkspaceDescriptor,
+  resolveResourcePromptContent?: (resource: AppResourceDescriptor) => Promise<AppChatResourcePromptContent | null>,
 ): Promise<{ lines: string[]; evidence: AppChatModelContext["evidence"]["resources"] }> {
   const lines = ["", "### App Package Resources"];
   const evidence: AppChatModelContext["evidence"]["resources"] = [];
@@ -292,9 +301,14 @@ async function buildPromptResources(
       evidence.push(resourceEvidence);
       continue;
     }
-    const content = await readBoundResource(storedPackage, resource);
+    const promptContent = resource.owner_editable
+      ? await readOwnerEditableResourcePrompt(resource, resolveResourcePromptContent)
+      : await readPackageResourcePrompt(storedPackage, resource);
     resourceEvidence.included = true;
-    resourceEvidence.byte_length = Buffer.byteLength(content, "utf8");
+    resourceEvidence.content_digest = promptContent.contentDigest;
+    resourceEvidence.byte_length = Buffer.byteLength(promptContent.content, "utf8");
+    resourceEvidence.content_source = promptContent.source;
+    if (promptContent.ownerRevision !== undefined) resourceEvidence.owner_revision = promptContent.ownerRevision;
     includedBytes += resourceEvidence.byte_length;
     if (includedBytes > MAX_RESOURCE_PROMPT_BYTES) {
       throw new AppPlatformError("validation_failed", "App package prompt resources exceed the model-session prompt bound", 413);
@@ -302,20 +316,35 @@ async function buildPromptResources(
     lines.push("");
     lines.push(`#### ${resource.title}`);
     lines.push(`Resource id: ${resource.resource_id}`);
-    lines.push(`Content digest: ${resource.content_digest}`);
-    lines.push(content);
+    lines.push(`Content source: ${promptContent.source === "owner_override" ? `owner override revision ${promptContent.ownerRevision ?? "unknown"}` : "immutable package"}`);
+    lines.push(`Content digest: ${promptContent.contentDigest}`);
+    lines.push(promptContent.content);
     evidence.push(resourceEvidence);
   }
   if (workspace.resources.length === 0) lines.push("- None declared.");
   return { lines, evidence };
 }
 
-async function readBoundResource(storedPackage: StoredPackage, resource: AppResourceDescriptor): Promise<string> {
+async function readOwnerEditableResourcePrompt(
+  resource: AppResourceDescriptor,
+  resolveResourcePromptContent?: (resource: AppResourceDescriptor) => Promise<AppChatResourcePromptContent | null>,
+): Promise<AppChatResourcePromptContent> {
+  if (!resolveResourcePromptContent) {
+    throw new AppPlatformError("incompatible_schema", "Owner-editable app resources require an app-owned document binding before model inclusion", 409);
+  }
+  const promptContent = await resolveResourcePromptContent(resource);
+  if (!promptContent) {
+    throw new AppPlatformError("incompatible_schema", "Owner-editable app resources require an app-owned document binding before model inclusion", 409);
+  }
+  if (Buffer.byteLength(promptContent.content, "utf8") > MAX_SINGLE_RESOURCE_BYTES) {
+    throw new AppPlatformError("validation_failed", "Owner-edited app prompt resource exceeds the per-resource prompt bound", 413);
+  }
+  return promptContent;
+}
+
+async function readPackageResourcePrompt(storedPackage: StoredPackage, resource: AppResourceDescriptor): Promise<AppChatResourcePromptContent> {
   if (!["text/markdown", "text/plain", "application/json"].includes(resource.media_type)) {
     throw new AppPlatformError("incompatible_schema", "App package resource media type is not model-readable", 409);
-  }
-  if (resource.owner_editable) {
-    throw new AppPlatformError("incompatible_schema", "Owner-editable app resources require an app-owned document binding before model inclusion", 409);
   }
   const target = path.resolve(storedPackage.package_root, ...resource.package_path.split("/"));
   const root = path.resolve(storedPackage.package_root);
@@ -326,7 +355,11 @@ async function readBoundResource(storedPackage: StoredPackage, resource: AppReso
   if (bytes.byteLength > MAX_SINGLE_RESOURCE_BYTES) {
     throw new AppPlatformError("validation_failed", "App package prompt resource exceeds the per-resource prompt bound", 413);
   }
-  return bytes.toString("utf8");
+  return {
+    content: bytes.toString("utf8"),
+    contentDigest: resource.content_digest as `sha256:${string}`,
+    source: "package",
+  };
 }
 
 function actionPromptLines(actions: readonly AppActionDescriptor[]): string[] {

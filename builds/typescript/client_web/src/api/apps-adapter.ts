@@ -235,6 +235,14 @@ export type AppWorkspaceDocumentDescriptor = {
   model_access: "none" | "read_reference" | "read_write_draft" | "action_result";
   resource_id: string | null;
   data_binding_id: string | null;
+  initial_content?: {
+    initial_content_version: 1;
+    source: "package_file";
+    package_path: string;
+    media_type: "text/markdown" | "text/plain" | "application/json";
+    content_digest: `sha256:${string}`;
+    seed_policy: "when_missing";
+  } | null;
   presentation?: AppWorkspaceDocumentPresentation | null;
 };
 

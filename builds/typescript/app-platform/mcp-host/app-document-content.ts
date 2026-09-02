@@ -28,7 +28,7 @@ export async function readOrSeedAppDocument(input: {
   const current = await input.documentStorage.readDocument(input.authority, input.document.document_id);
   if (current) return current;
   if (!input.document.initial_content) return null;
-  if (!input.document.data_binding_id) {
+  if (!input.document.data_binding_id || input.document.role === "conversation") {
     throw new AppPlatformError("descriptor_invalid", "Initial document content requires a data binding", 409);
   }
 

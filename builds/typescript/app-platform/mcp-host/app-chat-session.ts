@@ -289,6 +289,16 @@ export class AppChatSessionRegistry {
     return current;
   }
 
+  renew(appId: string, sessionId: string): AppChatSessionRecord {
+    const current = this.read(appId, sessionId);
+    const renewed = {
+      ...current,
+      expiresAt: new Date(this.now() + this.ttlMs).toISOString(),
+    };
+    this.sessions.set(viewKey(appId, renewed.viewId), renewed);
+    return renewed;
+  }
+
   close(appId: string, sessionId: string): { closed: boolean; viewId: string | null } {
     this.prune();
     const viewId = this.bySession.get(sessionKey(appId, sessionId));
