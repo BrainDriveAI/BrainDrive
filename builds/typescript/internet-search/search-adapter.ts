@@ -21,6 +21,7 @@ import { INTERNET_SEARCH_LOCAL_V1_LIMITS } from "./limits.js";
 const PROVIDER_PROFILE = "local-owner-managed";
 const PROVIDER_ATTRIBUTION = "host-mediated-search";
 const DEFAULT_TIMEOUT_MS = INTERNET_SEARCH_LOCAL_V1_LIMITS.search_operation_timeout_ms;
+const DEFAULT_SEARXNG_ENGINES = "bing";
 
 const SearchRequestSchema = z
   .object({
@@ -32,7 +33,10 @@ const SearchRequestSchema = z
   })
   .strict();
 
-const SearxngProviderResponseSchema = z.object({ results: z.array(z.unknown()) }).passthrough();
+const SearxngProviderResponseSchema = z.object({
+  results: z.array(z.unknown()),
+  unresponsive_engines: z.array(z.array(z.unknown())).optional(),
+}).passthrough();
 
 export type WebSearchExecutionRequest = z.input<typeof SearchRequestSchema>;
 export type SearxngSearchClientInput = {
@@ -168,15 +172,17 @@ export class HttpSearxngSearchClient implements SearxngSearchClient {
   readonly #searchPath: string;
   readonly #timeoutMs: number;
   readonly #fetchImpl: typeof fetch;
+  readonly #engines: string | null;
 
   constructor(
     binding: SearxngSidecarBinding,
-    options: { searchPath?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+    options: { searchPath?: string; timeoutMs?: number; fetchImpl?: typeof fetch; engines?: string | null } = {},
   ) {
     this.#baseUrl = new URL(assertPrivateSearxngBinding(binding).endpoint_url);
     this.#searchPath = options.searchPath ?? "/search";
     this.#timeoutMs = capPositiveInt(options.timeoutMs, DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
     this.#fetchImpl = options.fetchImpl ?? fetch;
+    this.#engines = normalizeSearxngEngines(options.engines ?? DEFAULT_SEARXNG_ENGINES);
   }
 
   async search(input: SearxngSearchClientInput): Promise<unknown> {
@@ -185,6 +191,7 @@ export class HttpSearxngSearchClient implements SearxngSearchClient {
     url.searchParams.set("q", input.query);
     url.searchParams.set("format", "json");
     url.searchParams.set("categories", "general");
+    if (this.#engines) url.searchParams.set("engines", this.#engines);
     url.searchParams.set("safesearch", "1");
     url.searchParams.set("pageno", "1");
     if (input.filters.language) url.searchParams.set("language", input.filters.language);
@@ -243,6 +250,7 @@ export function createConfiguredSearxngWebSearchAdapter(
     client: new HttpSearxngSearchClient(binding, {
       searchPath: env.BRAINDRIVE_INTERNET_SEARCH_SIDECAR_SEARCH_PATH?.trim() || undefined,
       timeoutMs: readPositiveInt(env.BRAINDRIVE_INTERNET_SEARCH_QUERY_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
+      engines: env.BRAINDRIVE_INTERNET_SEARCH_SIDECAR_ENGINES?.trim() || undefined,
       fetchImpl: options.fetchImpl,
     }),
     statusProvider: options.statusProvider ?? null,
@@ -291,6 +299,19 @@ function normalizeSearxngResponse(
       includeProvider: true,
     });
   }
+  const providerFailure = providerFailureFromUnresponsiveEngines(response);
+  if (normalized.results.length === 0 && providerFailure) {
+    return envelope({
+      requestId: options.requestId,
+      runId: options.runId,
+      status: statusForFailureCode(providerFailure.code),
+      retrievedAt: options.retrievedAt,
+      results: [],
+      failure: failure(providerFailure.code, true, providerFailure.message),
+      usageSearchCall: 1,
+      includeProvider: true,
+    });
+  }
   return envelope({
     requestId: options.requestId,
     runId: options.runId,
@@ -320,6 +341,24 @@ function normalizeProviderResults(
     else invalidResultCount += 1;
   }
   return { validProviderEnvelope: true, results, invalidResultCount };
+}
+
+function providerFailureFromUnresponsiveEngines(response: unknown): { code: "blocked" | "rate_limited" | "provider_unavailable"; message: string } | null {
+  const parsed = SearxngProviderResponseSchema.safeParse(response);
+  if (!parsed.success || !parsed.data.unresponsive_engines || parsed.data.unresponsive_engines.length === 0) return null;
+  const reasons = parsed.data.unresponsive_engines
+    .map((entry) => stringValue(entry[1])?.toLowerCase() ?? "")
+    .filter(Boolean);
+  if (reasons.length === 0) {
+    return { code: "provider_unavailable", message: "Search provider engines are unavailable." };
+  }
+  if (reasons.every((reason) => /rate|too many/.test(reason))) {
+    return { code: "rate_limited", message: "Search provider engines are rate limited." };
+  }
+  if (reasons.every((reason) => /captcha|access denied|forbidden|blocked/.test(reason))) {
+    return { code: "blocked", message: "Search provider engines refused the request." };
+  }
+  return { code: "provider_unavailable", message: "Search provider engines are unavailable." };
 }
 
 function normalizeResult(rawResult: unknown, retrievedAt: string): WebSearchEnvelope["results"][number] | null {
@@ -463,6 +502,14 @@ function readPositiveInt(value: string | undefined, fallback: number, max: numbe
   if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number(value);
   return capPositiveInt(parsed, fallback, max);
+}
+
+function normalizeSearxngEngines(value: string | null | undefined): string | null {
+  const engines = String(value ?? "")
+    .split(",")
+    .map((engine) => engine.trim())
+    .filter((engine) => /^[a-z0-9][a-z0-9 _-]{0,63}$/i.test(engine));
+  return engines.length > 0 ? engines.join(",") : null;
 }
 
 function capPositiveInt(value: number | undefined, fallback: number, max: number): number {

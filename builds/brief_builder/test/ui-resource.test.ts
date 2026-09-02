@@ -17,6 +17,10 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain('request("capability.discover"');
     expect(html).toContain('send("web.search@1"');
     expect(html).toContain('send("web.read@1"');
+    expect(html).toContain('busy=true;readEnvelope=null;selectedReadIndex=null;searchEnvelope=null;internetRunId=id();setStatus("Calling web.search@1.");render()');
+    expect(html).toContain('catch{searchEnvelope=null;setStatus("Search call failed safely.","error")}finally{busy=false;render()}');
+    expect(html).toContain('busy=true;selectedReadIndex=index;readEnvelope=null;setStatus("Calling web.read@1.");render()');
+    expect(html).toContain('catch{readEnvelope=null;setStatus("Read call failed safely.","error")}finally{busy=false;render()}');
     expect(html).toContain("External untrusted source material");
     expect(html).toContain("external-untrusted");
     expect(html).toContain('supported_capabilities:["brief.records.read","brief.records.write","brief.approvals.confirm","app.inference.request","web.search@1","web.read@1"]');
@@ -45,7 +49,7 @@ describe("Brief Builder primary resource", () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     expect(packageJson).toMatchObject({
       name: "@braindrive/brief-builder",
-      version: "1.2.0",
+      version: "1.2.1",
       braindrive: {
         appId: "ai.braindrive.brief-builder",
         routeKey: "brief-builder",

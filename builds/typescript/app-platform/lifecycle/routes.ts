@@ -555,9 +555,15 @@ function retentionProjection(manifest: RuntimePackageManifest | undefined): {
 
 function lifecycleActions(state: string, installed: string | null, available: string | null, packageUsable: boolean): string[] {
   if (state === "not_installed") return packageUsable ? ["install"] : [];
+  if (state === "failed_recoverable") {
+    return [
+      ...(packageUsable && available && installed !== available ? ["update"] : []),
+      ...(packageUsable ? ["recover"] : []),
+      "uninstall",
+    ];
+  }
   const actions = state === "active" ? [...(packageUsable ? ["launch"] : []), "disable", "uninstall"]
     : state === "disabled" ? [...(packageUsable ? ["enable"] : []), "uninstall"]
-    : state === "failed_recoverable" ? [...(packageUsable ? ["recover"] : []), "uninstall"]
     : state === "quarantined" ? ["uninstall"] : [];
   if (packageUsable && available && ["active", "disabled"].includes(state) && installed !== available) actions.push("update");
   return actions;

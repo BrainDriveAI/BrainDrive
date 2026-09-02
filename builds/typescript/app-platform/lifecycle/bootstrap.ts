@@ -16,6 +16,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
+export const BRIEF_BUILDER_VERSION = "1.2.1" as const;
 
 export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean }): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
@@ -69,7 +70,7 @@ export async function createBriefAppLifecycle(input: { memoryRoot: string; hostV
   const resourcePath = briefResourceCandidates().find((candidate) => existsSync(candidate));
   if (!resourcePath) throw new Error("Brief Builder UI package resource is missing");
   const repository = await createSyntheticFirstPartyFixtureRepository(path.join(stateRoot, "fixture-source-brief"), [{
-    appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.2.0",
+    appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: BRIEF_BUILDER_VERSION,
     summary: "Summarize source material into a concise, supported brief you can review, edit, and approve.",
     resourceHtml: await readFile(resourcePath, "utf8"),
     requestedCapabilities: ["brief.records.read", "brief.records.write", "brief.approvals.confirm", "app.inference.request", "web.search", "web.read"],

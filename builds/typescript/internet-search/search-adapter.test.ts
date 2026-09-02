@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createConfiguredSearxngWebSearchAdapter, WebSearchProviderError, SearxngWebSearchAdapter, type SearxngSearchClient } from "./search-adapter.js";
+import { createConfiguredSearxngWebSearchAdapter, HttpSearxngSearchClient, WebSearchProviderError, SearxngWebSearchAdapter, type SearxngSearchClient } from "./search-adapter.js";
 import { INTERNET_SEARCH_LOCAL_V1_LIMITS } from "./limits.js";
 import type { SearxngSidecarSnapshot } from "./sidecar.js";
 
@@ -109,6 +109,82 @@ describe("web.search@1 SearXNG adapter", () => {
       failure: null,
       usage: { search_call: 1 },
     });
+  });
+
+  it("selects a stable SearXNG engine instead of relying on brittle upstream defaults", async () => {
+    const requestedUrls: URL[] = [];
+    const adapter = adapterWith(new HttpSearxngSearchClient({
+      transport: "container_internal",
+      endpoint_url: "http://internet-search-searxng:8080",
+    }, {
+      fetchImpl: async (url) => {
+        requestedUrls.push(new URL(String(url)));
+        return new Response(JSON.stringify({ results: [rawResult()] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    }));
+
+    await adapter.search({
+      request_id: requestId,
+      run_id: runId,
+      input: { query: "stable engine", max_results: 5 },
+    });
+
+    const requestedUrl = requestedUrls[0];
+    expect(requestedUrl?.searchParams.get("format")).toBe("json");
+    expect(requestedUrl?.searchParams.get("engines")).toBe("bing");
+  });
+
+  it("keeps unresponsive provider engines distinct from empty success", async () => {
+    const adapter = adapterWith(clientWith(async () => ({
+      results: [],
+      unresponsive_engines: [
+        ["duckduckgo", "CAPTCHA"],
+        ["brave", "Suspended: too many requests"],
+        ["aol", "HTTP error"],
+      ],
+    })));
+
+    await expect(adapter.search({
+      request_id: requestId,
+      run_id: runId,
+      input: { query: "upstream failures", max_results: 5 },
+    })).resolves.toMatchObject({
+      status: "unavailable",
+      results: [],
+      failure: {
+        code: "provider_unavailable",
+        message: "Search provider engines are unavailable.",
+        retryable: true,
+        completed_items: 0,
+      },
+      usage: { search_call: 1 },
+    });
+  });
+
+  it("preserves blocked and rate-limited search engine failures when SearXNG reports them consistently", async () => {
+    for (const [reason, code, message] of [
+      ["CAPTCHA", "blocked", "Search provider engines refused the request."],
+      ["Suspended: too many requests", "rate_limited", "Search provider engines are rate limited."],
+    ] as const) {
+      const adapter = adapterWith(clientWith(async () => ({
+        results: [],
+        unresponsive_engines: [["engine-a", reason], ["engine-b", reason]],
+      })));
+
+      await expect(adapter.search({
+        request_id: requestId,
+        run_id: runId,
+        input: { query: `upstream ${code}`, max_results: 5 },
+      })).resolves.toMatchObject({
+        status: "failure",
+        results: [],
+        failure: { code, message, retryable: true, completed_items: 0 },
+        usage: { search_call: 1 },
+      });
+    }
   });
 
   it("returns invalid_request without calling the provider for invalid input", async () => {

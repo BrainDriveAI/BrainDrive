@@ -97,6 +97,26 @@ describe("trusted lifecycle service", () => {
     expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
   });
 
+  it("updates a recoverable failed app to a newer verified package and returns it to active", async () => {
+    const h = await harness();
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    for (const runtime of h.supervisor.inspect(installed.record.installation_id!)) await h.supervisor.stop(runtime, "reconcile");
+    h.tokenBroker.revokeInstallation(installed.record.installation_id!);
+    const failed = { ...installed.record, state: "failed_recoverable" as const, generation: installed.record.generation + 1, updated_at: new Date().toISOString() };
+    await h.store.compareAndSwapLifecycle(installed.record.generation, failed);
+
+    const updated = await h.service.update({ version: "2.0.0", idempotencyKey: "update-from-failed-001", approveCapabilities: true });
+
+    expect(updated.record).toMatchObject({
+      state: "active",
+      installation_id: installed.record.installation_id,
+      last_known_good_package_digest: installed.record.active_package_digest,
+    });
+    expect(updated.record.active_package_digest).not.toBe(installed.record.active_package_digest);
+    expect(updated.record.successful_use_checkpoint).toMatchObject({ status: "pending" });
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
+  });
+
   it("requires explicit approval for first install and widened update grants", async () => {
     const h = await harness();
     await expect(h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: false }))

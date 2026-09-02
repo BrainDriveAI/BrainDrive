@@ -203,10 +203,11 @@ export class AppLifecycleService {
   async update(input: InstallInput): Promise<LifecycleResponse> {
     return this.runLifecycleMutation(input.idempotencyKey, { kind: "update", version: input.version, approve_capabilities: input.approveCapabilities, operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
-      const prior = await this.requireState(["active", "disabled"]);
+      const prior = await this.requireState(["active", "disabled", "failed_recoverable"]);
       this.assertBinding(prior, input);
       await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
-      let operation = this.newOperation("update", prior, prior.installation_id!, input.idempotencyKey, { version: input.version }, prior.state, "updating", input.operationId);
+      const targetState = prior.state === "disabled" ? "disabled" : "active";
+      let operation = this.newOperation("update", prior, prior.installation_id!, input.idempotencyKey, { version: input.version }, targetState, "updating", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       let candidate: VerifiedPackage | null = null;
       let candidateGrant: CapabilityGrant | null = null;
@@ -225,7 +226,7 @@ export class AppLifecycleService {
         const updating = LifecycleRecordSchema.parse({ ...prior, state: "updating", generation: prior.generation + 1, pending_operation_id: operation.operation_id, updated_at: new Date().toISOString() });
         await this.dependencies.store.compareAndSwapLifecycle(prior.generation, updating);
         await this.ensureNotCancelled(operation);
-        if (prior.state === "active") {
+        if (prior.state !== "disabled") {
           operation = await this.stage(operation, "revoking_tokens");
           this.dependencies.tokenBroker.revokeInstallation(prior.installation_id!);
           await this.stopInstallation(prior.installation_id!, "update");
@@ -236,11 +237,11 @@ export class AppLifecycleService {
         }
         await this.ensureNotCancelled(operation);
         operation = await this.stage(operation, "switching_active_pointer");
-        const next = LifecycleRecordSchema.parse({ ...updating, state: prior.state, generation: updating.generation + 1, active_package_digest: candidate.packageDigest, last_known_good_package_digest: prior.active_package_digest, grant_id: candidateGrant.grant_id, pending_operation_id: null, successful_use_checkpoint: { checkpoint_version: 1, package_digest: candidate.packageDigest, status: "pending", started_at: new Date().toISOString(), completed_at: null, evidence_operation_id: null }, updated_at: new Date().toISOString() });
+        const next = LifecycleRecordSchema.parse({ ...updating, state: targetState, generation: updating.generation + 1, active_package_digest: candidate.packageDigest, last_known_good_package_digest: prior.active_package_digest, grant_id: candidateGrant.grant_id, pending_operation_id: null, successful_use_checkpoint: { checkpoint_version: 1, package_digest: candidate.packageDigest, status: "pending", started_at: new Date().toISOString(), completed_at: null, evidence_operation_id: null }, updated_at: new Date().toISOString() });
         await this.dependencies.store.compareAndSwapLifecycle(updating.generation, next);
         this.dependencies.tokenBroker.permitInstallation(prior.installation_id!);
         await this.dependencies.store.revokeGrant(prior.grant_id!);
-        operation = await this.complete(operation, next, "committed", prior.state === "disabled");
+        operation = await this.complete(operation, next, "committed", targetState === "disabled");
         this.emit("app.lifecycle.update.committed", prior, next, operation);
         return { record: next, operation, grant: candidateGrant };
       } catch (error) {
@@ -251,7 +252,7 @@ export class AppLifecycleService {
           if (prior.state === "active") await this.restartPrior(prior);
           const restored = LifecycleRecordSchema.parse({ ...prior, generation: current.generation + 1, updated_at: new Date().toISOString() });
           await this.dependencies.store.compareAndSwapLifecycle(current.generation, restored);
-          this.dependencies.tokenBroker.permitInstallation(prior.installation_id!);
+          if (prior.state !== "failed_recoverable") this.dependencies.tokenBroker.permitInstallation(prior.installation_id!);
         }
         if (candidateGrant) await this.dependencies.store.revokeGrant(candidateGrant.grant_id).catch(() => undefined);
         if (candidate) await this.releaseVerifiedPackage(candidate);

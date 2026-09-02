@@ -261,7 +261,7 @@ describe("Spec 08 M7 two-app lifecycle failure isolation", () => {
     try {
       const [resumeInstalled, briefInstalled] = await Promise.all([
         resume.install({ version: "1.0.0", idempotencyKey: "m7-live-resume-install", approveCapabilities: true }),
-        brief.install({ version: "1.2.0", idempotencyKey: `m7-live-brief-install-${target}`, approveCapabilities: true }),
+        brief.install({ version: "1.2.1", idempotencyKey: `m7-live-brief-install-${target}`, approveCapabilities: true }),
       ]);
       const resumeId = resumeInstalled.record.installation_id!;
       const briefId = briefInstalled.record.installation_id!;

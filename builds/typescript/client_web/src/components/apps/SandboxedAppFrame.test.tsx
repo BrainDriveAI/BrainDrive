@@ -214,7 +214,7 @@ describe("sandboxed MCP App frame", () => {
     };
 
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "brief", version: "1.2.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "brief", version: "1.2.1" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.discover", payload: { operation_id: "web.search@1" } });
     await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.call", payload: { capability: "web.search@1", input: request } });

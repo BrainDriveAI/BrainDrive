@@ -242,7 +242,7 @@ export default function AppCatalogCard({
 
       <div className="mt-auto flex flex-wrap gap-2 pt-6" aria-label={`${app.identity.display_name} controls`}>
         {actions.map((action) => {
-          const isPrimary = ["install", "reinstall", "launch", "enable", "recover"].includes(action);
+          const isPrimary = ["install", "reinstall", "launch", "enable", "recover", "update"].includes(action);
           const label = action === "launch" && launchLabel ? launchLabel : actionLabel[action];
           if (!label) return null;
           return <button

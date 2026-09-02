@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const dockerRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(dockerRoot, "..", "..");
 const target = "docker_linux_x64";
+const searxngSettingsPath = "sidecars/searxng/settings.yml";
 const manifestPaths = await resolveManifestPaths(args.manifest);
 const plans = [];
 
@@ -43,20 +44,24 @@ for (const manifestPath of manifestPaths) {
       endpoint: `http://${serviceName}:${containerPort}`,
       health_path: sidecar.health?.path ?? "/healthz",
       cleanup: "compose_project_service",
+      config_mounts: configMountsFor(selectedTarget),
     });
   }
 }
 
 await mkdir(path.dirname(out), { recursive: true });
 await mkdir(path.dirname(descriptors), { recursive: true });
+const searxngSecret = plans.some((plan) => isSearxngImage(plan.image))
+  ? await readOrCreateSearxngSecret(path.dirname(out), mode)
+  : null;
 await writeFile(descriptors, `${JSON.stringify({
   descriptor_version: 1,
   generated_by: "braindrive-package-sidecar-renderer",
   mode,
   target,
-  sidecars: plans.map(({ image: _image, ...runtime }) => runtime),
+  sidecars: plans.map(({ image: _image, config_mounts: _configMounts, ...runtime }) => runtime),
 }, null, 2)}\n`, "utf8");
-await writeFile(out, renderComposeOverride(plans, descriptors), "utf8");
+await writeFile(out, renderComposeOverride(plans, descriptors, { searxngSecret }), "utf8");
 console.log(`Rendered ${plans.length} package-declared Docker sidecar(s) for ${mode}.`);
 
 function parseArgs(values) {
@@ -98,7 +103,28 @@ function serviceNameFor(packageId, componentId) {
   return `bdsc-${digest}`;
 }
 
-function renderComposeOverride(plans, descriptorPath) {
+function configMountsFor(targetValue) {
+  if (!isSearxngImage(targetValue.image)) return [];
+  return [{
+    source: searxngSettingsPath,
+    target: "/etc/searxng/settings.yml",
+    read_only: true,
+  }];
+}
+
+function isSearxngImage(image) {
+  return String(image ?? "").startsWith("searxng/searxng:");
+}
+
+async function readOrCreateSearxngSecret(generatedDir, modeValue) {
+  const secretPath = path.join(generatedDir, `package-sidecars.${modeValue}.searxng-secret`);
+  if (existsSync(secretPath)) return (await readFile(secretPath, "utf8")).trim();
+  const secret = randomBytes(32).toString("base64url");
+  await writeFile(secretPath, `${secret}\n`, { encoding: "utf8", mode: 0o600 });
+  return secret;
+}
+
+function renderComposeOverride(plans, descriptorPath, options = {}) {
   const relativeDescriptor = path.relative(dockerRoot, descriptorPath).split(path.sep).join("/");
   const lines = [
     "services:",
@@ -120,8 +146,20 @@ function renderComposeOverride(plans, descriptorPath) {
     lines.push(`  ${plan.service_name}:`);
     lines.push(`    image: ${plan.image}`);
     lines.push("    restart: unless-stopped");
+    if (isSearxngImage(plan.image)) {
+      lines.push("    environment:");
+      lines.push("      FORCE_OWNERSHIP: \"false\"");
+      if (options.searxngSecret) lines.push(`      SEARXNG_SECRET: ${options.searxngSecret}`);
+    }
     lines.push("    expose:");
     lines.push(`      - "${new URL(plan.endpoint).port}"`);
+    if (plan.config_mounts.length > 0) {
+      lines.push("    volumes:");
+      for (const mount of plan.config_mounts) {
+        const mode = mount.read_only ? ":ro" : "";
+        lines.push(`      - ./${mount.source}:${mount.target}${mode}`);
+      }
+    }
     lines.push("    security_opt:");
     lines.push("      - no-new-privileges:true");
   }

@@ -89,6 +89,10 @@ describe("Docker development first-party app package boundary", () => {
   it("renders private Docker sidecar services from package manifests and wires only a generic descriptor file into app", async () => {
     const { compose, descriptor } = await renderPackageSidecars("dev");
     const [sidecar] = descriptor.sidecars;
+    const searxngSettings = await readFile(
+      resolve(process.cwd(), "../../installer/docker/sidecars/searxng/settings.yml"),
+      "utf8",
+    );
 
     expect(descriptor).toMatchObject({
       descriptor_version: 1,
@@ -107,10 +111,17 @@ describe("Docker development first-party app package boundary", () => {
     expect(compose).toContain("BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE: /run/braindrive-sidecars/runtime-descriptors.json");
     expect(compose).toContain(`${sidecar?.service_name}:`);
     expect(compose).toContain("image: searxng/searxng:2026.9");
+    expect(compose).toContain("FORCE_OWNERSHIP: \"false\"");
+    expect(compose).toMatch(/SEARXNG_SECRET: [A-Za-z0-9_-]{32,}/);
+    expect(compose).toContain("./sidecars/searxng/settings.yml:/etc/searxng/settings.yml:ro");
     expect(compose).toContain("no-new-privileges:true");
+    expect(JSON.stringify(descriptor)).not.toContain("config_mounts");
+    expect(JSON.stringify(descriptor)).not.toContain("/etc/searxng/settings.yml");
     expect(compose).not.toMatch(/^\s{4}ports:/m);
     expect(compose).not.toContain("BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL");
     expect(compose).not.toContain("internet-search-searxng");
+    expect(searxngSettings).toContain("use_default_settings: true");
+    expect(searxngSettings).toContain("- json");
   });
 
   it("keeps the Docker installer proof manifest in parity with the source package manifest", async () => {

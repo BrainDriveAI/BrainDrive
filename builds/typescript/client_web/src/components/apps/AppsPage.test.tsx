@@ -771,8 +771,11 @@ describe("manifest-driven Apps surface", () => {
     rerender(<AppsPage />);
     await userEvent.click(screen.getByRole("button", { name: "Refresh app catalog" }));
     expect(await screen.findByText(/Quarantined because package trust changed/)).toBeInTheDocument();
-    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "failed_recoverable", available_actions: ["recover", "uninstall"], recovery: { available: true, action: "retry_recovery_or_reinstall" } })] });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "failed_recoverable", version: { installed: "3.0.2", available: "3.1.0" }, available_actions: ["update", "recover", "uninstall"], recovery: { available: true, action: "retry_recovery_or_reinstall" } })] });
     await userEvent.click(screen.getByRole("button", { name: "Refresh app catalog" }));
+    const controls = await screen.findByLabelText("Resume Builder controls");
+    expect(controls).toHaveTextContent(/^UpdateRetry recoveryUninstall$/);
+    expect(screen.getByRole("button", { name: "Update Resume Builder" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Retry recovery Resume Builder" })).toBeInTheDocument();
   });
 

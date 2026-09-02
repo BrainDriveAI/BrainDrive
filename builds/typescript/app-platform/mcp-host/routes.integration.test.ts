@@ -11,6 +11,8 @@ import { CapabilityTokenBroker } from "../lifecycle/capability-token.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 import { InstalledPackageStore, type CapabilityDependencyResolver } from "../lifecycle/installed-package-store.js";
 import type { AppLifecycleService } from "../lifecycle/service.js";
+import type { WebReadEnvelope } from "../../internet-search/contracts/read.js";
+import type { WebSearchEnvelope } from "../../internet-search/contracts/search.js";
 import type { AppMcpHost } from "./app-host.js";
 import { createAppMcpHostRoutePlatform, registerAppMcpHostRoutes } from "./routes.js";
 
@@ -417,8 +419,10 @@ function appScopedCapabilityFixture(options: { grantMissing?: boolean; generatio
     dependencies: { tokenBroker },
     ownerDescriptor: vi.fn(async () => ({ record, grant, packageVersion: "1.0.0", storedPackage: null })),
   } as unknown as AppLifecycleService;
-  const providerRouter = {
-    call: vi.fn(async (operationId: string, request: { request_id: string; run_id: string }) => operationId === "web.read@1"
+  const callProvider = vi.fn(async (
+    operationId: string,
+    request: { request_id: string; run_id: string },
+  ): Promise<WebReadEnvelope | WebSearchEnvelope> => operationId === "web.read@1"
       ? {
           capability: "web.read",
           version: 1,
@@ -463,7 +467,9 @@ function appScopedCapabilityFixture(options: { grantMissing?: boolean; generatio
             result_class: "outside-fact",
           }],
           failure: null,
-        }),
+        });
+  const providerRouter = {
+    call: callProvider,
   };
   const platform = createAppMcpHostRoutePlatform([{ appId: host.appId, routeKey: host.routeKey, host, service }], {
     appCapabilityRouter: providerRouter,
@@ -528,7 +534,7 @@ function selectResearchConsumerSource(searchEnvelope: unknown): { state: "search
       failureCode: typeof envelope.failure?.code === "string" ? envelope.failure.code : "safe_failure",
     };
   }
-  const selectedUrl = envelope.results?.find((result) => typeof result.url === "string")?.url;
+  const selectedUrl = envelope.results?.find((result): result is { url: string } => typeof result.url === "string")?.url;
   return {
     state: "searched",
     selectedUrl: selectedUrl ?? "",
@@ -1259,7 +1265,7 @@ describe("owner MCP Apps host gateway routes", () => {
     const selected = selectResearchConsumerSource(search.json().result);
     expect(selected).toEqual({ state: "searched", selectedUrl: "https://example.test/ac007", resultCount: 1 });
 
-    vi.mocked(fixture.providerRouter.call).mockResolvedValueOnce({
+    const unavailableSearchEnvelope: WebSearchEnvelope = {
       capability: "web.search",
       version: 1,
       request_id: "10000000-0000-4000-8000-000000000715",
@@ -1269,8 +1275,9 @@ describe("owner MCP Apps host gateway routes", () => {
       provider: null,
       usage: { search_call: 0 },
       results: [],
-      failure: { code: "provider_unavailable", message: "Capability provider is unavailable.", retryable: true },
-    });
+      failure: { code: "provider_unavailable", message: "Capability provider is unavailable.", retryable: true, completed_items: 0 },
+    };
+    vi.mocked(fixture.providerRouter.call).mockResolvedValueOnce(unavailableSearchEnvelope);
     const failurePayload = fixture.payload({
       operationId: "10000000-0000-4000-8000-000000000715",
       idempotencyKey: "app-search-idempotency-0002",
