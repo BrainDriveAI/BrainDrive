@@ -201,6 +201,25 @@ const dependencyReady: appsApi.CapabilityDependencyReadiness = {
   degraded_operation_ids: [],
 };
 
+const runtimeSummary: appsApi.RuntimeSummary = {
+  sidecar_count: 1,
+  target_support: "supported",
+  target_labels: ["Desktop Windows x64", "Desktop macOS universal"],
+  target_message: "This package declares a runtime for this desktop target.",
+  install_size: {
+    classification: "large",
+    safe_message: "Large install: BrainDrive will stage about 1.2 GB of package bytes and isolated runtime data.",
+  },
+  first_start: {
+    classification: "lengthy",
+    safe_message: "Lengthy first start: first start may take several minutes while BrainDrive prepares the declared runtime.",
+  },
+  os_security: {
+    classification: "review_required",
+    safe_message: "OS security review may be required before first start. BrainDrive will show a safe blocked state if the desktop denies execution.",
+  },
+};
+
 function dependencyStatus(
   operationId: string,
   requirement: "required" | "optional",
@@ -253,6 +272,7 @@ function providerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
         dependency_readiness: dependencyReady,
         sidecar_count: 1,
         target_support: [],
+        runtime_summary: runtimeSummary,
       },
       {
         component_id: "search.runtime",
@@ -269,6 +289,24 @@ function providerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
         dependency_readiness: dependencyReady,
         sidecar_count: 0,
         target_support: [{ target: "docker_linux_x64", runtime_kind: "container" }],
+        runtime_summary: {
+          ...runtimeSummary,
+          target_labels: ["Docker Linux x64"],
+          target_message: "This package does not declare a runtime for this desktop target.",
+          target_support: "unsupported",
+          install_size: {
+            classification: "unknown",
+            safe_message: "Install size will be checked by the Host before staging.",
+          },
+          first_start: {
+            classification: "unknown",
+            safe_message: "First-start cost will be checked by the Host before start.",
+          },
+          os_security: {
+            classification: "not_applicable",
+            safe_message: "No desktop OS security review is declared for this runtime.",
+          },
+        },
       },
     ],
     operations: [
@@ -284,6 +322,24 @@ function providerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
       provider_cache: "delete_by_default_unless_owner_preserves",
       diagnostics: "bounded_redacted",
       evidence: "content_free_bounded",
+    },
+    runtime_summary: {
+      ...runtimeSummary,
+      target_labels: ["Docker Linux x64"],
+      target_message: "This package does not declare a runtime for this desktop target.",
+      target_support: "unsupported",
+      install_size: {
+        classification: "unknown",
+        safe_message: "Install size will be checked by the Host before staging.",
+      },
+      first_start: {
+        classification: "unknown",
+        safe_message: "First-start cost will be checked by the Host before start.",
+      },
+      os_security: {
+        classification: "not_applicable",
+        safe_message: "No desktop OS security review is declared for this runtime.",
+      },
     },
     available_actions: ["disable", "update", "uninstall", "launch"],
     updated_at: "2026-09-01T12:00:00.000Z",
@@ -332,6 +388,17 @@ function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = 
       },
       sidecar_count: 0,
       target_support: [{ target: "desktop_macos_universal", runtime_kind: "packaged_process" }],
+      runtime_summary: {
+        ...runtimeSummary,
+        sidecar_count: 0,
+        target_labels: ["Desktop macOS universal"],
+        target_support: "unsupported",
+        target_message: "This package does not declare a runtime for this desktop target.",
+        os_security: {
+          classification: "blocked",
+          safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls.",
+        },
+      },
     }],
     operations: [],
     capability_dependencies: [{
@@ -350,6 +417,17 @@ function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = 
       degraded_operation_ids: ["web.search@1"],
     },
     available_actions: ["enable", "update", "uninstall"],
+    runtime_summary: {
+      ...runtimeSummary,
+      sidecar_count: 0,
+      target_labels: ["Desktop macOS universal"],
+      target_support: "unsupported",
+      target_message: "This package does not declare a runtime for this desktop target.",
+      os_security: {
+        classification: "blocked",
+        safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls.",
+      },
+    },
     updated_at: "2026-09-01T12:30:00.000Z",
     ...overrides,
   };
@@ -391,6 +469,24 @@ function consumerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
       },
       sidecar_count: 0,
       target_support: [],
+      runtime_summary: {
+        sidecar_count: 0,
+        target_support: "unknown",
+        target_labels: [],
+        target_message: "No sidecar runtime is declared for this package.",
+        install_size: {
+          classification: "none",
+          safe_message: "No sidecar runtime install is declared.",
+        },
+        first_start: {
+          classification: "not_required",
+          safe_message: "No sidecar runtime first start is required.",
+        },
+        os_security: {
+          classification: "not_applicable",
+          safe_message: "No desktop OS security review is declared for this runtime.",
+        },
+      },
     }],
     operations: [],
     capability_dependencies: [{
@@ -406,6 +502,24 @@ function consumerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
       blocking_operation_ids: ["web.search@1"],
     },
     available_actions: ["disable", "update", "uninstall"],
+    runtime_summary: {
+      sidecar_count: 0,
+      target_support: "unknown",
+      target_labels: [],
+      target_message: "No sidecar runtime is declared for this package.",
+      install_size: {
+        classification: "none",
+        safe_message: "No sidecar runtime install is declared.",
+      },
+      first_start: {
+        classification: "not_required",
+        safe_message: "No sidecar runtime first start is required.",
+      },
+      os_security: {
+        classification: "not_applicable",
+        safe_message: "No desktop OS security review is declared for this runtime.",
+      },
+    },
     ...overrides,
   };
 }
@@ -423,7 +537,7 @@ describe("manifest-driven Apps surface", () => {
     await user.hover(screen.getByRole("button", { name: "More about Brief Builder" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Summarize source material into a concise, supported brief you can review, edit, and approve.");
     await user.click(screen.getByRole("button", { name: "Show detailed cards" }));
-    expect(screen.getByText(/ui:\/\/brief-builder\/main/)).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="app-catalog"]')?.textContent ?? "").not.toMatch(/ui:\/\/brief-builder\/main|payload\//i);
     expect(screen.getByRole("button", { name: "Install Brief Builder" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable Brief Builder" })).not.toBeInTheDocument();
 
@@ -436,7 +550,7 @@ describe("manifest-driven Apps surface", () => {
   });
 
   it("renders manifest-looking markup as bounded text and never creates app-authored controls", async () => {
-    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [{ ...brief, identity: { ...brief.identity, display_name: '<a href="https://evil.invalid">Launch</a>' }, catalog: { ...brief.catalog!, summary: '<button>Approve</button><script>bad()</script>' } }, base] });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [{ ...brief, identity: { ...brief.identity, display_name: '<a href="https://evil.invalid">Launch</a>' }, catalog: { ...brief.catalog!, summary: '<button>Approve</button><script>bad()</script>', icon: { package_path: "payload/icons/evil.png", media_type: "image/png", content_digest: `sha256:${"1".repeat(64)}` } } }, base] });
     const user = userEvent.setup();
     const { container } = renderApps(<AppsPage />);
     expect(await screen.findByText('<a href="https://evil.invalid">Launch</a>')).toBeInTheDocument();
@@ -444,6 +558,7 @@ describe("manifest-driven Apps surface", () => {
     expect(await screen.findByText('<button>Approve</button><script>bad()</script>')).toBeInTheDocument();
     expect(container.querySelector('a[href="https://evil.invalid"]')).toBeNull();
     expect(container.querySelector("script")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("payload/icons/evil.png");
   });
 
   it("keeps one unavailable card isolated without disabling the unrelated app", async () => {
@@ -575,6 +690,9 @@ describe("manifest-driven Apps surface", () => {
   });
 
   it("renders providers and dependency services from the safe package projection without Launch", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockImplementation(() => false);
+    const promptSpy = vi.spyOn(window, "prompt").mockImplementation(() => null);
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({
       catalog_version: 1,
       apps: [installed()],
@@ -585,11 +703,17 @@ describe("manifest-driven Apps surface", () => {
 
     expect(await screen.findByRole("heading", { name: "Internet Search Provider" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Shared Index Service" })).toBeInTheDocument();
-    expect(screen.getByText("Capability provider")).toBeInTheDocument();
-    expect(screen.getByText("Dependency service")).toBeInTheDocument();
+    expect(screen.getAllByText("Capability provider").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Dependency service").length).toBeGreaterThan(0);
+    expect(screen.getByText("1 provider, 1 runtime service")).toBeInTheDocument();
+    expect(screen.getByText("1 dependency service")).toBeInTheDocument();
     expect(screen.getByText(/Operations: web\.search@1, web\.read@1/)).toBeInTheDocument();
-    expect(screen.getByText(/Docker Linux x64/)).toBeInTheDocument();
-    expect(screen.getByText(/Desktop macOS universal/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Docker Linux x64/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Desktop macOS universal/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unsupported target").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Large install:/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Lengthy first start:/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/OS security or Host policy blocked this runtime/).length).toBeGreaterThan(0);
     expect(screen.getByRole("alert", { name: "Shared Index Service package health" })).toHaveTextContent("Unhealthy or unavailable");
     expect(screen.getByRole("status", { name: "Shared Index Service dependency readiness" })).toHaveTextContent("Optional dependency degraded: web.search@1");
 
@@ -604,7 +728,13 @@ describe("manifest-driven Apps surface", () => {
     expect(screen.getAllByText("Optional: web.search@1 - unhealthy").length).toBeGreaterThan(0);
 
     const serialized = container.querySelector('[data-testid="package-catalog"]')?.textContent ?? "";
-    expect(serialized).not.toMatch(/https?:\/\/|127\.0\.0\.1|localhost|:\d{4,5}|secret|credential|private_binding|host_path|payload\/|adapter|service_name/i);
+    expect(serialized).not.toMatch(/https?:\/\/|127\.0\.0\.1|localhost|:\d{4,5}|secret|credential|private_binding|host_path|payload\/|adapter|service_name|search\.provider|search\.runtime|index\.service/i);
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(promptSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+    confirmSpy.mockRestore();
+    promptSpy.mockRestore();
   });
 
   it("shows required generic dependency blocks without offering start or provider install actions", async () => {

@@ -23,7 +23,7 @@
     },
     "stale_on": {
       "minItems": 1,
-      "maxItems": 11,
+      "maxItems": 16,
       "type": "array",
       "items": {
         "type": "string",
@@ -36,6 +36,11 @@
           "permission_change",
           "operation_contract_change",
           "provider_version_change",
+          "dependency_bundle_change",
+          "lockfile_change",
+          "resource_budget_change",
+          "signing_evidence_change",
+          "license_provenance_change",
           "security_boundary_change",
           "retention_policy_change",
           "diagnostics_policy_change"

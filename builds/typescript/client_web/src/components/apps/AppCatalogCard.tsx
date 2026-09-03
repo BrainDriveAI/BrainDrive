@@ -236,7 +236,6 @@ export default function AppCatalogCard({
               {retainedDataActionLabel[action]}
             </button>)}
           </div> : null}
-          {catalog ? <p className="mt-2 break-all text-xs text-bd-text-muted">Primary resource: {catalog.primary_resource_uri}{catalog.icon ? ` · Icon: ${catalog.icon.package_path}` : ""}</p> : null}
         </section>
       </div> : null}
 

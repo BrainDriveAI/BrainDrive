@@ -124,6 +124,19 @@ describe("Docker development first-party app package boundary", () => {
     expect(searxngSettings).toContain("- json");
   });
 
+  it("ignores desktop packaged-process targets when rendering Docker sidecars", async () => {
+    const { descriptor, compose } = await renderPackageSidecars("dev");
+
+    expect(descriptor.target).toBe("docker_linux_x64");
+    expect(descriptor.sidecars).toHaveLength(1);
+    expect(descriptor.sidecars[0]).toMatchObject({
+      target: "docker_linux_x64",
+      runtime_kind: "container",
+    });
+    expect(JSON.stringify(descriptor)).not.toMatch(/desktop_windows_x64|desktop_macos_universal|packaged_process|Docker Desktop|native support/i);
+    expect(compose).not.toMatch(/desktop_windows_x64|desktop_macos_universal|packaged_process|Docker Desktop|native support/i);
+  });
+
   it("keeps the Docker installer proof manifest in parity with the source package manifest", async () => {
     const [sourceManifest, installerManifest] = await Promise.all([
       readFile(resolve(process.cwd(), "../internet_search/manifest.json"), "utf8"),
@@ -178,7 +191,7 @@ describe("Docker development first-party app package boundary", () => {
     }
   });
 
-  it("keeps unsupported desktop sidecar targets unadvertised and stopped instead of partially activating through Docker", async () => {
+  it("keeps admitted desktop sidecar targets stopped instead of partially activating through Docker", async () => {
     const root = await mkdtemp(resolve(os.tmpdir(), "bd-sc008-desktop-unsupported-"));
     roots.push(root);
     const providerRuntime = await createInternetSearchProviderRuntime({
@@ -194,10 +207,12 @@ describe("Docker development first-party app package boundary", () => {
     try {
       const discovery = await providerRuntime.providerRegistry.discover("web.search@1", { authorized: true });
       expect(discovery).toMatchObject({
-        state: "unsupported_target",
+        state: "unavailable",
         callable: false,
-        failure: { code: "unsupported_target" },
+        failure: { code: "provider_unavailable" },
       });
+      const readDiscovery = await providerRuntime.providerRegistry.discover("web.read@1", { authorized: true });
+      expect(readDiscovery).toMatchObject({ state: "available", callable: true });
       const sidecar = await providerRuntime.packageStore.readComponent(INTERNET_SEARCH_PROVIDER_PACKAGE_ID, INTERNET_SEARCH_SIDECAR_COMPONENT_ID);
       expect(sidecar).toMatchObject({ state: "stopped", health: "unknown" });
       expect(providerRuntime.migrationShim).toBeNull();

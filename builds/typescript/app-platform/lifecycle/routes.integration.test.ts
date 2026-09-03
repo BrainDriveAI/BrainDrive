@@ -10,7 +10,9 @@ import { SUPERVISOR_POLICY } from "../contracts/package.js";
 import { createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
 import { InstalledPackageStore, type CapabilityDependencyResolver } from "./installed-package-store.js";
-import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "./routes.js";
+import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes, registerSidecarLifecycleRoutes } from "./routes.js";
+import { HostSidecarLifecycleService, SidecarLifecycleAuthorityStore, type SidecarSupervisorPort } from "./sidecar-lifecycle-authority.js";
+import type { SidecarLifecycleSnapshot } from "./sidecar-supervisor.js";
 import { createLifecycleHarness } from "./test-helpers.js";
 import type { PackageComponentManifest } from "../contracts/package-components.js";
 
@@ -21,6 +23,10 @@ const permissions: PermissionSet = { memory_access: true, tool_access: true, sys
 
 function installBody(generation = 0, operationId = crypto.randomUUID()) {
   return { operation_id: operationId, idempotency_key: operationId, expected_generation: generation, installation_id: null, version: "1.0.0", approve_capabilities: true };
+}
+
+function digest(seed: string): `sha256:${string}` {
+  return `sha256:${seed.repeat(64).slice(0, 64)}`;
 }
 
 async function packageComponentFixture(fixtureId: string): Promise<PackageComponentManifest> {
@@ -65,11 +71,139 @@ function withOptionalSearchDependency(manifest: PackageComponentManifest, appId:
 
 type DependencyResolution = Awaited<ReturnType<CapabilityDependencyResolver["resolveDependency"]>>;
 
+class RouteSidecarSupervisor implements SidecarSupervisorPort {
+  readonly bindingService = { cleanup: () => undefined };
+  startCount = 0;
+  generation = 0;
+  async start(input: { packageId: string; componentId: string }) {
+    this.startCount += 1;
+    return this.snapshot(input.packageId, input.componentId, "starting", "unknown");
+  }
+  async awaitReadiness(input: { packageId: string; componentId: string }) {
+    return this.snapshot(input.packageId, input.componentId, "running", "healthy");
+  }
+  async health(input: { packageId: string; componentId: string }) {
+    return this.snapshot(input.packageId, input.componentId, "running", "healthy");
+  }
+  async restart(input: { packageId: string; componentId: string }) {
+    return this.snapshot(input.packageId, input.componentId, "starting", "unknown");
+  }
+  async stop(input: { packageId: string; componentId: string }) {
+    return this.snapshot(input.packageId, input.componentId, "stopped", "unknown", null);
+  }
+  async uninstall(input: { packageId: string; componentId: string }) {
+    return this.snapshot(input.packageId, input.componentId, "uninstalled", "unknown", null);
+  }
+  async cleanup() {}
+  private snapshot(
+    packageId: string,
+    componentId: string,
+    state: "starting" | "running" | "stopped" | "uninstalled",
+    health: "unknown" | "healthy",
+    runtime: { runtime_id: string; binding_generation: number } | null = { runtime_id: `route-runtime-${++this.generation}`, binding_generation: this.generation },
+  ): SidecarLifecycleSnapshot {
+    return {
+      package_id: packageId,
+      installation_id: "10000000-0000-4000-8000-000000000005",
+      component_id: componentId,
+      owner_component_id: "notes.app",
+      state,
+      health,
+      restart_attempt: 0,
+      target: "desktop_windows_x64" as const,
+      runtime_kind: "packaged_process" as const,
+      binding: runtime ? {
+        binding_version: 1,
+        binding_id: `route-binding-${runtime.binding_generation}`,
+        package_id: packageId,
+        installation_id: "10000000-0000-4000-8000-000000000005",
+        component_id: componentId,
+        owner_component_id: "notes.app",
+        runtime_id: runtime.runtime_id,
+        binding_generation: runtime.binding_generation,
+        target: "desktop_windows_x64" as const,
+        transport: "loopback" as const,
+        endpoint_class: "loopback_authenticated" as const,
+        audience: "owning_app_private" as const,
+        public_bind: false,
+        created_at: "2026-09-03T12:00:00.000Z",
+      } : null,
+      safe_message: "Route sidecar snapshot.",
+      updated_at: "2026-09-03T12:00:00.000Z",
+    };
+  }
+}
+
 function dependencyResolver(state: DependencyResolution): CapabilityDependencyResolver {
   return { resolveDependency: async (operationId) => ({ ...state, operation_id: operationId }) };
 }
 
 describe("owner lifecycle gateway routes", () => {
+  it("exposes owner-only generic sidecar lifecycle routes with redacted DTOs", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac004-sidecar-routes-")); roots.push(root);
+    const manifest = await packageComponentFixture("valid-app-owned-sidecar");
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    const authorityStore = new SidecarLifecycleAuthorityStore(path.join(root, "authority"));
+    const supervisor = new RouteSidecarSupervisor();
+    const service = new HostSidecarLifecycleService({ packageStore, authorityStore, supervisor });
+    await service.initialize();
+    const installed = await service.install({
+      authority: { kind: "host" },
+      manifest,
+      packageDigest: digest("4"),
+      componentId: "notes.worker",
+      idempotencyKey: "route-install-sidecar-0001",
+      source: { kind: "repository_fixture", label: "Synthetic route sidecar fixture" },
+    });
+
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      if (!request.headers["x-test-consumer"]) request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerSidecarLifecycleRoutes(app, service);
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/notes.worker/start`,
+      headers: { "x-test-consumer": "1" },
+      payload: { idempotency_key: "aaaaaaaaaaaaaaaa", expected_generation: installed.record.lifecycle_generation },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual({ error: "owner_authorization_required" });
+    expect(supervisor.startCount).toBe(0);
+
+    const started = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/notes.worker/start`,
+      payload: { idempotency_key: "bbbbbbbbbbbbbbbb", expected_generation: installed.record.lifecycle_generation },
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({
+      package_id: manifest.package_id,
+      component_id: "notes.worker",
+      state: "running",
+      health: "healthy",
+      runtime: { endpoint_class: "private_authority_redacted" },
+      operation: { kind: "start", status: "committed" },
+    });
+    expect(supervisor.startCount).toBe(1);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/notes.worker/start`,
+      payload: { idempotency_key: "bbbbbbbbbbbbbbbb", expected_generation: installed.record.lifecycle_generation },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().operation.operation_id).toBe(started.json().operation.operation_id);
+    expect(supervisor.startCount).toBe(1);
+
+    const projection = await app.inject({ method: "GET", url: `/packages/${manifest.package_id}/sidecars/notes.worker/lifecycle` });
+    expect(projection.statusCode).toBe(200);
+    const serialized = `${started.body}\n${projection.body}`;
+    expect(serialized).not.toMatch(/https?:|127\.|localhost|0\.0\.0\.0|\bport\b|endpoint"|authorization|token|secret|pid|process_id|host_path|argv|env|payload\/|adapter|raw_/i);
+    await app.close();
+  });
+
   it("adds safe installed package projections without exposing sidecar internals or changing app catalog behavior", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc002-routes-")); roots.push(root);
     const h = await createLifecycleHarness(path.join(root, "apps"));
@@ -176,7 +310,7 @@ describe("owner lifecycle gateway routes", () => {
     const disabled = await enabledApp.inject({
       method: "POST",
       url: `/apps/${routeKey}/disable`,
-      payload: { operation_id: crypto.randomUUID(), idempotency_key: "disable-research-consumer-0001", expected_generation: installed.json().generation, installation_id: installed.json().identity.installation_id },
+      payload: { operation_id: crypto.randomUUID(), idempotency_key: "cccccccccccccccc", expected_generation: installed.json().generation, installation_id: installed.json().identity.installation_id },
     });
     expect(disabled.statusCode).toBe(200);
     mutable.state = "unhealthy";
@@ -194,7 +328,7 @@ describe("owner lifecycle gateway routes", () => {
     const blockedEnable = await enabledApp.inject({
       method: "POST",
       url: `/apps/${routeKey}/enable`,
-      payload: { operation_id: crypto.randomUUID(), idempotency_key: "enable-research-consumer-0001", expected_generation: blockedStatus.generation, installation_id: installed.json().identity.installation_id },
+      payload: { operation_id: crypto.randomUUID(), idempotency_key: "dddddddddddddddd", expected_generation: blockedStatus.generation, installation_id: installed.json().identity.installation_id },
     });
     expect(blockedEnable.statusCode).toBe(409);
     expect(blockedEnable.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
@@ -701,7 +835,7 @@ describe("owner lifecycle gateway routes", () => {
       url: `/apps/${routeKey}/update`,
       payload: {
         operation_id: crypto.randomUUID(),
-        idempotency_key: "10000000-0000-4000-8000-000000008101",
+        idempotency_key: "eeeeeeeeeeeeeeee",
         expected_generation: installed.generation,
         installation_id: installed.identity.installation_id,
         version: "2.0.0",
@@ -717,7 +851,7 @@ describe("owner lifecycle gateway routes", () => {
       url: `/apps/${routeKey}/update`,
       payload: {
         operation_id: crypto.randomUUID(),
-        idempotency_key: "10000000-0000-4000-8000-000000008102",
+        idempotency_key: "ffffffffffffffff",
         expected_generation: installed.generation,
         installation_id: installed.identity.installation_id,
         version: "2.0.0",
@@ -745,7 +879,7 @@ describe("owner lifecycle gateway routes", () => {
       url: `/apps/${routeKey}/update`,
       payload: {
         operation_id: crypto.randomUUID(),
-        idempotency_key: "10000000-0000-4000-8000-000000008103",
+        idempotency_key: "gggggggggggggggg",
         expected_generation: widened.generation,
         installation_id: widened.identity.installation_id,
         version: "3.0.0",
@@ -799,7 +933,7 @@ describe("owner lifecycle gateway routes", () => {
       url: `/apps/${routeKey}/update`,
       payload: {
         operation_id: crypto.randomUUID(),
-        idempotency_key: "failed-update-route-001",
+        idempotency_key: "hhhhhhhhhhhhhhhh",
         expected_generation: failed.generation,
         installation_id: failed.installation_id,
         version: "2.0.0",

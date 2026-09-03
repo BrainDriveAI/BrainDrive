@@ -125,6 +125,10 @@ function withSearchDependency(
 describe("SC-005 Internet Search proof provider package migration", () => {
   it("loads the SearXNG proof as a v2 package/component provider fixture", async () => {
     const manifest = await loadInternetSearchProviderManifest(process.cwd());
+    const [sidecar] = manifest.sidecars;
+    const targets = sidecar!.targets;
+    const dockerTarget = targets.find((target) => target.target === "docker_linux_x64");
+    const desktopTargets = targets.filter((target) => target.runtime_kind === "packaged_process");
 
     expect(manifest).toMatchObject({
       manifest_version: 2,
@@ -146,6 +150,105 @@ describe("SC-005 Internet Search proof provider package migration", () => {
         },
       }],
     });
+    expect(dockerTarget).toMatchObject({
+      target: "docker_linux_x64",
+      runtime_kind: "container",
+      image: "searxng/searxng:2026.9",
+      public_network: false,
+    });
+    expect(desktopTargets.map((target) => target.target).sort()).toEqual(["desktop_macos_universal", "desktop_windows_x64"]);
+    expect(manifest.provided_operations.find((operation) => operation.operation_id === "web.search@1")?.required_sidecars).toEqual(["search.runtime"]);
+    expect(manifest.provided_operations.find((operation) => operation.operation_id === "web.read@1")?.required_sidecars).toEqual([]);
+    expect(manifest.evidence.stale_on).toEqual(expect.arrayContaining([
+      "dependency_bundle_change",
+      "lockfile_change",
+      "resource_budget_change",
+      "signing_evidence_change",
+      "license_provenance_change",
+    ]));
+
+    for (const target of desktopTargets) {
+      expect(target).toMatchObject({
+        bind: "loopback",
+        public_network: false,
+        dependency_bundle: {
+          platform: target.target,
+          cache: {
+            strategy: "package_version_isolated",
+            content_address: null,
+            mutable_global_fallback: false,
+          },
+          dependencies: expect.arrayContaining([
+            expect.objectContaining({ name: "searxng.application", kind: "language_package", version: "2026.9.0", license_id: "AGPL-3.0-or-later" }),
+            expect.objectContaining({ name: "python.runtime", kind: "runtime", version: "3.12.6", license_id: "Python-2.0" }),
+          ]),
+        },
+        resources: {
+          resource_budget_version: 1,
+          startup_timeout_ms: 120000,
+          health_timeout_ms: 10000,
+          stop_timeout_ms: 10000,
+          restart_attempts: 2,
+          cpu_percent: 80,
+          memory_mb: 2048,
+          disk_mb: 2048,
+          cache_mb: 512,
+          log_bytes: 262144,
+          max_output_event_bytes: 8192,
+        },
+        network_policy: {
+          network_policy_version: 1,
+          binding: "private_random_loopback",
+          outbound: ["provider_upstream_https"],
+          public_inbound: false,
+          local_network: "deny_by_default",
+          proxy: "inherit_host_proxy",
+          owner_approval: "owner_visible_network_access",
+          self_update: false,
+        },
+        evidence: {
+          support_claim: "admission_only",
+          signing: { signature_state: "declared_required_not_yet_qualified" },
+          required_evidence: expect.arrayContaining(["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"]),
+        },
+      });
+    }
+    expect(desktopTargets.find((target) => target.target === "desktop_windows_x64")?.evidence.signing.platform_signature).toBe("windows_authenticode_required");
+    expect(desktopTargets.find((target) => target.target === "desktop_macos_universal")?.evidence.signing.platform_signature).toBe("macos_codesign_notarization_required");
+    expect(JSON.stringify(desktopTargets)).not.toMatch(/Docker Desktop|native support|supported on Windows|supported on macOS|localhost|127\.|0\.0\.0\.0|\bport\b|token|secret|credential|raw_log|provider payload/i);
+  });
+
+  it("keeps desktop packaged-process targets as admission-only metadata instead of Docker fallback", async () => {
+    const root = await tempRoot();
+    const providerRuntime = await createInternetSearchProviderRuntime({
+      rootDir: process.cwd(),
+      memoryRoot: path.join(root, "memory"),
+      stateRoot: path.join(root, "state"),
+      target: "desktop_windows_x64",
+      env: {},
+      searchExecutor: null,
+      readExecutor: null,
+    });
+
+    try {
+      const manifest = await providerRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      const sidecar = await providerRuntime.packageStore.readComponent(INTERNET_SEARCH_PROVIDER_PACKAGE_ID, INTERNET_SEARCH_SIDECAR_COMPONENT_ID);
+      expect(manifest?.manifest.sidecars[0]?.targets.some((target) => target.target === "desktop_windows_x64" && target.runtime_kind === "packaged_process")).toBe(true);
+      expect(await providerRuntime.providerRegistry.discover("web.search@1", { authorized: true })).toMatchObject({
+        state: "unavailable",
+        callable: false,
+        failure: { code: "provider_unavailable" },
+      });
+      expect(await providerRuntime.providerRegistry.discover("web.read@1", { authorized: true })).toMatchObject({
+        state: "available",
+        callable: true,
+      });
+      expect(sidecar).toMatchObject({ state: "stopped", health: "unknown" });
+      expect(providerRuntime.migrationShim).toBeNull();
+      noLeak(await providerRuntime.packageStore.ownerSafeCatalog({ currentTarget: "desktop_windows_x64" }));
+    } finally {
+      await providerRuntime.close();
+    }
   });
 
   it("routes web.search@1 through installed package records, provider registry, and package-scoped sidecar binding", async () => {

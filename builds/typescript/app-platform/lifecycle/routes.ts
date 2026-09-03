@@ -8,6 +8,7 @@ import { AppPlatformError } from "./errors.js";
 import { MODERN_FIXTURE_VERSION } from "./fixture-repository.js";
 import { manifestCapabilities, manifestDataCompatibility, type RuntimePackageManifest } from "./package-verifier.js";
 import type { AppLifecycleService, LifecycleResponse } from "./service.js";
+import { safeSidecarOperation, type HostSidecarLifecycleService, type SidecarLifecycleResponse } from "./sidecar-lifecycle-authority.js";
 import type { CapabilityDependencyAvailability, CapabilityDependencyReadiness, CapabilityDependencyResolution, CapabilityDependencyResolver, InstalledPackageStore } from "./installed-package-store.js";
 
 const bindingSchema = z.object({
@@ -36,6 +37,15 @@ const sessionSchema = z.object({
 const deletionSchema = z.object({
   operation_id: z.string().uuid(), idempotency_key: z.string().min(16).max(256),
   confirm_app_id: z.string().min(3).max(128), trusted_owner_confirmation: z.literal(true),
+}).strict();
+const sidecarActionSchema = z.object({
+  operation_id: z.string().uuid().optional(),
+  idempotency_key: z.string().min(16).max(256),
+  expected_generation: z.number().int().nonnegative().optional(),
+}).strict();
+const sidecarParamsSchema = z.object({
+  packageId: z.string().min(3).max(128),
+  componentId: z.string().min(3).max(128),
 }).strict();
 
 export type AppLifecycleRouteEntry = {
@@ -215,6 +225,54 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
         trustedOwnerConfirmation: parsed.data.trusted_owner_confirmation,
       }));
     } catch (error) { return sendSafeError(reply, error); }
+  });
+}
+
+export function registerSidecarLifecycleRoutes(app: FastifyInstance, service: HostSidecarLifecycleService): void {
+  app.get("/packages/:packageId/sidecars/:componentId/lifecycle", async (request, reply) => {
+    if (!authorizeSidecarOwner(request, reply)) return;
+    const params = sidecarParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      return reply.send(await service.ownerProjection(params.data.packageId, params.data.componentId));
+    } catch (error) {
+      return sendSafeSidecarError(reply, error);
+    }
+  });
+
+  for (const action of ["start", "enable", "disable", "restart", "rollback", "uninstall"] as const) {
+    app.post(`/packages/:packageId/sidecars/:componentId/${action}`, async (request, reply) => {
+      if (!authorizeSidecarOwner(request, reply)) return;
+      const params = sidecarParamsSchema.safeParse(request.params);
+      const body = sidecarActionSchema.safeParse(request.body);
+      if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+      try {
+        const input = {
+          authority: { kind: "host" as const },
+          packageId: params.data.packageId,
+          componentId: params.data.componentId,
+          idempotencyKey: body.data.idempotency_key,
+          operationId: body.data.operation_id,
+          expectedGeneration: body.data.expected_generation,
+        };
+        const response = await service[action](input) as SidecarLifecycleResponse;
+        return reply.send({ ...(await service.ownerProjection(params.data.packageId, params.data.componentId)), operation: safeSidecarOperation(response.operation) });
+      } catch (error) {
+        return sendSafeSidecarError(reply, error);
+      }
+    });
+  }
+
+  app.post("/packages/sidecars/shutdown", async (request, reply) => {
+    if (!authorizeSidecarOwner(request, reply)) return;
+    const body = sidecarActionSchema.omit({ expected_generation: true }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      const result = await service.shutdown({ authority: { kind: "host" }, idempotencyKey: body.data.idempotency_key, operationId: body.data.operation_id });
+      return reply.send({ operation: safeSidecarOperation(result.operation), affected_count: result.records.length });
+    } catch (error) {
+      return sendSafeSidecarError(reply, error);
+    }
   });
 }
 
@@ -607,4 +665,29 @@ function sendSafeError(reply: FastifyReply, error: unknown) {
     active_app_limit_reached: "Disable another active app before starting this one.",
   };
   return reply.code(failure.statusCode).send({ error: failure.code, safe_message: safeMessage[failure.code] ?? "The lifecycle action could not be completed safely.", retryable: failure.statusCode >= 500 || failure.code === "conflict" });
+}
+
+function authorizeSidecarOwner(request: FastifyRequest, reply: FastifyReply): boolean {
+  if (request.authContext?.actorType !== "owner" || !request.authContext.permissions.administration) {
+    reply.code(403).send({ error: "owner_authorization_required" });
+    return false;
+  }
+  return true;
+}
+
+function sendSafeSidecarError(reply: FastifyReply, error: unknown) {
+  const failure = error instanceof AppPlatformError ? error : new AppPlatformError("lifecycle_failed", "Sidecar lifecycle operation failed", 500);
+  const safeMessage: Record<string, string> = {
+    conflict: "Sidecar status changed. Refresh and retry from the current state.",
+    denied: "Only the Host may operate package sidecars.",
+    idempotency_conflict: "This sidecar operation key was already used with different input.",
+    readiness_failed: "The candidate sidecar did not become ready. The last safe state was preserved.",
+    rollback_unavailable: "No last-known-good sidecar package is available for rollback.",
+    runtime_conflict: "Another sidecar lifecycle operation is already active.",
+  };
+  return reply.code(failure.statusCode).send({
+    error: failure.code,
+    safe_message: safeMessage[failure.code] ?? "The sidecar lifecycle action could not be completed safely.",
+    retryable: failure.statusCode >= 500 || failure.code === "conflict",
+  });
 }

@@ -16,12 +16,13 @@ import { z } from "zod";
 import { canonicalJson, canonicalJsonDocumentDigest, OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "../contracts/common.js";
 import { ContractViolation } from "../contracts/errors.js";
 import { CanonicalAppIdSchema, CanonicalPublisherIdSchema } from "../contracts/app-registry.js";
+import type { PackageComponentManifest } from "../contracts/package-components.js";
 import { syncDirectoryEntry } from "./filesystem-durability.js";
 import type { RuntimePackageManifest } from "./package-verifier.js";
 import { parseStoredRuntimePackageManifestWithDigest } from "./runtime-manifest.js";
 
 export type PromotableVerifiedPackage = {
-  manifest: RuntimePackageManifest;
+  manifest: RuntimePackageManifest | PackageComponentManifest;
   packageDigest: `sha256:${string}`;
   descriptorDigest: `sha256:${string}`;
   stageRoot: string;
@@ -57,6 +58,9 @@ const ReferenceSetSchema = z.object({
 export type ImmutablePackageRecord = {
   packageDigest: `sha256:${string}`;
   packageVersion: string;
+  manifestDigest?: `sha256:${string}`;
+  appId?: string;
+  publisherId?: string;
   contentRoot: string;
   entrypoint: string;
   target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
@@ -120,6 +124,14 @@ async function makeTreeRemovable(root: string): Promise<void> {
   await visit(root);
 }
 
+function manifestPackageId(manifest: RuntimePackageManifest | PackageComponentManifest): string {
+  return "app_id" in manifest ? manifest.app_id : manifest.package_id;
+}
+
+function manifestPublisherId(manifest: RuntimePackageManifest | PackageComponentManifest): string {
+  return manifest.publisher_id;
+}
+
 export class ImmutablePackageStore {
   readonly layout: { packages: string; metadata: string; references: string; referenceLocks: string };
 
@@ -152,8 +164,8 @@ export class ImmutablePackageStore {
       manifest_digest: canonicalJsonDocumentDigest(verified.manifest),
       manifest_path: verified.manifest.archive.manifest_path,
       package_version: verified.manifest.package_version,
-      app_id: verified.manifest.app_id,
-      publisher_id: verified.manifest.publisher_id,
+      app_id: manifestPackageId(verified.manifest),
+      publisher_id: manifestPublisherId(verified.manifest),
       entrypoint: verified.entrypoint,
       target: verified.target,
       promoted_at: this.clock().toISOString(),
@@ -269,6 +281,9 @@ export class ImmutablePackageStore {
     return {
       packageDigest: metadata.package_digest as `sha256:${string}`,
       packageVersion: metadata.package_version,
+      manifestDigest: metadata.manifest_digest as `sha256:${string}`,
+      appId: metadata.app_id,
+      publisherId: metadata.publisher_id,
       contentRoot,
       entrypoint: metadata.entrypoint,
       target: metadata.target,

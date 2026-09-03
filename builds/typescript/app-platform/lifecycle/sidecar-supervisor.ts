@@ -54,6 +54,11 @@ export type PrivateSidecarRuntimeBinding = SidecarRuntimeBindingProjection & {
   ipcName?: string;
 };
 
+export type ExpectedSidecarRuntimeIdentity = {
+  runtimeId: string;
+  bindingGeneration: number;
+};
+
 export type SidecarLifecycleSnapshot = {
   package_id: string;
   installation_id: string;
@@ -150,16 +155,18 @@ export class SidecarRuntimeBindingService {
     return binding;
   }
 
-  bindingForProviderAdapter(packageId: string, componentId: string, requesterComponentId: string): PrivateSidecarRuntimeBinding {
+  bindingForProviderAdapter(packageId: string, componentId: string, requesterComponentId: string, expected?: ExpectedSidecarRuntimeIdentity): PrivateSidecarRuntimeBinding {
     const binding = this.requireBinding(packageId, componentId);
+    this.assertFreshBinding(binding, expected);
     if (binding.audience !== "provider_adapter_only" || binding.owner_component_id !== requesterComponentId) {
       throw new AppPlatformError("denied", "Sidecar binding is not visible to this provider adapter", 403);
     }
     return binding;
   }
 
-  bindingForOwningApp(packageId: string, componentId: string, requesterComponentId: string): PrivateSidecarRuntimeBinding {
+  bindingForOwningApp(packageId: string, componentId: string, requesterComponentId: string, expected?: ExpectedSidecarRuntimeIdentity): PrivateSidecarRuntimeBinding {
     const binding = this.requireBinding(packageId, componentId);
+    this.assertFreshBinding(binding, expected);
     if (binding.audience !== "owning_app_private" || binding.owner_component_id !== requesterComponentId) {
       throw new AppPlatformError("denied", "Sidecar binding is not visible to this app component", 403);
     }
@@ -184,6 +191,13 @@ export class SidecarRuntimeBindingService {
     const binding = this.bindings.get(bindingKey(packageId, componentId));
     if (!binding) throw new AppPlatformError("ambiguous_runtime_state", "Sidecar binding is unavailable");
     return binding;
+  }
+
+  private assertFreshBinding(binding: PrivateSidecarRuntimeBinding, expected?: ExpectedSidecarRuntimeIdentity): void {
+    if (!expected) return;
+    if (binding.runtime_id !== expected.runtimeId || binding.binding_generation !== expected.bindingGeneration) {
+      throw new AppPlatformError("ambiguous_runtime_state", "Sidecar binding identity is stale");
+    }
   }
 }
 
@@ -225,6 +239,7 @@ export class GenericSidecarSupervisor {
     } catch (error) {
       await this.options.store.setSidecarRuntimeState(input.packageId, input.componentId, "failed", "unhealthy", this.now());
       this.recordDiagnosticFromSelected(selected, "start", "failed", "unhealthy", null, 0, safeErrorCode(error, "start_failed"));
+      if (error instanceof AppPlatformError && shouldPreserveStartError(error.code)) throw error;
       throw new AppPlatformError("start_failed", "Sidecar driver failed to start");
     }
     let binding: PrivateSidecarRuntimeBinding;
@@ -293,6 +308,15 @@ export class GenericSidecarSupervisor {
   async restart(input: SidecarActionInput): Promise<SidecarLifecycleSnapshot> {
     this.assertHostAuthority(input.authority);
     const prior = this.records.get(runtimeKey(input.packageId, input.componentId));
+    if (prior && prior.restartAttempt >= restartBudget(prior.target)) {
+      prior.state = "failed";
+      prior.health = "unhealthy";
+      prior.updatedAt = this.now();
+      await this.options.store.setSidecarRuntimeState(input.packageId, input.componentId, "failed", "unhealthy", prior.updatedAt);
+      this.recordDiagnostic(prior, "restart", "restart_exhausted");
+      this.audit("sidecar.lifecycle.restart_denied", auditDetails(prior, "denied", "restart_exhausted"));
+      throw new AppPlatformError("lifecycle_failed", "Sidecar restart budget is exhausted");
+    }
     const nextAttempt = Math.min((prior?.restartAttempt ?? 0) + 1, 3);
     if (prior) await this.stop(input, "restart", false);
     const started = await this.start(input);
@@ -306,7 +330,18 @@ export class GenericSidecarSupervisor {
     this.assertHostAuthority(input.authority);
     const record = this.records.get(runtimeKey(input.packageId, input.componentId));
     if (!record) return await this.snapshot(input.packageId, input.componentId);
-    await record.driver.stop(contextFor(record));
+    try {
+      await record.driver.stop(contextFor(record));
+    } catch (error) {
+      record.state = "failed";
+      record.health = "unhealthy";
+      record.updatedAt = this.now();
+      await this.options.store.setSidecarRuntimeState(input.packageId, input.componentId, "failed", "unhealthy", record.updatedAt);
+      const errorCode = safeErrorCode(error, "stop_timeout");
+      this.recordDiagnostic(record, reason === "restart" ? "restart" : "stop", errorCode);
+      this.audit("sidecar.lifecycle.stop_failed", auditDetails(record, "denied", errorCode));
+      throw new AppPlatformError("lifecycle_failed", "Sidecar driver failed to stop");
+    }
     this.bindingService.cleanup(input.packageId, input.componentId);
     record.state = "stopped";
     record.health = "unknown";
@@ -535,6 +570,14 @@ function targetSupportsBinding(target: SidecarDescriptor["targets"][number], sid
 
 function runtimeKind(target: SidecarDescriptor["targets"][number]): SidecarRuntimeDriver["runtimeKind"] {
   return target.runtime_kind;
+}
+
+function restartBudget(target: SidecarDescriptor["targets"][number]): number {
+  return target.runtime_kind === "packaged_process" ? Math.min(target.resources.restart_attempts, 3) : 3;
+}
+
+function shouldPreserveStartError(code: string): boolean {
+  return code === "denied" || code === "resource_invalid" || code === "host_incompatible" || code === "descriptor_invalid";
 }
 
 function contextFor(input: { packageRecord: InstalledPackageRecord; sidecar: SidecarDescriptor; target: SidecarDescriptor["targets"][number] }): SidecarRuntimeDriverContext {

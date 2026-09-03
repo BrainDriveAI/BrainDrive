@@ -45,6 +45,37 @@ function withAppDependency(manifest: PackageComponentManifest, dependency: Packa
   };
 }
 
+function withLargeDesktopRuntime(manifest: PackageComponentManifest): PackageComponentManifest {
+  return {
+    ...manifest,
+    sidecars: manifest.sidecars.map((sidecar) => ({
+      ...sidecar,
+      targets: sidecar.targets.map((target) => target.runtime_kind === "packaged_process"
+        ? {
+            ...target,
+            resources: {
+              ...target.resources,
+              startup_timeout_ms: 120_000,
+              health_timeout_ms: 30_000,
+              disk_mb: 2048,
+              cache_mb: 1024,
+            },
+          }
+        : target),
+    })),
+  };
+}
+
+function withOnlyMacDesktopRuntime(manifest: PackageComponentManifest): PackageComponentManifest {
+  return {
+    ...manifest,
+    sidecars: manifest.sidecars.map((sidecar) => ({
+      ...sidecar,
+      targets: sidecar.targets.filter((target) => target.target === "desktop_macos_universal"),
+    })),
+  };
+}
+
 function dependencyResolver(states: Record<string, Parameters<CapabilityDependencyResolver["resolveDependency"]>[0] | {
   state: "available" | "missing" | "unavailable" | "disabled" | "unhealthy" | "unauthorized" | "selection_required" | "unsupported_target" | "unknown";
   callable: boolean;
@@ -103,6 +134,58 @@ describe("SC-002 installed package component store", () => {
       ["sidecar", false, 0],
     ]);
     expect(JSON.stringify(appProjection)).not.toMatch(/payload\/|artifact_path|entrypoint|loopback|binding|host_path|secret/i);
+  });
+
+  it("projects AC-006 owner-safe runtime cost, first-start, target, and OS-security guidance without private details", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac006-runtime-projection-"));
+    roots.push(root);
+    const store = new InstalledPackageStore(root);
+    await store.initialize();
+
+    const manifest = withLargeDesktopRuntime(await fixture("valid-app-owned-sidecar"));
+    await store.installPackage(installInput(manifest, "6"));
+    await store.setSidecarRuntimeState(manifest.package_id, "notes.worker", "unavailable", "unhealthy", "2026-09-01T12:15:00.000Z");
+
+    const [projection] = await store.ownerSafeCatalog({ currentTarget: "desktop_windows_x64" });
+    expect(projection!.runtime_summary).toMatchObject({
+      sidecar_count: 1,
+      target_support: "supported",
+      target_labels: expect.arrayContaining(["Desktop Windows x64", "Desktop macOS universal"]),
+      install_size: {
+        classification: "large",
+        safe_message: expect.stringMatching(/Large install/i),
+      },
+      first_start: {
+        classification: "lengthy",
+        safe_message: expect.stringMatching(/first start may take several minutes/i),
+      },
+      os_security: {
+        classification: "blocked",
+        safe_message: expect.stringMatching(/OS security or Host policy blocked/i),
+      },
+    });
+    const runtimeComponent = projection!.components.find((component) => component.component_id === "notes.worker")!;
+    expect(runtimeComponent.runtime_summary).toMatchObject({
+      target_support: "supported",
+      install_size: { classification: "large" },
+      first_start: { classification: "lengthy" },
+      os_security: { classification: "blocked" },
+    });
+    expect(JSON.stringify(projection)).not.toMatch(/payload\/|artifact_path|entrypoint|dependency_bundle|package_path|adapter|export_name|localhost|127\.|0\.0\.0\.0|\bport\b|token|pid|secret|credential|raw|service_name|local network/i);
+
+    await store.updatePackage(manifest.package_id, {
+      ...installInput(withOnlyMacDesktopRuntime(manifest), "5"),
+      updatedAt: "2026-09-01T12:20:00.000Z",
+    });
+    const [unsupported] = await store.ownerSafeCatalog({ currentTarget: "desktop_windows_x64" });
+    expect(unsupported!.runtime_summary).toMatchObject({
+      target_support: "unsupported",
+      target_message: "This package does not declare a runtime for this desktop target.",
+      os_security: {
+        classification: "review_required",
+        safe_message: expect.stringMatching(/OS security review/i),
+      },
+    });
   });
 
   it("projects SC-007 required and optional capability dependency readiness without starting or switching providers", async () => {

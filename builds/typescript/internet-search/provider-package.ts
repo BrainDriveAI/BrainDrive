@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   CapabilityProviderRegistry,
   CapabilityOperationRouter,
+  StoreBackedProviderSidecarAuthority,
   adapterKey,
   type CapabilityProviderDiscovery,
   type ProviderOperationAdapter,
@@ -139,6 +140,11 @@ export async function createInternetSearchProviderRuntime(input: {
       operations: INTERNET_SEARCH_ROUTE_OPERATIONS,
       adapters: internetSearchPackageOperationAdapters({ searchExecutor, readExecutor }),
       bindingService: supervisor.bindingService,
+      sidecarAuthority: new StoreBackedProviderSidecarAuthority({
+        store,
+        target,
+        bindingService: supervisor.bindingService,
+      }),
     }),
     close: async () => {
       if (driver) {

@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,11 +12,14 @@ import { InstalledPackageStore } from "../app-platform/lifecycle/installed-packa
 import {
   CapabilityOperationRouter,
   CapabilityProviderRegistry,
+  StoreBackedProviderSidecarAuthority,
   adapterKey,
   dependencyResolverFromCapabilityProviderRegistry,
   type ProviderOperationAdapter,
   type ProviderOperationDefinition,
+  type ProviderSidecarAuthority,
 } from "./provider-router.js";
+import { SidecarRuntimeBindingService } from "../app-platform/lifecycle/sidecar-supervisor.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -220,7 +224,13 @@ function adapter(result: string): ProviderOperationAdapter {
   };
 }
 
-function router(registry: CapabilityProviderRegistry, adapters: Record<string, ProviderOperationAdapter>, options: { selected?: { packageId: string; providerComponentId: string }; timeoutMs?: number; diagnosticSink?: ReturnType<typeof createMemoryPackageDiagnosticSink> } = {}) {
+function router(registry: CapabilityProviderRegistry, adapters: Record<string, ProviderOperationAdapter>, options: {
+  selected?: { packageId: string; providerComponentId: string };
+  timeoutMs?: number;
+  diagnosticSink?: ReturnType<typeof createMemoryPackageDiagnosticSink>;
+  bindingService?: SidecarRuntimeBindingService | null;
+  sidecarAuthority?: ProviderSidecarAuthority | null;
+} = {}) {
   const operations: ProviderOperationDefinition<z.infer<typeof RequestSchema>, z.infer<typeof ResultSchema> | Record<string, unknown>>[] = [{
     operation_id: "web.search@1",
     input_schema: RequestSchema,
@@ -240,12 +250,69 @@ function router(registry: CapabilityProviderRegistry, adapters: Record<string, P
     adapters,
     selectionPolicy: options.selected ? { selectedProvider: () => options.selected! } : undefined,
     diagnosticSink: options.diagnosticSink,
+    bindingService: options.bindingService,
+    sidecarAuthority: options.sidecarAuthority,
     now: () => 1_000,
   });
 }
 
+function searchOperationDefinition(timeoutMs = 5_000): ProviderOperationDefinition<z.infer<typeof RequestSchema>, z.infer<typeof ResultSchema> | Record<string, unknown>> {
+  return {
+    operation_id: "web.search@1",
+    input_schema: RequestSchema,
+    result_schema: ResultSchema,
+    max_input_bytes: 1024,
+    timeout_ms: timeoutMs,
+    failure: (request, failure) => ({
+      status: failure.code,
+      request_id: request?.request_id ?? null,
+      run_id: request?.run_id ?? null,
+      message: failure.message,
+    }),
+  };
+}
+
 function noLeak(value: unknown): void {
   expect(JSON.stringify(value)).not.toMatch(/https?:|localhost|127\.|0\.0\.0\.0|\bport\b|credential|secret|vault|payload\/|adapter|export_name|host_path|raw_response|service_name|container|process/i);
+}
+
+async function prepareProviderSidecar(
+  store: InstalledPackageStore,
+  manifest: PackageComponentManifest,
+  options: { state?: "running" | "stopped" | "failed" | "unavailable"; health?: "healthy" | "unknown" | "unhealthy" } = {},
+) {
+  const packageRecord = await store.requirePackage(manifest.package_id);
+  const sidecar = manifest.sidecars.find((entry) => entry.component_id === "search.runtime");
+  if (!sidecar) throw new Error("missing search.runtime sidecar");
+  const target = sidecar.targets.find((entry) => entry.target === "docker_linux_x64");
+  if (!target) throw new Error("missing docker target");
+  const bindingService = new SidecarRuntimeBindingService({ next: () => randomUUID() }, () => new Date("2026-09-01T12:00:00.000Z"));
+  const binding = bindingService.create({
+    packageRecord,
+    sidecar,
+    target,
+    runtimeId: randomUUID(),
+    candidate: {
+      transport: "container_internal",
+      endpoint: "http://bdsc-private-search:8080",
+    },
+  });
+  await store.setSidecarRuntimeState(
+    manifest.package_id,
+    "search.runtime",
+    options.state ?? "running",
+    options.health ?? "healthy",
+    "2026-09-01T12:00:01.000Z",
+  );
+  return {
+    binding,
+    bindingService,
+    sidecarAuthority: new StoreBackedProviderSidecarAuthority({
+      store,
+      target: "docker_linux_x64",
+      bindingService,
+    }),
+  };
 }
 
 describe("SC-004 generic capability provider registry and operation router", () => {
@@ -310,6 +377,241 @@ describe("SC-004 generic capability provider registry and operation router", () 
       result: "read-result",
       provider_component: "search.provider",
     });
+  });
+
+  it("routes healthy sidecar-backed calls only after Host grant, lifecycle, package, generation, and binding checks pass", async () => {
+    const manifest = await fixture("valid-provider-sidecar");
+    const store = await storeWith(manifest);
+    const { bindingService, sidecarAuthority } = await prepareProviderSidecar(store, manifest);
+    const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+    const bindingsSeen: unknown[] = [];
+    let calls = 0;
+    const callRouter = router(registry, {
+      [adapterKey(manifest.package_id, "search.provider", "web.search@1")]: {
+        invoke: async (_request, context) => {
+          calls += 1;
+          bindingsSeen.push(context.bindingForRequiredSidecar("search.runtime"));
+          return { status: "success", result: "sidecar-result", provider_component: "search.provider" };
+        },
+      },
+    }, { bindingService, sidecarAuthority });
+
+    const result = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000301",
+      run_id: "10000000-0000-4000-8000-000000000302",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+
+    expect(result).toEqual({ status: "success", result: "sidecar-result", provider_component: "search.provider" });
+    expect(calls).toBe(1);
+    expect(bindingsSeen).toHaveLength(1);
+    expect(bindingsSeen[0]).toMatchObject({
+      package_id: manifest.package_id,
+      component_id: "search.runtime",
+      owner_component_id: "search.provider",
+      audience: "provider_adapter_only",
+      endpoint: "http://bdsc-private-search:8080",
+    });
+    noLeak(result);
+  });
+
+  it("fails sidecar-backed operations before adapter execution for stopped, unhealthy, unavailable, and unsupported sidecars", async () => {
+    const manifest = await fixture("valid-provider-sidecar");
+    for (const state of ["stopped", "unavailable", "failed"] as const) {
+      const store = await storeWith(manifest);
+      const { bindingService, sidecarAuthority } = await prepareProviderSidecar(store, manifest, {
+        state,
+        health: state === "stopped" ? "unknown" : "unhealthy",
+      });
+      const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+      let calls = 0;
+      const result = await router(registry, {
+        [adapterKey(manifest.package_id, "search.provider", "web.search@1")]: { invoke: async () => { calls += 1; return { status: "success", result: "unused", provider_component: "search.provider" }; } },
+      }, { bindingService, sidecarAuthority }).call("web.search@1", {
+        request_id: `10000000-0000-4000-8000-00000000031${state === "stopped" ? "1" : state === "unavailable" ? "2" : "3"}`,
+        run_id: `10000000-0000-4000-8000-00000000032${state === "stopped" ? "1" : state === "unavailable" ? "2" : "3"}`,
+        input: { query: "fixture" },
+      }, { authorized: true, signal: new AbortController().signal });
+      expect(calls).toBe(0);
+      expect(result).toMatchObject({
+        status: state === "stopped" ? "provider_unavailable" : "provider_unhealthy",
+      });
+      noLeak(result);
+    }
+
+    const unsupportedStore = await storeWith(manifest);
+    const unsupportedRegistry = new CapabilityProviderRegistry({ store: unsupportedStore, target: "desktop_windows_x64" });
+    let unsupportedCalls = 0;
+    const unsupported = await router(unsupportedRegistry, {
+      [adapterKey(manifest.package_id, "search.provider", "web.search@1")]: { invoke: async () => { unsupportedCalls += 1; return { status: "success", result: "unused", provider_component: "search.provider" }; } },
+    }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000314",
+      run_id: "10000000-0000-4000-8000-000000000324",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+    expect(unsupportedCalls).toBe(0);
+    expect(unsupported).toMatchObject({ status: "unsupported_target" });
+    noLeak(unsupported);
+  });
+
+  it("denies stale grant, package digest, generation, and binding identity before provider execution", async () => {
+    const manifest = await fixture("valid-provider-sidecar");
+    const store = await storeWith(manifest);
+    const { bindingService, sidecarAuthority, binding } = await prepareProviderSidecar(store, manifest);
+    const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+    const key = adapterKey(manifest.package_id, "search.provider", "web.search@1");
+    let calls = 0;
+    const guardedAdapter = { [key]: { invoke: async () => { calls += 1; return { status: "success", result: "unused", provider_component: "search.provider" }; } } };
+
+    const unauthorized = await router(registry, guardedAdapter, { bindingService, sidecarAuthority }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000331",
+      run_id: "10000000-0000-4000-8000-000000000332",
+      input: { query: "fixture" },
+    }, { authorized: false, signal: new AbortController().signal });
+    expect(unauthorized).toMatchObject({ status: "not_authorized" });
+    expect(calls).toBe(0);
+
+    const packageRecord = await store.requirePackage(manifest.package_id);
+    const staleProvider = {
+      package_id: manifest.package_id,
+      installation_id: packageRecord.installation_id,
+      package_digest: digest("9"),
+      package_version: packageRecord.package_version,
+      package_generation: packageRecord.generation,
+      provider_component_id: "search.provider",
+      operation_id: "web.search@1",
+      required_sidecars: ["search.runtime"],
+      adapter_abi: "braindrive-operation-adapter-v1" as const,
+    };
+    const staleRegistry = { resolve: async () => ({ ok: true as const, state: "available" as const, providerCount: 1, provider: staleProvider, selection: "single_provider" as const, health: "healthy" as const }) };
+    const staleDigest = await new CapabilityOperationRouter({
+      registry: staleRegistry,
+      operations: [searchOperationDefinition()],
+      adapters: guardedAdapter,
+      bindingService,
+      sidecarAuthority,
+    }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000333",
+      run_id: "10000000-0000-4000-8000-000000000334",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+    expect(staleDigest).toMatchObject({ status: "provider_unavailable" });
+
+    const staleGenerationRegistry = { resolve: async () => ({ ok: true as const, state: "available" as const, providerCount: 1, provider: { ...staleProvider, package_digest: packageRecord.package_digest as `sha256:${string}`, package_generation: packageRecord.generation + 1 }, selection: "single_provider" as const, health: "healthy" as const }) };
+    const staleGeneration = await new CapabilityOperationRouter({
+      registry: staleGenerationRegistry,
+      operations: [searchOperationDefinition()],
+      adapters: guardedAdapter,
+      bindingService,
+      sidecarAuthority,
+    }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000335",
+      run_id: "10000000-0000-4000-8000-000000000336",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+    expect(staleGeneration).toMatchObject({ status: "provider_unavailable" });
+
+    const staleBindingAuthority: ProviderSidecarAuthority = {
+      resolveRequiredSidecar: async () => ({ runtimeId: binding.runtime_id, bindingGeneration: binding.binding_generation + 1 }),
+    };
+    const staleBinding = await router(registry, guardedAdapter, { bindingService, sidecarAuthority: staleBindingAuthority }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000337",
+      run_id: "10000000-0000-4000-8000-000000000338",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+    expect(staleBinding).toMatchObject({ status: "provider_unavailable" });
+    expect(calls).toBe(0);
+    noLeak([unauthorized, staleDigest, staleGeneration, staleBinding]);
+  });
+
+  it("denies adapter access to undeclared sidecars without exposing binding details", async () => {
+    const store = await storeWith(providerManifest());
+    const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+    let calls = 0;
+    const result = await router(registry, {
+      [adapterKey("ai.braindrive.generic-search.alpha", "alpha.provider", "web.search@1")]: {
+        invoke: async (_request, context) => {
+          calls += 1;
+          context.bindingForRequiredSidecar("search.runtime");
+          return { status: "success", result: "unused", provider_component: "alpha.provider" };
+        },
+      },
+    }).call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000341",
+      run_id: "10000000-0000-4000-8000-000000000342",
+      input: { query: "fixture" },
+    }, { authorized: true, signal: new AbortController().signal });
+
+    expect(calls).toBe(1);
+    expect(result).toMatchObject({ status: "provider_unavailable" });
+    noLeak(result);
+  });
+
+  it("mediates multiple consuming apps through one selected provider without sidecar projection", async () => {
+    const store = await storeWith(providerManifest());
+    const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+    let calls = 0;
+    const callRouter = router(registry, {
+      [adapterKey("ai.braindrive.generic-search.alpha", "alpha.provider", "web.search@1")]: {
+        invoke: async (_request, context) => {
+          calls += 1;
+          return { status: "success", result: `result-${calls}`, provider_component: context.provider_component_id };
+        },
+      },
+    });
+
+    const first = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000351",
+      run_id: "10000000-0000-4000-8000-000000000352",
+      input: { query: "consumer one" },
+    }, { authorized: true, signal: new AbortController().signal });
+    const second = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000353",
+      run_id: "10000000-0000-4000-8000-000000000354",
+      input: { query: "consumer two" },
+    }, { authorized: true, signal: new AbortController().signal });
+
+    expect(first).toMatchObject({ result: "result-1", provider_component: "alpha.provider" });
+    expect(second).toMatchObject({ result: "result-2", provider_component: "alpha.provider" });
+    expect(calls).toBe(2);
+    noLeak([first, second]);
+  });
+
+  it("replays idempotent router calls and rejects changed-input reuse before adapter execution", async () => {
+    const store = await storeWith(providerManifest());
+    const registry = new CapabilityProviderRegistry({ store, target: "docker_linux_x64" });
+    let calls = 0;
+    const callRouter = router(registry, {
+      [adapterKey("ai.braindrive.generic-search.alpha", "alpha.provider", "web.search@1")]: {
+        invoke: async () => {
+          calls += 1;
+          return { status: "success", result: `result-${calls}`, provider_component: "alpha.provider" };
+        },
+      },
+    });
+
+    const options = { authorized: true, signal: new AbortController().signal, idempotencyKey: "router-idempotency-0001" };
+    const first = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000361",
+      run_id: "10000000-0000-4000-8000-000000000362",
+      input: { query: "same" },
+    }, options);
+    const replay = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000361",
+      run_id: "10000000-0000-4000-8000-000000000362",
+      input: { query: "same" },
+    }, options);
+    const conflict = await callRouter.call("web.search@1", {
+      request_id: "10000000-0000-4000-8000-000000000361",
+      run_id: "10000000-0000-4000-8000-000000000362",
+      input: { query: "changed" },
+    }, options);
+
+    expect(first).toEqual({ status: "success", result: "result-1", provider_component: "alpha.provider" });
+    expect(replay).toEqual(first);
+    expect(conflict).toMatchObject({ status: "idempotency_conflict" });
+    expect(calls).toBe(1);
+    noLeak([first, replay, conflict]);
   });
 
   it("records content-free operation receipts for package-provider calls", async () => {

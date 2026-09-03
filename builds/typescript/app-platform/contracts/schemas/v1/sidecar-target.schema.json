@@ -82,6 +82,378 @@
         "public_network": {
           "type": "boolean",
           "const": false
+        },
+        "dependency_bundle": {
+          "type": "object",
+          "properties": {
+            "bundle_id": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 128,
+              "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+            },
+            "platform": {
+              "type": "string",
+              "enum": [
+                "docker_linux_x64",
+                "desktop_windows_x64",
+                "desktop_macos_universal"
+              ]
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "lockfile_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "lockfile_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "provenance_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "provenance_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "sbom_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "sbom_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "cache": {
+              "type": "object",
+              "properties": {
+                "strategy": {
+                  "type": "string",
+                  "enum": [
+                    "package_version_isolated",
+                    "content_addressed_immutable"
+                  ]
+                },
+                "content_address": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mutable_global_fallback": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "strategy",
+                "content_address",
+                "mutable_global_fallback"
+              ],
+              "additionalProperties": false
+            },
+            "dependencies": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 128,
+                    "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "runtime",
+                      "language_package",
+                      "native_library",
+                      "browser_binary",
+                      "service_config"
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "license_id": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9.+-]+$"
+                  },
+                  "provenance_id": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 128,
+                    "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "version",
+                  "digest",
+                  "license_id",
+                  "provenance_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "bundle_id",
+            "platform",
+            "bundle_digest",
+            "lockfile_path",
+            "lockfile_digest",
+            "provenance_path",
+            "provenance_digest",
+            "sbom_path",
+            "sbom_digest",
+            "cache",
+            "dependencies"
+          ],
+          "additionalProperties": false
+        },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "resource_budget_version": {
+              "type": "number",
+              "const": 1
+            },
+            "startup_timeout_ms": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 300000
+            },
+            "health_timeout_ms": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            },
+            "stop_timeout_ms": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            },
+            "restart_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "cpu_percent": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 100
+            },
+            "memory_mb": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 32768
+            },
+            "disk_mb": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 262144
+            },
+            "cache_mb": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "log_bytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 67108864
+            },
+            "max_output_event_bytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 1048576
+            }
+          },
+          "required": [
+            "resource_budget_version",
+            "startup_timeout_ms",
+            "health_timeout_ms",
+            "stop_timeout_ms",
+            "restart_attempts",
+            "cpu_percent",
+            "memory_mb",
+            "disk_mb",
+            "cache_mb",
+            "log_bytes",
+            "max_output_event_bytes"
+          ],
+          "additionalProperties": false
+        },
+        "network_policy": {
+          "type": "object",
+          "properties": {
+            "network_policy_version": {
+              "type": "number",
+              "const": 1
+            },
+            "binding": {
+              "type": "string",
+              "enum": [
+                "private_random_loopback",
+                "private_ipc"
+              ]
+            },
+            "outbound": {
+              "minItems": 1,
+              "maxItems": 3,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "public_https",
+                  "provider_upstream_https"
+                ]
+              }
+            },
+            "public_inbound": {
+              "type": "boolean",
+              "const": false
+            },
+            "local_network": {
+              "type": "string",
+              "enum": [
+                "deny_by_default",
+                "allow_with_owner_approval"
+              ]
+            },
+            "proxy": {
+              "type": "string",
+              "enum": [
+                "inherit_host_proxy",
+                "declared_only",
+                "direct_denied"
+              ]
+            },
+            "owner_approval": {
+              "type": "string",
+              "enum": [
+                "none_required",
+                "owner_visible_network_access",
+                "admin_policy_required"
+              ]
+            },
+            "self_update": {
+              "type": "boolean",
+              "const": false
+            }
+          },
+          "required": [
+            "network_policy_version",
+            "binding",
+            "outbound",
+            "public_inbound",
+            "local_network",
+            "proxy",
+            "owner_approval",
+            "self_update"
+          ],
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "evidence_version": {
+              "type": "number",
+              "const": 1
+            },
+            "support_claim": {
+              "type": "string",
+              "const": "admission_only"
+            },
+            "required_evidence": {
+              "minItems": 5,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "dependency_lock_digest",
+                  "resource_budget_declared",
+                  "network_policy_declared",
+                  "signing_metadata",
+                  "license_provenance"
+                ]
+              }
+            },
+            "signing": {
+              "type": "object",
+              "properties": {
+                "platform_signature": {
+                  "type": "string",
+                  "enum": [
+                    "windows_authenticode_required",
+                    "macos_codesign_notarization_required"
+                  ]
+                },
+                "signature_state": {
+                  "type": "string",
+                  "const": "declared_required_not_yet_qualified"
+                }
+              },
+              "required": [
+                "platform_signature",
+                "signature_state"
+              ],
+              "additionalProperties": false
+            },
+            "stale_on": {
+              "minItems": 9,
+              "maxItems": 9,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "manifest_change",
+                  "sidecar_target_change",
+                  "dependency_bundle_change",
+                  "lockfile_change",
+                  "resource_budget_change",
+                  "network_policy_change",
+                  "signing_evidence_change",
+                  "license_provenance_change",
+                  "security_boundary_change"
+                ]
+              }
+            }
+          },
+          "required": [
+            "evidence_version",
+            "support_claim",
+            "required_evidence",
+            "signing",
+            "stale_on"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -90,7 +462,11 @@
         "artifact_path",
         "entrypoint",
         "bind",
-        "public_network"
+        "public_network",
+        "dependency_bundle",
+        "resources",
+        "network_policy",
+        "evidence"
       ],
       "additionalProperties": false
     }

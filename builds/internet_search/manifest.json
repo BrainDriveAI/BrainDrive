@@ -22,6 +22,14 @@
   "files": [
     { "path": "payload/provider/read.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
     { "path": "payload/provider/search.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+    { "path": "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe", "kind": "file", "mode": "executable", "size_bytes": 1048576, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { "path": "payload/dependencies/searxng/windows-x64/lock.json", "kind": "file", "mode": "read_only", "size_bytes": 4096, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    { "path": "provenance/searxng-windows.intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 2048, "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+    { "path": "sbom/searxng-windows.cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 8192, "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+    { "path": "payload/sidecars/search-runtime/macos-universal/searxng-runtime", "kind": "file", "mode": "executable", "size_bytes": 1048576, "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+    { "path": "payload/dependencies/searxng/macos-universal/lock.json", "kind": "file", "mode": "read_only", "size_bytes": 4096, "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+    { "path": "provenance/searxng-macos.intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 2048, "digest": "sha256:abababababababababababababababababababababababababababababababab" },
+    { "path": "sbom/searxng-macos.cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 8192, "digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" },
     { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
     { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
   ],
@@ -57,6 +65,114 @@
           "container_port": 8080,
           "network": "private",
           "public_network": false
+        },
+        {
+          "target": "desktop_windows_x64",
+          "runtime_kind": "packaged_process",
+          "artifact_path": "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe",
+          "entrypoint": "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe",
+          "bind": "loopback",
+          "public_network": false,
+          "dependency_bundle": {
+            "bundle_id": "search.runtime.windows.bundle",
+            "platform": "desktop_windows_x64",
+            "bundle_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "lockfile_path": "payload/dependencies/searxng/windows-x64/lock.json",
+            "lockfile_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "provenance_path": "provenance/searxng-windows.intoto.jsonl",
+            "provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "sbom_path": "sbom/searxng-windows.cyclonedx.json",
+            "sbom_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "cache": { "strategy": "package_version_isolated", "content_address": null, "mutable_global_fallback": false },
+            "dependencies": [
+              { "name": "python.runtime", "kind": "runtime", "version": "3.12.6", "digest": "sha256:1212121212121212121212121212121212121212121212121212121212121212", "license_id": "Python-2.0", "provenance_id": "python.runtime.provenance" },
+              { "name": "searxng.application", "kind": "language_package", "version": "2026.9.0", "digest": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "license_id": "AGPL-3.0-or-later", "provenance_id": "searxng.source.provenance" }
+            ]
+          },
+          "resources": {
+            "resource_budget_version": 1,
+            "startup_timeout_ms": 120000,
+            "health_timeout_ms": 10000,
+            "stop_timeout_ms": 10000,
+            "restart_attempts": 2,
+            "cpu_percent": 80,
+            "memory_mb": 2048,
+            "disk_mb": 2048,
+            "cache_mb": 512,
+            "log_bytes": 262144,
+            "max_output_event_bytes": 8192
+          },
+          "network_policy": {
+            "network_policy_version": 1,
+            "binding": "private_random_loopback",
+            "outbound": ["provider_upstream_https"],
+            "public_inbound": false,
+            "local_network": "deny_by_default",
+            "proxy": "inherit_host_proxy",
+            "owner_approval": "owner_visible_network_access",
+            "self_update": false
+          },
+          "evidence": {
+            "evidence_version": 1,
+            "support_claim": "admission_only",
+            "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
+            "signing": { "platform_signature": "windows_authenticode_required", "signature_state": "declared_required_not_yet_qualified" },
+            "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+          }
+        },
+        {
+          "target": "desktop_macos_universal",
+          "runtime_kind": "packaged_process",
+          "artifact_path": "payload/sidecars/search-runtime/macos-universal/searxng-runtime",
+          "entrypoint": "payload/sidecars/search-runtime/macos-universal/searxng-runtime",
+          "bind": "loopback",
+          "public_network": false,
+          "dependency_bundle": {
+            "bundle_id": "search.runtime.macos.bundle",
+            "platform": "desktop_macos_universal",
+            "bundle_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "lockfile_path": "payload/dependencies/searxng/macos-universal/lock.json",
+            "lockfile_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "provenance_path": "provenance/searxng-macos.intoto.jsonl",
+            "provenance_digest": "sha256:abababababababababababababababababababababababababababababababab",
+            "sbom_path": "sbom/searxng-macos.cyclonedx.json",
+            "sbom_digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "cache": { "strategy": "package_version_isolated", "content_address": null, "mutable_global_fallback": false },
+            "dependencies": [
+              { "name": "python.runtime", "kind": "runtime", "version": "3.12.6", "digest": "sha256:5656565656565656565656565656565656565656565656565656565656565656", "license_id": "Python-2.0", "provenance_id": "python.runtime.provenance" },
+              { "name": "searxng.application", "kind": "language_package", "version": "2026.9.0", "digest": "sha256:7878787878787878787878787878787878787878787878787878787878787878", "license_id": "AGPL-3.0-or-later", "provenance_id": "searxng.source.provenance" }
+            ]
+          },
+          "resources": {
+            "resource_budget_version": 1,
+            "startup_timeout_ms": 120000,
+            "health_timeout_ms": 10000,
+            "stop_timeout_ms": 10000,
+            "restart_attempts": 2,
+            "cpu_percent": 80,
+            "memory_mb": 2048,
+            "disk_mb": 2048,
+            "cache_mb": 512,
+            "log_bytes": 262144,
+            "max_output_event_bytes": 8192
+          },
+          "network_policy": {
+            "network_policy_version": 1,
+            "binding": "private_random_loopback",
+            "outbound": ["provider_upstream_https"],
+            "public_inbound": false,
+            "local_network": "deny_by_default",
+            "proxy": "inherit_host_proxy",
+            "owner_approval": "owner_visible_network_access",
+            "self_update": false
+          },
+          "evidence": {
+            "evidence_version": 1,
+            "support_claim": "admission_only",
+            "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
+            "signing": { "platform_signature": "macos_codesign_notarization_required", "signature_state": "declared_required_not_yet_qualified" },
+            "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+          }
         }
       ],
       "health": { "kind": "http_path", "path": "/healthz", "interval_ms": 30000, "timeout_ms": 5000 },
@@ -140,7 +256,7 @@
   "evidence": {
     "evidence_policy_version": 1,
     "required_evidence": ["schema_conformance", "negative_manifest_cases", "unsafe_binding_denial", "secret_redaction_scan"],
-    "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
+    "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
     "durable_evidence_content": "content_free_no_endpoints_no_secrets"
   }
 }

@@ -58,6 +58,28 @@ const CapabilityDependencyReadinessSchema = z.object({
   blocking_operation_ids: z.array(z.string().min(5).max(128)).max(64),
   degraded_operation_ids: z.array(z.string().min(5).max(128)).max(64),
 }).strict();
+const RuntimeCostClassSchema = z.enum(["none", "small", "medium", "large", "unknown"]);
+const RuntimeFirstStartClassSchema = z.enum(["not_required", "quick", "moderate", "lengthy", "unknown"]);
+const RuntimeTargetSupportStateSchema = z.enum(["supported", "unsupported", "unknown"]);
+const RuntimeOsSecurityClassSchema = z.enum(["not_applicable", "review_required", "blocked", "unknown"]);
+const RuntimeSummarySchema = z.object({
+  sidecar_count: z.number().int().nonnegative(),
+  target_support: RuntimeTargetSupportStateSchema,
+  target_labels: z.array(z.string().min(1).max(80)).max(9),
+  target_message: z.string().min(1).max(256),
+  install_size: z.object({
+    classification: RuntimeCostClassSchema,
+    safe_message: z.string().min(1).max(256),
+  }).strict(),
+  first_start: z.object({
+    classification: RuntimeFirstStartClassSchema,
+    safe_message: z.string().min(1).max(256),
+  }).strict(),
+  os_security: z.object({
+    classification: RuntimeOsSecurityClassSchema,
+    safe_message: z.string().min(1).max(256),
+  }).strict(),
+}).strict();
 
 export const InstalledPackageRecordSchema = z.object({
   store_version: z.literal(1),
@@ -129,6 +151,7 @@ export const OwnerSafeInstalledPackageComponentSchema = z.object({
   dependency_readiness: CapabilityDependencyReadinessSchema,
   sidecar_count: z.number().int().nonnegative(),
   target_support: z.array(TargetSupportSchema),
+  runtime_summary: RuntimeSummarySchema,
 }).strict();
 
 export const OwnerSafeInstalledPackageSchema = z.object({
@@ -165,6 +188,7 @@ export const OwnerSafeInstalledPackageSchema = z.object({
     diagnostics: z.literal("bounded_redacted"),
     evidence: z.literal("content_free_bounded"),
   }).strict(),
+  runtime_summary: RuntimeSummarySchema,
   available_actions: z.array(z.string()),
   updated_at: TimestampSchema,
 }).strict();
@@ -179,6 +203,8 @@ type SafeCapabilityDependency = z.infer<typeof SafeCapabilityDependencyProjectio
 export type CapabilityDependencyState = z.infer<typeof CapabilityDependencyStateSchema>;
 export type CapabilityDependencyAvailability = z.infer<typeof CapabilityDependencyAvailabilitySchema>;
 export type CapabilityDependencyReadiness = z.infer<typeof CapabilityDependencyReadinessSchema>;
+export type OwnerSafeRuntimeSummary = z.infer<typeof RuntimeSummarySchema>;
+type RuntimeTarget = z.infer<typeof RuntimeTargetSchema>;
 export type CapabilityDependencyResolution = {
   operation_id: string;
   state: CapabilityDependencyState;
@@ -412,7 +438,7 @@ export class InstalledPackageStore {
     }
   }
 
-  async ownerSafeCatalog(options: { dependencyResolver?: CapabilityDependencyResolver | null } = {}): Promise<OwnerSafeInstalledPackage[]> {
+  async ownerSafeCatalog(options: { dependencyResolver?: CapabilityDependencyResolver | null; currentTarget?: RuntimeTarget | null } = {}): Promise<OwnerSafeInstalledPackage[]> {
     const packages = await this.listPackages();
     const projections = await Promise.all(packages.map(async (record) => {
       const components = await this.listComponents(record.package_id);
@@ -492,9 +518,10 @@ export class InstalledPackageStore {
 export async function ownerSafePackageProjection(
   record: InstalledPackageRecord,
   components: readonly InstalledComponentRecord[],
-  options: { dependencyResolver?: CapabilityDependencyResolver | null } = {},
+  options: { dependencyResolver?: CapabilityDependencyResolver | null; currentTarget?: RuntimeTarget | null } = {},
 ): Promise<OwnerSafeInstalledPackage> {
   const manifest = record.manifest;
+  const currentTarget = options.currentTarget ?? currentDesktopTarget();
   const dependencyStatus = await dependencyStatusMap(allManifestDependencies(manifest), options.dependencyResolver ?? null);
   return OwnerSafeInstalledPackageSchema.parse({
     projection_version: 1,
@@ -529,6 +556,7 @@ export async function ownerSafePackageProjection(
       dependency_readiness: readinessForDependencies(component.required_capabilities.map((dependency) => statusForDependency(dependency, dependencyStatus))),
       sidecar_count: component.sidecar_count,
       target_support: component.target_support,
+      runtime_summary: runtimeSummaryForComponent(manifest, component, currentTarget),
     })),
     operations: manifest.provided_operations.map((operation) => ({
       operation_id: operation.operation_id,
@@ -545,9 +573,113 @@ export async function ownerSafePackageProjection(
       diagnostics: manifest.retention_policy.diagnostics,
       evidence: manifest.retention_policy.evidence,
     },
+    runtime_summary: runtimeSummaryForPackage(manifest, components, currentTarget),
     available_actions: record.state === "uninstalled" ? [] : safePackageActions(packageActions(record), readinessForDependencies(manifest.capability_dependencies.map((dependency) => statusForDependency(dependency, dependencyStatus)))),
     updated_at: record.updated_at,
   });
+}
+
+function runtimeSummaryForPackage(manifest: PackageComponentManifest, components: readonly InstalledComponentRecord[], currentTarget: RuntimeTarget | null): OwnerSafeRuntimeSummary {
+  const sidecarComponents = components.filter((component) => component.component_kind === "sidecar");
+  return runtimeSummary(manifest.sidecars, currentTarget, sidecarComponents.some((component) => component.state === "unavailable" || component.state === "failed"), totalPackageBytes(manifest));
+}
+
+function runtimeSummaryForComponent(manifest: PackageComponentManifest, component: InstalledComponentRecord, currentTarget: RuntimeTarget | null): OwnerSafeRuntimeSummary {
+  const sidecars = component.component_kind === "sidecar"
+    ? manifest.sidecars.filter((sidecar) => sidecar.component_id === component.component_id)
+    : manifest.sidecars.filter((sidecar) => sidecar.owner_component_id === component.component_id);
+  const packageBytes = component.component_kind === "sidecar" || sidecars.length > 0 ? 0 : totalPackageBytes(manifest);
+  return runtimeSummary(sidecars, currentTarget, component.state === "unavailable" || component.state === "failed", packageBytes);
+}
+
+function runtimeSummary(sidecars: readonly SidecarDescriptor[], currentTarget: RuntimeTarget | null, runtimeBlocked: boolean, packageBytes: number): OwnerSafeRuntimeSummary {
+  return RuntimeSummarySchema.parse({
+    sidecar_count: sidecars.length,
+    target_support: targetSupportState(sidecars, currentTarget),
+    target_labels: targetLabels(sidecars),
+    target_message: targetSupportMessage(sidecars, currentTarget),
+    install_size: installSizeProjection(sidecars, packageBytes),
+    first_start: firstStartProjection(sidecars),
+    os_security: osSecurityProjection(sidecars, runtimeBlocked),
+  });
+}
+
+function targetSupportState(sidecars: readonly SidecarDescriptor[], currentTarget: RuntimeTarget | null): z.infer<typeof RuntimeTargetSupportStateSchema> {
+  if (sidecars.length === 0 || !currentTarget) return "unknown";
+  return sidecars.some((sidecar) => sidecar.targets.some((target) => target.target === currentTarget)) ? "supported" : "unsupported";
+}
+
+function targetSupportMessage(sidecars: readonly SidecarDescriptor[], currentTarget: RuntimeTarget | null): string {
+  if (sidecars.length === 0) return "No sidecar runtime is declared for this package.";
+  if (!currentTarget) return "Desktop target support will be checked by the Host before start.";
+  if (targetSupportState(sidecars, currentTarget) === "supported") return "This package declares a runtime for this desktop target.";
+  return "This package does not declare a runtime for this desktop target.";
+}
+
+function targetLabels(sidecars: readonly SidecarDescriptor[]): string[] {
+  return [...new Set(sidecars.flatMap((sidecar) => sidecar.targets.map((target) => targetLabel(target.target))))].sort();
+}
+
+function installSizeProjection(sidecars: readonly SidecarDescriptor[], packageBytes: number): OwnerSafeRuntimeSummary["install_size"] {
+  const bytes = packageBytes + sidecars.reduce((sum, sidecar) => sum + maxRuntimeBytes(sidecar), 0);
+  if (bytes === 0 && sidecars.length === 0) return { classification: "none", safe_message: "No sidecar runtime install is declared." };
+  if (bytes === 0) return { classification: "unknown", safe_message: "Install size will be checked by the Host before staging." };
+  const classification = bytes >= 500 * 1024 * 1024 ? "large" : bytes >= 50 * 1024 * 1024 ? "medium" : "small";
+  const prefix = classification === "large" ? "Large install" : classification === "medium" ? "Medium install" : "Small install";
+  return {
+    classification,
+    safe_message: `${prefix}: BrainDrive will stage about ${formatBytes(bytes)} of package bytes and isolated runtime data.`,
+  };
+}
+
+function firstStartProjection(sidecars: readonly SidecarDescriptor[]): OwnerSafeRuntimeSummary["first_start"] {
+  if (sidecars.length === 0) return { classification: "not_required", safe_message: "No sidecar runtime first start is required." };
+  const startupTimeouts = sidecars.flatMap((sidecar) => sidecar.targets.flatMap((target) => target.runtime_kind === "packaged_process" ? [target.resources.startup_timeout_ms] : []));
+  if (startupTimeouts.length === 0) return { classification: "unknown", safe_message: "First-start cost will be checked by the Host before start." };
+  const maxStartupMs = Math.max(...startupTimeouts);
+  if (maxStartupMs > 45_000) {
+    return { classification: "lengthy", safe_message: "Lengthy first start: first start may take several minutes while BrainDrive prepares the declared runtime." };
+  }
+  if (maxStartupMs > 10_000) {
+    return { classification: "moderate", safe_message: "Moderate first start: the declared runtime may take a short time to become ready." };
+  }
+  return { classification: "quick", safe_message: "Quick first start expected for the declared runtime." };
+}
+
+function osSecurityProjection(sidecars: readonly SidecarDescriptor[], runtimeBlocked: boolean): OwnerSafeRuntimeSummary["os_security"] {
+  const hasDesktopProcessTarget = sidecars.some((sidecar) => sidecar.targets.some((target) => target.runtime_kind === "packaged_process"));
+  if (!hasDesktopProcessTarget) return { classification: "not_applicable", safe_message: "No desktop OS security review is declared for this runtime." };
+  if (runtimeBlocked) {
+    return { classification: "blocked", safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls." };
+  }
+  return { classification: "review_required", safe_message: "OS security review may be required before first start. BrainDrive will show a safe blocked state if the desktop denies execution." };
+}
+
+function maxRuntimeBytes(sidecar: SidecarDescriptor): number {
+  return Math.max(0, ...sidecar.targets.map((target) => target.runtime_kind === "packaged_process" ? (target.resources.disk_mb + target.resources.cache_mb) * 1024 * 1024 : 0));
+}
+
+function totalPackageBytes(manifest: PackageComponentManifest): number {
+  return manifest.files.reduce((sum, file) => sum + file.size_bytes, 0);
+}
+
+function formatBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  if (mb >= 1) return `${Math.round(mb)} MB`;
+  return "< 1 MB";
+}
+
+function targetLabel(target: RuntimeTarget): string {
+  if (target === "desktop_windows_x64") return "Desktop Windows x64";
+  if (target === "desktop_macos_universal") return "Desktop macOS universal";
+  return "Docker Linux x64";
+}
+
+function currentDesktopTarget(): RuntimeTarget | null {
+  if (process.platform === "win32") return "desktop_windows_x64";
+  if (process.platform === "darwin") return "desktop_macos_universal";
+  return null;
 }
 
 function manifestComponents(record: InstalledPackageRecord, manifest: PackageComponentManifest, now: string): InstalledComponentRecord[] {

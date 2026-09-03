@@ -33,6 +33,25 @@ export type CapabilityDependencyReadiness = {
   degraded_operation_ids: string[];
 };
 
+export type RuntimeSummary = {
+  sidecar_count: number;
+  target_support: "supported" | "unsupported" | "unknown";
+  target_labels: string[];
+  target_message: string;
+  install_size: {
+    classification: "none" | "small" | "medium" | "large" | "unknown";
+    safe_message: string;
+  };
+  first_start: {
+    classification: "not_required" | "quick" | "moderate" | "lengthy" | "unknown";
+    safe_message: string;
+  };
+  os_security: {
+    classification: "not_applicable" | "review_required" | "blocked" | "unknown";
+    safe_message: string;
+  };
+};
+
 export type InstalledPackageComponentStatus = {
   component_id: string;
   component_kind: InstalledPackageComponentKind;
@@ -55,6 +74,7 @@ export type InstalledPackageComponentStatus = {
     target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
     runtime_kind: "container" | "packaged_process";
   }>;
+  runtime_summary: RuntimeSummary;
 };
 
 export type InstalledPackageStatus = {
@@ -88,6 +108,7 @@ export type InstalledPackageStatus = {
     diagnostics: "bounded_redacted";
     evidence: "content_free_bounded";
   };
+  runtime_summary: RuntimeSummary;
   available_actions: string[];
   updated_at: string;
 };

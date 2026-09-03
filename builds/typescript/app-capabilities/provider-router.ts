@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 
 import { z } from "zod";
 
-import { TimestampSchema } from "../app-platform/contracts/common.js";
+import { canonicalInputDigest, TimestampSchema } from "../app-platform/contracts/common.js";
 import {
   createPackageOperationReceiptDiagnostic,
   type PackageDiagnosticSink,
@@ -20,7 +20,10 @@ import type {
   InstalledPackageRecord,
   InstalledPackageStore,
 } from "../app-platform/lifecycle/installed-package-store.js";
-import type { SidecarRuntimeBindingService } from "../app-platform/lifecycle/sidecar-supervisor.js";
+import type {
+  ExpectedSidecarRuntimeIdentity,
+  SidecarRuntimeBindingService,
+} from "../app-platform/lifecycle/sidecar-supervisor.js";
 
 export const ProviderOperationFailureCodeSchema = z.enum([
   "invalid_request",
@@ -32,6 +35,7 @@ export const ProviderOperationFailureCodeSchema = z.enum([
   "invalid_provider_response",
   "timeout",
   "cancelled",
+  "idempotency_conflict",
 ]);
 
 export const ProviderDiscoveryStateSchema = z.enum([
@@ -119,6 +123,7 @@ export type ProviderOperationAdapterContext = {
   provider_component_id: string;
   operation_id: string;
   adapter_abi: "braindrive-operation-adapter-v1";
+  package_generation: number;
   required_sidecars: readonly string[];
   signal: AbortSignal;
   bindingForRequiredSidecar(sidecarComponentId: string): unknown;
@@ -155,6 +160,7 @@ export type CapabilityOperationRouterOptions = {
   adapters: Record<string, ProviderOperationAdapter>;
   selectionPolicy?: ProviderSelectionPolicy;
   bindingService?: SidecarRuntimeBindingService | null;
+  sidecarAuthority?: ProviderSidecarAuthority | null;
   diagnosticSink?: PackageDiagnosticSink | null;
   now?: () => number;
 };
@@ -172,8 +178,16 @@ export type ResolvedProviderOperation = {
   package_version: string;
   provider_component_id: string;
   operation_id: string;
+  package_generation: number;
   required_sidecars: readonly string[];
   adapter_abi: "braindrive-operation-adapter-v1";
+};
+
+export type ProviderSidecarAuthority = {
+  resolveRequiredSidecar(input: {
+    provider: ResolvedProviderOperation;
+    sidecarComponentId: string;
+  }): Promise<ExpectedSidecarRuntimeIdentity>;
 };
 
 type ProviderResolution =
@@ -201,6 +215,7 @@ const MESSAGES: Record<ProviderOperationFailureCode, { retryable: boolean; messa
   invalid_provider_response: { retryable: true, message: "Provider response could not be normalized safely." },
   timeout: { retryable: true, message: "Capability provider timed out." },
   cancelled: { retryable: false, message: "Capability operation was cancelled." },
+  idempotency_conflict: { retryable: false, message: "Capability operation idempotency key was reused with different input." },
 };
 
 export class CapabilityProviderRegistry {
@@ -382,10 +397,75 @@ export class CapabilityProviderRegistry {
   }
 }
 
+export class StoreBackedProviderSidecarAuthority implements ProviderSidecarAuthority {
+  constructor(private readonly options: {
+    store: InstalledPackageStore;
+    target: RuntimeTarget;
+    bindingService: SidecarRuntimeBindingService;
+  }) {}
+
+  async resolveRequiredSidecar(input: { provider: ResolvedProviderOperation; sidecarComponentId: string }): Promise<ExpectedSidecarRuntimeIdentity> {
+    const packageRecord = await this.options.store.readPackage(input.provider.package_id);
+    if (!packageRecord) throw new AppPlatformError("ambiguous_runtime_state", "Selected provider package is unavailable");
+    if (
+      packageRecord.installation_id !== input.provider.installation_id
+      || packageRecord.package_digest !== input.provider.package_digest
+      || packageRecord.generation !== input.provider.package_generation
+    ) {
+      throw new AppPlatformError("ambiguous_runtime_state", "Selected provider package identity is stale");
+    }
+    if (packageRecord.state !== "enabled") throw new AppPlatformError("provider_unavailable", "Selected provider package is unavailable");
+
+    const operation = packageRecord.manifest.provided_operations.find((candidate) => (
+      candidate.operation_id === input.provider.operation_id
+      && candidate.provider_component_id === input.provider.provider_component_id
+    ));
+    if (!operation || !operation.required_sidecars.includes(input.sidecarComponentId)) {
+      throw new AppPlatformError("denied", "Sidecar binding is outside the selected operation scope", 403);
+    }
+
+    const sidecar = packageRecord.manifest.sidecars.find((candidate) => candidate.component_id === input.sidecarComponentId);
+    if (!sidecar || sidecar.owner_component_id !== input.provider.provider_component_id) {
+      throw new AppPlatformError("denied", "Sidecar binding is outside the selected provider scope", 403);
+    }
+    const target = sidecar.targets.find((candidate) => candidate.target === this.options.target);
+    if (!target) throw new AppPlatformError("host_incompatible", "Selected sidecar target is unsupported");
+
+    const component = await this.options.store.readComponent(input.provider.package_id, input.sidecarComponentId);
+    if (!component || component.component_kind !== "sidecar" || component.state === "uninstalled" || component.state === "stopped") {
+      throw new AppPlatformError("provider_unavailable", "Selected sidecar is unavailable");
+    }
+    if (component.state === "failed" || component.state === "unavailable" || component.health === "unhealthy") {
+      throw new AppPlatformError("readiness_failed", "Selected sidecar is unhealthy");
+    }
+    if (component.state !== "running" || component.health !== "healthy") {
+      throw new AppPlatformError("provider_unavailable", "Selected sidecar is not ready");
+    }
+
+    const binding = this.options.bindingService.safeProjection(input.provider.package_id, input.sidecarComponentId);
+    if (!binding) throw new AppPlatformError("ambiguous_runtime_state", "Selected sidecar binding is unavailable");
+    if (
+      binding.installation_id !== input.provider.installation_id
+      || binding.owner_component_id !== input.provider.provider_component_id
+      || binding.audience !== "provider_adapter_only"
+      || binding.target !== this.options.target
+      || binding.public_bind
+    ) {
+      throw new AppPlatformError("ambiguous_runtime_state", "Selected sidecar binding identity is stale");
+    }
+
+    return {
+      runtimeId: binding.runtime_id,
+      bindingGeneration: binding.binding_generation,
+    };
+  }
+}
+
 export class CapabilityOperationRouter {
   private readonly operations: Map<string, ProviderOperationDefinition>;
   private readonly adapters: Record<string, ProviderOperationAdapter>;
   private readonly now: () => number;
+  private readonly idempotency = new Map<string, { inputDigest: `sha256:${string}`; result: unknown }>();
 
   constructor(private readonly options: CapabilityOperationRouterOptions) {
     this.operations = new Map();
@@ -401,13 +481,22 @@ export class CapabilityOperationRouter {
     this.now = options.now ?? Date.now;
   }
 
-  async call(operationIdInput: unknown, rawRequest: unknown, options: { authorized: boolean; signal: AbortSignal; selectionPolicy?: ProviderSelectionPolicy | null }): Promise<unknown> {
+  async call(operationIdInput: unknown, rawRequest: unknown, options: { authorized: boolean; signal: AbortSignal; selectionPolicy?: ProviderSelectionPolicy | null; idempotencyKey?: string | null }): Promise<unknown> {
     const operationId = parseOperationId(operationIdInput);
     const definition = this.operations.get(operationId);
     if (!definition) return failure("provider_unavailable");
 
     const parsed = definition.input_schema.safeParse(rawRequest);
     if (!parsed.success) return definition.failure(null, failure("invalid_request"));
+    const replayKey = idempotencyKey(operationId, options.idempotencyKey);
+    const replayDigest = replayKey ? canonicalInputDigest({ operation_id: operationId, request: parsed.data }) : null;
+    if (replayKey && replayDigest) {
+      const replay = this.idempotency.get(replayKey);
+      if (replay) {
+        if (replay.inputDigest !== replayDigest) return definition.failure(parsed.data, failure("idempotency_conflict"));
+        return cloneResult(replay.result);
+      }
+    }
     if (!options.authorized) return definition.failure(parsed.data, failure("not_authorized"));
     if (options.signal.aborted) return definition.failure(parsed.data, failure("cancelled"));
     if (Buffer.byteLength(JSON.stringify(parsed.data), "utf8") > definition.max_input_bytes) {
@@ -416,11 +505,17 @@ export class CapabilityOperationRouter {
 
     const resolved = await this.options.registry.resolve(operationId, options.selectionPolicy ?? this.options.selectionPolicy);
     if (!resolved.ok) return definition.failure(parsed.data, resolved.failure);
+    const sidecarIdentities = await this.resolveRequiredSidecars(resolved.provider, operationId, parsed.data, definition, resolved.selection);
+    if (!sidecarIdentities.ok) {
+      if (replayKey && replayDigest) this.idempotency.set(replayKey, { inputDigest: replayDigest, result: cloneResult(sidecarIdentities.result) });
+      return sidecarIdentities.result;
+    }
     const adapter = this.adapters[adapterKey(resolved.provider.package_id, resolved.provider.provider_component_id, operationId)];
     if (!adapter) {
       const providerFailure = failure("provider_unavailable");
       const result = definition.failure(parsed.data, providerFailure);
       this.recordReceipt(resolved.provider, operationId, parsed.data, result, providerFailure, resolved.selection);
+      if (replayKey && replayDigest) this.idempotency.set(replayKey, { inputDigest: replayDigest, result: cloneResult(result) });
       return result;
     }
 
@@ -438,6 +533,7 @@ export class CapabilityOperationRouter {
           package_version: resolved.provider.package_version,
           provider_component_id: resolved.provider.provider_component_id,
           operation_id: operationId,
+          package_generation: resolved.provider.package_generation,
           adapter_abi: resolved.provider.adapter_abi,
           required_sidecars: resolved.provider.required_sidecars,
           signal: controller.signal,
@@ -445,6 +541,8 @@ export class CapabilityOperationRouter {
             if (!resolved.provider.required_sidecars.includes(sidecarComponentId)) {
               throw new AppPlatformError("denied", "Sidecar binding is outside the selected operation scope", 403);
             }
+            const expected = sidecarIdentities.identities.get(sidecarComponentId);
+            if (!expected) throw new AppPlatformError("ambiguous_runtime_state", "Sidecar binding authority is unavailable");
             if (!this.options.bindingService) {
               throw new AppPlatformError("ambiguous_runtime_state", "Sidecar binding service is unavailable");
             }
@@ -452,6 +550,7 @@ export class CapabilityOperationRouter {
               resolved.provider.package_id,
               sidecarComponentId,
               resolved.provider.provider_component_id,
+              expected,
             );
           },
         }),
@@ -469,20 +568,53 @@ export class CapabilityOperationRouter {
       const parsedResult = definition.result_schema.safeParse(result);
       if (parsedResult.success) {
         this.recordReceipt(resolved.provider, operationId, parsed.data, parsedResult.data, null, resolved.selection, "executed");
+        if (replayKey && replayDigest) this.idempotency.set(replayKey, { inputDigest: replayDigest, result: cloneResult(parsedResult.data) });
         return parsedResult.data;
       }
       const providerFailure = failure("invalid_provider_response");
       const failureResult = definition.failure(parsed.data, providerFailure);
       this.recordReceipt(resolved.provider, operationId, parsed.data, failureResult, providerFailure, resolved.selection, "executed");
+      if (replayKey && replayDigest) this.idempotency.set(replayKey, { inputDigest: replayDigest, result: cloneResult(failureResult) });
       return failureResult;
     } catch {
       const providerFailure = failure(timedOut ? "timeout" : controller.signal.aborted ? "cancelled" : "provider_unavailable");
       const result = definition.failure(parsed.data, providerFailure);
       this.recordReceipt(resolved.provider, operationId, parsed.data, result, providerFailure, resolved.selection, "executed");
+      if (replayKey && replayDigest) this.idempotency.set(replayKey, { inputDigest: replayDigest, result: cloneResult(result) });
       return result;
     } finally {
       if (timer) clearTimeout(timer);
       options.signal.removeEventListener("abort", abort);
+    }
+  }
+
+  private async resolveRequiredSidecars(
+    provider: ResolvedProviderOperation,
+    operationId: string,
+    request: unknown,
+    definition: ProviderOperationDefinition,
+    providerSelection: "single_provider" | "owner_or_admin_policy",
+  ): Promise<{ ok: true; identities: Map<string, ExpectedSidecarRuntimeIdentity> } | { ok: false; result: unknown }> {
+    const identities = new Map<string, ExpectedSidecarRuntimeIdentity>();
+    if (provider.required_sidecars.length === 0) return { ok: true, identities };
+    if (!this.options.sidecarAuthority || !this.options.bindingService) {
+      const providerFailure = failure("provider_unavailable");
+      const result = definition.failure(request, providerFailure);
+      this.recordReceipt(provider, operationId, request, result, providerFailure, providerSelection, "not_executed");
+      return { ok: false, result };
+    }
+    try {
+      for (const sidecarComponentId of provider.required_sidecars) {
+        const expected = await this.options.sidecarAuthority.resolveRequiredSidecar({ provider, sidecarComponentId });
+        this.options.bindingService.bindingForProviderAdapter(provider.package_id, sidecarComponentId, provider.provider_component_id, expected);
+        identities.set(sidecarComponentId, expected);
+      }
+      return { ok: true, identities };
+    } catch (error) {
+      const providerFailure = failureForAuthorityError(error);
+      const result = definition.failure(request, providerFailure);
+      this.recordReceipt(provider, operationId, request, result, providerFailure, providerSelection, "not_executed");
+      return { ok: false, result };
     }
   }
 
@@ -564,6 +696,7 @@ function resolvedProvider(candidate: ProviderOperationCandidate): ResolvedProvid
     package_version: candidate.packageRecord.package_version,
     provider_component_id: candidate.providerComponent.component_id,
     operation_id: candidate.operation.operation_id,
+    package_generation: candidate.packageRecord.generation,
     required_sidecars: [...candidate.operation.required_sidecars],
     adapter_abi: candidate.operation.adapter.abi,
   };
@@ -591,6 +724,15 @@ function failure(code: ProviderOperationFailureCode): ProviderOperationFailure {
   return { code, retryable: defaults.retryable, message: defaults.message };
 }
 
+function failureForAuthorityError(error: unknown): ProviderOperationFailure {
+  if (!(error instanceof AppPlatformError)) return failure("provider_unavailable");
+  if (error.code === "readiness_failed" || error.code === "lifecycle_failed") return failure("provider_unhealthy");
+  if (error.code === "host_incompatible") return failure("unsupported_target");
+  if (error.code === "grant_missing" || error.code === "grant_revoked") return failure("not_authorized");
+  if (error.code === "denied") return failure("provider_unavailable");
+  return failure("provider_unavailable");
+}
+
 function receiptIdentity(request: unknown): { requestId: string; runId: string } | null {
   if (!request || typeof request !== "object") return null;
   const candidate = request as Record<string, unknown>;
@@ -616,4 +758,16 @@ function receiptStatusFromResult(result: unknown): "success" | "partial" | "fail
 function dependencyFailureCode(code: ProviderOperationFailureCode | null): CapabilityDependencyResolution["failure_code"] {
   if (code === "provider_unavailable" || code === "provider_unhealthy" || code === "provider_selection_required" || code === "unsupported_target" || code === "not_authorized" || code === "invalid_request") return code;
   return "unknown";
+}
+
+function idempotencyKey(operationId: string, key: string | null | undefined): string | null {
+  const value = key?.trim();
+  if (!value) return null;
+  if (value.length < 16 || value.length > 256) return null;
+  return `${operationId}:${value}`;
+}
+
+function cloneResult(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  return JSON.parse(JSON.stringify(value));
 }

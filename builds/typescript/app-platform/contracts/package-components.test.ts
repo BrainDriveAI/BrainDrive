@@ -201,6 +201,60 @@ describe("SC-001 package component manifest conformance", () => {
     expect(dependency.components[0]).toMatchObject({ component_kind: "dependency_service", launchable: false });
   });
 
+  it("admits rich desktop packaged-process targets as admission-only metadata", async () => {
+    const source = await corpus();
+    const manifest = parsePackageComponentManifestForConformance(materializeValid(source, "valid-app-owned-sidecar"));
+    const [sidecar] = manifest.sidecars;
+    const desktopTargets = sidecar.targets.filter((target) => target.runtime_kind === "packaged_process");
+    expect(desktopTargets.map((target) => target.target)).toEqual(["desktop_windows_x64", "desktop_macos_universal"]);
+    expect(manifest.evidence.stale_on).toEqual(expect.arrayContaining([
+      "dependency_bundle_change",
+      "lockfile_change",
+      "resource_budget_change",
+      "signing_evidence_change",
+      "license_provenance_change",
+    ]));
+
+    for (const target of desktopTargets) {
+      expect(target.bind).toBe("loopback");
+      expect(target.public_network).toBe(false);
+      expect(target.dependency_bundle.platform).toBe(target.target);
+      expect(target.dependency_bundle.dependencies).toHaveLength(1);
+      expect(target.dependency_bundle.cache.mutable_global_fallback).toBe(false);
+      expect(target.resources).toMatchObject({
+        resource_budget_version: 1,
+        startup_timeout_ms: 20000,
+        health_timeout_ms: 5000,
+        restart_attempts: 2,
+      });
+      expect(target.network_policy).toMatchObject({
+        binding: "private_random_loopback",
+        public_inbound: false,
+        local_network: "deny_by_default",
+        self_update: false,
+      });
+      expect(target.evidence).toMatchObject({
+        support_claim: "admission_only",
+        required_evidence: expect.arrayContaining([
+          "dependency_lock_digest",
+          "resource_budget_declared",
+          "network_policy_declared",
+          "signing_metadata",
+          "license_provenance",
+        ]),
+        stale_on: expect.arrayContaining([
+          "dependency_bundle_change",
+          "lockfile_change",
+          "resource_budget_change",
+          "network_policy_change",
+          "signing_evidence_change",
+          "license_provenance_change",
+        ]),
+      });
+      expect(target.evidence.signing.signature_state).toBe("declared_required_not_yet_qualified");
+    }
+  });
+
   it("admits canonical Search and Read dependency contracts with explicit availability behavior", async () => {
     const source = await corpus();
     const requiredSearch: CapabilityDependency = {

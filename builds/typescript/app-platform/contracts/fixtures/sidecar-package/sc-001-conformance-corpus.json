@@ -28,7 +28,9 @@
         },
         "files": [
           { "path": "payload/app/index.html", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          { "path": "payload/dependencies/notes-worker/lock.json", "kind": "file", "mode": "read_only", "size_bytes": 256, "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
           { "path": "payload/sidecars/notes-worker/windows-x64/index.exe", "kind": "file", "mode": "executable", "size_bytes": 256, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+          { "path": "payload/sidecars/notes-worker/macos-universal/index", "kind": "file", "mode": "executable", "size_bytes": 256, "digest": "sha256:abababababababababababababababababababababababababababababababab" },
           { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
           { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }
         ],
@@ -64,7 +66,133 @@
                 "artifact_path": "payload/sidecars/notes-worker/windows-x64/index.exe",
                 "entrypoint": "payload/sidecars/notes-worker/windows-x64/index.exe",
                 "bind": "loopback",
-                "public_network": false
+                "public_network": false,
+                "dependency_bundle": {
+                  "bundle_id": "notes.worker.windows.bundle",
+                  "platform": "desktop_windows_x64",
+                  "bundle_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "lockfile_path": "payload/dependencies/notes-worker/lock.json",
+                  "lockfile_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "provenance_path": "provenance/intoto.jsonl",
+                  "provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "sbom_path": "sbom/cyclonedx.json",
+                  "sbom_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "cache": {
+                    "strategy": "package_version_isolated",
+                    "content_address": null,
+                    "mutable_global_fallback": false
+                  },
+                  "dependencies": [
+                    {
+                      "name": "nodejs.runtime",
+                      "kind": "runtime",
+                      "version": "22.17.0",
+                      "digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+                      "license_id": "MIT",
+                      "provenance_id": "nodejs.runtime.provenance"
+                    }
+                  ]
+                },
+                "resources": {
+                  "resource_budget_version": 1,
+                  "startup_timeout_ms": 20000,
+                  "health_timeout_ms": 5000,
+                  "stop_timeout_ms": 5000,
+                  "restart_attempts": 2,
+                  "cpu_percent": 50,
+                  "memory_mb": 256,
+                  "disk_mb": 256,
+                  "cache_mb": 128,
+                  "log_bytes": 65536,
+                  "max_output_event_bytes": 4096
+                },
+                "network_policy": {
+                  "network_policy_version": 1,
+                  "binding": "private_random_loopback",
+                  "outbound": ["none"],
+                  "public_inbound": false,
+                  "local_network": "deny_by_default",
+                  "proxy": "inherit_host_proxy",
+                  "owner_approval": "none_required",
+                  "self_update": false
+                },
+                "evidence": {
+                  "evidence_version": 1,
+                  "support_claim": "admission_only",
+                  "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
+                  "signing": {
+                    "platform_signature": "windows_authenticode_required",
+                    "signature_state": "declared_required_not_yet_qualified"
+                  },
+                  "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+                }
+              },
+              {
+                "target": "desktop_macos_universal",
+                "runtime_kind": "packaged_process",
+                "artifact_path": "payload/sidecars/notes-worker/macos-universal/index",
+                "entrypoint": "payload/sidecars/notes-worker/macos-universal/index",
+                "bind": "loopback",
+                "public_network": false,
+                "dependency_bundle": {
+                  "bundle_id": "notes.worker.macos.bundle",
+                  "platform": "desktop_macos_universal",
+                  "bundle_digest": "sha256:abababababababababababababababababababababababababababababababab",
+                  "lockfile_path": "payload/dependencies/notes-worker/lock.json",
+                  "lockfile_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "provenance_path": "provenance/intoto.jsonl",
+                  "provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "sbom_path": "sbom/cyclonedx.json",
+                  "sbom_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "cache": {
+                    "strategy": "package_version_isolated",
+                    "content_address": null,
+                    "mutable_global_fallback": false
+                  },
+                  "dependencies": [
+                    {
+                      "name": "nodejs.runtime",
+                      "kind": "runtime",
+                      "version": "22.17.0",
+                      "digest": "sha256:0202020202020202020202020202020202020202020202020202020202020202",
+                      "license_id": "MIT",
+                      "provenance_id": "nodejs.runtime.provenance"
+                    }
+                  ]
+                },
+                "resources": {
+                  "resource_budget_version": 1,
+                  "startup_timeout_ms": 20000,
+                  "health_timeout_ms": 5000,
+                  "stop_timeout_ms": 5000,
+                  "restart_attempts": 2,
+                  "cpu_percent": 50,
+                  "memory_mb": 256,
+                  "disk_mb": 256,
+                  "cache_mb": 128,
+                  "log_bytes": 65536,
+                  "max_output_event_bytes": 4096
+                },
+                "network_policy": {
+                  "network_policy_version": 1,
+                  "binding": "private_random_loopback",
+                  "outbound": ["none"],
+                  "public_inbound": false,
+                  "local_network": "deny_by_default",
+                  "proxy": "inherit_host_proxy",
+                  "owner_approval": "none_required",
+                  "self_update": false
+                },
+                "evidence": {
+                  "evidence_version": 1,
+                  "support_claim": "admission_only",
+                  "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
+                  "signing": {
+                    "platform_signature": "macos_codesign_notarization_required",
+                    "signature_state": "declared_required_not_yet_qualified"
+                  },
+                  "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+                }
               }
             ],
             "health": { "kind": "http_path", "path": "/healthz", "interval_ms": 30000, "timeout_ms": 5000 },
@@ -109,7 +237,7 @@
         "evidence": {
           "evidence_policy_version": 1,
           "required_evidence": ["schema_conformance", "negative_manifest_cases", "unsafe_binding_denial", "secret_redaction_scan"],
-          "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
+          "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
           "durable_evidence_content": "content_free_no_endpoints_no_secrets"
         }
       }
@@ -441,6 +569,76 @@
           "silent_install_or_switch": false
         }
       ]
+    },
+    {
+      "fixture_id": "invalid-desktop-missing-resource-budget",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["sidecars", 0, "targets", 0, "resources"],
+      "mutation_value": null
+    },
+    {
+      "fixture_id": "invalid-desktop-missing-dependency-bundle",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["sidecars", 0, "targets", 0, "dependency_bundle"],
+      "mutation_value": null
+    },
+    {
+      "fixture_id": "invalid-desktop-lockfile-digest-mismatch",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["sidecars", 0, "targets", 0, "dependency_bundle", "lockfile_digest"],
+      "mutation_value": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "fixture_id": "invalid-desktop-public-inbound",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "unsafe_binding",
+      "mutation_path": ["sidecars", 0, "targets", 0, "network_policy", "public_inbound"],
+      "mutation_value": true
+    },
+    {
+      "fixture_id": "invalid-desktop-lan-without-approval",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "authority_widening",
+      "mutation_path": ["sidecars", 0, "targets", 0, "network_policy", "local_network"],
+      "mutation_value": "allow_with_owner_approval"
+    },
+    {
+      "fixture_id": "invalid-desktop-self-update-path",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "forbidden_field",
+      "mutation_path": ["sidecars", 0, "targets", 0, "self_update_path"],
+      "mutation_value": "payload/updater.js"
+    },
+    {
+      "fixture_id": "invalid-desktop-arbitrary-command",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "forbidden_field",
+      "mutation_path": ["sidecars", 0, "targets", 0, "command"],
+      "mutation_value": "/bin/sh -c run-anything"
+    },
+    {
+      "fixture_id": "invalid-desktop-mutable-global-fallback",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "authority_widening",
+      "mutation_path": ["sidecars", 0, "targets", 0, "dependency_bundle", "cache", "mutable_global_fallback"],
+      "mutation_value": true
+    },
+    {
+      "fixture_id": "invalid-desktop-missing-signing-evidence",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["sidecars", 0, "targets", 0, "evidence", "signing", "signature_state"],
+      "mutation_value": "not_required"
+    },
+    {
+      "fixture_id": "invalid-desktop-incomplete-stale-evidence",
+      "base": "valid-app-owned-sidecar",
+      "expected_code": "package_descriptor_invalid",
+      "mutation_path": ["sidecars", 0, "targets", 0, "evidence", "stale_on"],
+      "mutation_value": ["manifest_change"]
     }
   ]
 }

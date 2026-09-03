@@ -14,11 +14,18 @@ const supportedCapabilityDependencyOperationIds = new Set(["web.search@1", "web.
 
 const forbiddenManifestAuthorityKeys = new Set([
   "api_key",
+  "args",
+  "cmd",
+  "command",
+  "command_line",
   "container_id",
   "container_name",
   "credential",
   "endpoint",
   "endpoint_url",
+  "env",
+  "executable",
+  "global_runtime",
   "handler",
   "handler_name",
   "host_handler",
@@ -31,10 +38,14 @@ const forbiddenManifestAuthorityKeys = new Set([
   "ports",
   "private_binding",
   "raw_response",
+  "runtime_fallback",
   "secret_value",
   "service_name",
+  "self_update_path",
+  "shell",
   "token",
   "url",
+  "working_directory",
 ]);
 
 const typedIssueCodes = new Set<ContractErrorCode>([
@@ -128,6 +139,169 @@ export const SidecarBindingPolicySchema = z
   })
   .strict();
 
+const DependencyNameSchema = z.string().min(3).max(128).regex(/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/);
+const LicenseIdSchema = z.string().min(2).max(64).regex(/^[A-Za-z0-9.+-]+$/);
+
+export const SidecarDependencyBundleSchema = z
+  .object({
+    bundle_id: ComponentIdSchema,
+    platform: RuntimeTargetSchema,
+    bundle_digest: Sha256DigestSchema,
+    lockfile_path: PackagePathSchema,
+    lockfile_digest: Sha256DigestSchema,
+    provenance_path: PackagePathSchema,
+    provenance_digest: Sha256DigestSchema,
+    sbom_path: PackagePathSchema,
+    sbom_digest: Sha256DigestSchema,
+    cache: z
+      .object({
+        strategy: z.enum(["package_version_isolated", "content_addressed_immutable"]),
+        content_address: Sha256DigestSchema.nullable(),
+        mutable_global_fallback: z.literal(false),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (value.strategy === "package_version_isolated" && value.content_address !== null) {
+          context.addIssue({ code: "custom", path: ["content_address"], message: "package_descriptor_invalid" });
+        }
+        if (value.strategy === "content_addressed_immutable" && value.content_address === null) {
+          context.addIssue({ code: "custom", path: ["content_address"], message: "package_descriptor_invalid" });
+        }
+      }),
+    dependencies: z
+      .array(z
+        .object({
+          name: DependencyNameSchema,
+          kind: z.enum(["runtime", "language_package", "native_library", "browser_binary", "service_config"]),
+          version: SemverSchema,
+          digest: Sha256DigestSchema,
+          license_id: LicenseIdSchema,
+          provenance_id: ComponentIdSchema,
+        })
+        .strict())
+      .min(1)
+      .max(64),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    unique(value.dependencies.map((dependency) => `${dependency.kind}:${dependency.name}`), ["dependencies"], context);
+  });
+
+export const SidecarResourceBudgetSchema = z
+  .object({
+    resource_budget_version: z.literal(1),
+    startup_timeout_ms: z.number().int().positive().max(300_000),
+    health_timeout_ms: z.number().int().positive().max(60_000),
+    stop_timeout_ms: z.number().int().positive().max(60_000),
+    restart_attempts: z.number().int().nonnegative().max(10),
+    cpu_percent: z.number().int().positive().max(100),
+    memory_mb: z.number().int().positive().max(32_768),
+    disk_mb: z.number().int().positive().max(262_144),
+    cache_mb: z.number().int().nonnegative().max(262_144),
+    log_bytes: z.number().int().positive().max(67_108_864),
+    max_output_event_bytes: z.number().int().positive().max(1_048_576),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.health_timeout_ms > value.startup_timeout_ms) {
+      context.addIssue({ code: "custom", path: ["health_timeout_ms"], message: "package_descriptor_invalid" });
+    }
+    if (value.max_output_event_bytes > value.log_bytes) {
+      context.addIssue({ code: "custom", path: ["max_output_event_bytes"], message: "package_descriptor_invalid" });
+    }
+  });
+
+export const SidecarNetworkPolicySchema = z
+  .object({
+    network_policy_version: z.literal(1),
+    binding: z.enum(["private_random_loopback", "private_ipc"]),
+    outbound: z.array(z.enum(["none", "public_https", "provider_upstream_https"])).min(1).max(3),
+    public_inbound: z.literal(false),
+    local_network: z.enum(["deny_by_default", "allow_with_owner_approval"]),
+    proxy: z.enum(["inherit_host_proxy", "declared_only", "direct_denied"]),
+    owner_approval: z.enum(["none_required", "owner_visible_network_access", "admin_policy_required"]),
+    self_update: z.literal(false),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    unique(value.outbound, ["outbound"], context);
+    if (value.local_network === "allow_with_owner_approval" && value.owner_approval === "none_required") {
+      context.addIssue({ code: "custom", path: ["owner_approval"], message: "authority_widening" });
+    }
+    if (value.outbound.includes("none") && value.outbound.length > 1) {
+      context.addIssue({ code: "custom", path: ["outbound"], message: "package_descriptor_invalid" });
+    }
+  });
+
+const SidecarTargetEvidenceClassSchema = z.enum([
+  "dependency_lock_digest",
+  "resource_budget_declared",
+  "network_policy_declared",
+  "signing_metadata",
+  "license_provenance",
+]);
+
+const SidecarTargetStaleClassSchema = z.enum([
+  "manifest_change",
+  "sidecar_target_change",
+  "dependency_bundle_change",
+  "lockfile_change",
+  "resource_budget_change",
+  "network_policy_change",
+  "signing_evidence_change",
+  "license_provenance_change",
+  "security_boundary_change",
+]);
+
+const requiredSidecarTargetEvidence = [
+  "dependency_lock_digest",
+  "resource_budget_declared",
+  "network_policy_declared",
+  "signing_metadata",
+  "license_provenance",
+] as const;
+
+const requiredSidecarTargetStaleClasses = [
+  "manifest_change",
+  "sidecar_target_change",
+  "dependency_bundle_change",
+  "lockfile_change",
+  "resource_budget_change",
+  "network_policy_change",
+  "signing_evidence_change",
+  "license_provenance_change",
+  "security_boundary_change",
+] as const;
+
+export const SidecarTargetEvidenceSchema = z
+  .object({
+    evidence_version: z.literal(1),
+    support_claim: z.literal("admission_only"),
+    required_evidence: z.array(SidecarTargetEvidenceClassSchema).min(requiredSidecarTargetEvidence.length).max(requiredSidecarTargetEvidence.length),
+    signing: z
+      .object({
+        platform_signature: z.enum(["windows_authenticode_required", "macos_codesign_notarization_required"]),
+        signature_state: z.literal("declared_required_not_yet_qualified"),
+      })
+      .strict(),
+    stale_on: z.array(SidecarTargetStaleClassSchema).min(requiredSidecarTargetStaleClasses.length).max(requiredSidecarTargetStaleClasses.length),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    unique(value.required_evidence, ["required_evidence"], context);
+    unique(value.stale_on, ["stale_on"], context);
+    for (const required of requiredSidecarTargetEvidence) {
+      if (!value.required_evidence.includes(required)) {
+        context.addIssue({ code: "custom", path: ["required_evidence"], message: "package_descriptor_invalid" });
+      }
+    }
+    for (const required of requiredSidecarTargetStaleClasses) {
+      if (!value.stale_on.includes(required)) {
+        context.addIssue({ code: "custom", path: ["stale_on"], message: "package_descriptor_invalid" });
+      }
+    }
+  });
+
 const ContainerSidecarTargetSchema = z
   .object({
     target: RuntimeTargetSchema,
@@ -152,11 +326,30 @@ const ProcessSidecarTargetSchema = z
     entrypoint: PackagePathSchema,
     bind: z.enum(["loopback", "ipc"]),
     public_network: z.literal(false),
+    dependency_bundle: SidecarDependencyBundleSchema,
+    resources: SidecarResourceBudgetSchema,
+    network_policy: SidecarNetworkPolicySchema,
+    evidence: SidecarTargetEvidenceSchema,
   })
   .strict()
   .superRefine((value, context) => {
     if (value.target === "docker_linux_x64") {
       context.addIssue({ code: "custom", path: ["target"], message: "unsupported_target" });
+    }
+    if (value.dependency_bundle.platform !== value.target) {
+      context.addIssue({ code: "custom", path: ["dependency_bundle", "platform"], message: "package_descriptor_invalid" });
+    }
+    if (
+      (value.bind === "loopback" && value.network_policy.binding !== "private_random_loopback") ||
+      (value.bind === "ipc" && value.network_policy.binding !== "private_ipc")
+    ) {
+      context.addIssue({ code: "custom", path: ["network_policy", "binding"], message: "unsafe_binding" });
+    }
+    if (
+      (value.target === "desktop_windows_x64" && value.evidence.signing.platform_signature !== "windows_authenticode_required") ||
+      (value.target === "desktop_macos_universal" && value.evidence.signing.platform_signature !== "macos_codesign_notarization_required")
+    ) {
+      context.addIssue({ code: "custom", path: ["evidence", "signing", "platform_signature"], message: "package_descriptor_invalid" });
     }
   });
 
@@ -315,10 +508,15 @@ export const PackageEvidencePolicySchema = z
       "permission_change",
       "operation_contract_change",
       "provider_version_change",
+      "dependency_bundle_change",
+      "lockfile_change",
+      "resource_budget_change",
+      "signing_evidence_change",
+      "license_provenance_change",
       "security_boundary_change",
       "retention_policy_change",
       "diagnostics_policy_change",
-    ])).min(1).max(11),
+    ])).min(1).max(16),
     durable_evidence_content: z.literal("content_free_no_endpoints_no_secrets"),
   })
   .strict()
@@ -425,6 +623,18 @@ export const PackageComponentManifestSchema = z
           if (!artifact || !entrypoint || entrypoint.mode !== "executable") {
             context.addIssue({ code: "custom", path: ["sidecars", index, "targets", targetIndex], message: "package_descriptor_invalid" });
           }
+          const lockfile = filesByPath.get(target.dependency_bundle.lockfile_path);
+          const provenance = filesByPath.get(target.dependency_bundle.provenance_path);
+          const sbom = filesByPath.get(target.dependency_bundle.sbom_path);
+          if (!lockfile || lockfile.digest !== target.dependency_bundle.lockfile_digest) {
+            context.addIssue({ code: "custom", path: ["sidecars", index, "targets", targetIndex, "dependency_bundle", "lockfile_digest"], message: "package_descriptor_invalid" });
+          }
+          if (!provenance || provenance.digest !== target.dependency_bundle.provenance_digest) {
+            context.addIssue({ code: "custom", path: ["sidecars", index, "targets", targetIndex, "dependency_bundle", "provenance_digest"], message: "package_descriptor_invalid" });
+          }
+          if (!sbom || sbom.digest !== target.dependency_bundle.sbom_digest) {
+            context.addIssue({ code: "custom", path: ["sidecars", index, "targets", targetIndex, "dependency_bundle", "sbom_digest"], message: "package_descriptor_invalid" });
+          }
         }
       }
     }
@@ -488,10 +698,12 @@ function inferPackageComponentFailureCode(issues: z.ZodIssue[]): ContractErrorCo
     if (typedIssueCodes.has(issue.message as ContractErrorCode)) return issue.message as ContractErrorCode;
     const path = issue.path.join(".");
     if (path.includes("silent_install_or_switch") || path.includes("provider_selection")) return "authority_widening";
-    if (path.includes("public_bind") || path.includes("binding")) return "unsafe_binding";
-    if (path.includes("target")) return "unsupported_target";
+    if (path.includes("owner_approval") || path.includes("mutable_global_fallback")) return "authority_widening";
+    if (path.includes("public_bind") || path.includes("public_inbound") || path.includes("binding")) return "unsafe_binding";
     if (path.includes("secrets") || path.includes("credentials")) return "unmanaged_secret";
     if (path.includes("provided_operations") || path.includes("input_contract") || path.includes("result_contract")) return "missing_operation_contract";
+    if (path.includes("dependency_bundle") || path.includes("resources") || path.includes("network_policy") || path.includes("evidence") || path.includes("signing") || path.includes("stale_on")) return "package_descriptor_invalid";
+    if (issue.path.some((segment) => segment === "target")) return "unsupported_target";
   }
   return "schema_validation_failed";
 }

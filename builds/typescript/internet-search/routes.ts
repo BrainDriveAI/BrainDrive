@@ -8,6 +8,7 @@ import {
   type ProviderOperationAdapter,
   type ProviderOperationDefinition,
   type ProviderOperationFailureCode,
+  type ProviderSidecarAuthority,
   type ProviderSelectionPolicy,
 } from "../app-capabilities/provider-router.js";
 import type { SidecarRuntimeBindingService } from "../app-platform/lifecycle/sidecar-supervisor.js";
@@ -65,6 +66,7 @@ export function registerInternetSearchCapabilityRoutes(
     packageId?: string;
     providerComponentId?: string;
     selectionPolicy?: ProviderSelectionPolicy | null;
+    sidecarAuthority?: ProviderSidecarAuthority | null;
   } = {},
 ): void {
   const operationCoordinator = options.operationCoordinator ?? new InternetSearchOperationCoordinator();
@@ -115,6 +117,7 @@ export function createInternetSearchOperationRouter(
     searchExecutor?: WebSearchExecutor | null;
     readExecutor?: WebReadExecutor | null;
     bindingService?: SidecarRuntimeBindingService | null;
+    sidecarAuthority?: ProviderSidecarAuthority | null;
     packageId?: string;
     providerComponentId?: string;
     selectionPolicy?: ProviderSelectionPolicy | null;
@@ -125,6 +128,7 @@ export function createInternetSearchOperationRouter(
     operations: INTERNET_SEARCH_ROUTE_OPERATIONS,
     adapters: createInternetSearchOperationAdapters(options),
     bindingService: options.bindingService ?? null,
+    sidecarAuthority: options.sidecarAuthority ?? null,
     selectionPolicy: options.selectionPolicy ?? undefined,
   });
 }

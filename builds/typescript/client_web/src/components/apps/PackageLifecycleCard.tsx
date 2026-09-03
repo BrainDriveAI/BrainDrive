@@ -57,7 +57,7 @@ const kindCopy: Record<InstalledPackageComponentKind, string> = {
   app: "App surface",
   capability_provider: "Capability provider",
   dependency_service: "Dependency service",
-  sidecar: "Sidecar service",
+  sidecar: "Runtime service",
 };
 
 const readinessCopy: Record<InstalledPackageStatus["dependency_readiness"]["status"], string> = {
@@ -67,10 +67,38 @@ const readinessCopy: Record<InstalledPackageStatus["dependency_readiness"]["stat
   unknown: "Dependency readiness unknown",
 };
 
+const targetSupportCopy: Record<InstalledPackageStatus["runtime_summary"]["target_support"], string> = {
+  supported: "Supported target",
+  unsupported: "Unsupported target",
+  unknown: "Target support not checked",
+};
+
+const osSecurityCopy: Record<InstalledPackageStatus["runtime_summary"]["os_security"]["classification"], string> = {
+  not_applicable: "OS security review not required",
+  review_required: "OS security review may be required",
+  blocked: "OS security blocked",
+  unknown: "OS security status unknown",
+};
+
 function primaryKind(pack: InstalledPackageStatus): string {
   if (pack.package_kind.includes("capability_provider")) return "Capability provider";
   if (pack.package_kind.includes("dependency_service")) return "Dependency service";
   return "App package";
+}
+
+function roleSummary(pack: InstalledPackageStatus): string {
+  const roleCounts = {
+    app: pack.components.filter((component) => component.component_kind === "app").length,
+    provider: pack.components.filter((component) => component.component_kind === "capability_provider").length,
+    dependency: pack.components.filter((component) => component.component_kind === "dependency_service").length,
+    runtime: pack.components.filter((component) => component.component_kind === "sidecar").length,
+  };
+  return [
+    roleCounts.app ? `${roleCounts.app} app surface${roleCounts.app === 1 ? "" : "s"}` : null,
+    roleCounts.provider ? `${roleCounts.provider} provider${roleCounts.provider === 1 ? "" : "s"}` : null,
+    roleCounts.dependency ? `${roleCounts.dependency} dependency service${roleCounts.dependency === 1 ? "" : "s"}` : null,
+    roleCounts.runtime ? `${roleCounts.runtime} runtime service${roleCounts.runtime === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(", ") || "No launchable app surface";
 }
 
 function hasUnsafeState(pack: InstalledPackageStatus): boolean {
@@ -146,6 +174,7 @@ export default function PackageLifecycleCard({
     || operations.some(isInternetSearchOperationId)
     || pack.components.some((component) => component.provided_operations.some(isInternetSearchOperationId) || hasInternetSearchDependency(component.capability_dependency_status));
   const actions = packageActions(pack);
+  const runtimeUnsafe = pack.runtime_summary.target_support === "unsupported" || pack.runtime_summary.os_security.classification === "blocked";
 
   return (
     <article className="flex h-full flex-col rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-package-id={pack.identity.package_id}>
@@ -167,7 +196,7 @@ export default function PackageLifecycleCard({
 
       <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-bd-text-primary">
         <span className="rounded-md border border-bd-border px-2 py-1">{primaryKind(pack)}</span>
-        <span className="rounded-md border border-bd-border px-2 py-1">{pack.components.length} components</span>
+        <span className="rounded-md border border-bd-border px-2 py-1">{roleSummary(pack)}</span>
         {operations.length ? <span className="rounded-md border border-bd-border px-2 py-1">{operations.length} operations</span> : null}
         {dependencies.length ? <span className="rounded-md border border-bd-border px-2 py-1">{dependencies.length} dependencies</span> : null}
       </div>
@@ -183,7 +212,7 @@ export default function PackageLifecycleCard({
 
       {unsafe && pack.dependency_readiness.status !== "blocked" ? (
         <div role="alert" aria-label={`${pack.identity.display_name} package health`} className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">
-          Unhealthy or unavailable components need owner review before dependent apps rely on this package.
+          Unhealthy or unavailable package roles need owner review before dependent apps rely on this package.
         </div>
       ) : null}
       {showSearchDisclosure ? (
@@ -194,6 +223,19 @@ export default function PackageLifecycleCard({
         </section>
       ) : null}
 
+      <section
+        role={runtimeUnsafe ? "alert" : "status"}
+        aria-label={`${pack.identity.display_name} runtime summary`}
+        className={runtimeUnsafe ? "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary" : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}
+      >
+        <p className="font-medium text-bd-text-heading">{targetSupportCopy[pack.runtime_summary.target_support]}</p>
+        <p className="mt-1 text-xs text-bd-text-secondary">{pack.runtime_summary.target_message}</p>
+        {pack.runtime_summary.target_labels.length ? <p className="mt-1 text-xs text-bd-text-secondary">Targets: {pack.runtime_summary.target_labels.join(", ")}</p> : null}
+        <p className="mt-2 text-xs text-bd-text-secondary">{pack.runtime_summary.install_size.safe_message}</p>
+        <p className="mt-1 text-xs text-bd-text-secondary">{pack.runtime_summary.first_start.safe_message}</p>
+        <p className="mt-1 text-xs text-bd-text-secondary">{osSecurityCopy[pack.runtime_summary.os_security.classification]}: {pack.runtime_summary.os_security.safe_message}</p>
+      </section>
+
       <section className="mt-5" aria-labelledby={`${titleId}-components`}>
         <h3 id={`${titleId}-components`} className="font-heading font-semibold text-bd-text-heading">Components</h3>
         <div className="mt-2 space-y-3">
@@ -202,14 +244,19 @@ export default function PackageLifecycleCard({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="font-medium text-bd-text-primary">{component.display_name}</p>
-                  <p className="text-xs text-bd-text-secondary">{kindCopy[component.component_kind]} · {component.component_id}</p>
+                  <p className="text-xs text-bd-text-secondary">{kindCopy[component.component_kind]}</p>
                 </div>
                 <p className="text-xs text-bd-text-secondary">{componentStateCopy[component.state] ?? component.state} · {healthCopy[component.health] ?? component.health}</p>
               </div>
               {component.provided_operations.length ? <p className="mt-2 break-words text-xs text-bd-text-secondary">Operations: {component.provided_operations.join(", ")}</p> : null}
               {component.capability_dependency_status.length ? <p className="mt-2 break-words text-xs text-bd-text-secondary">Dependencies: {component.capability_dependency_status.map(dependencyStatusText).join(", ")}</p> : null}
               {component.dependency_readiness.status !== "ready" ? <p className="mt-1 text-xs text-bd-text-secondary">{readinessCopy[component.dependency_readiness.status]}</p> : null}
-              {component.sidecar_count > 0 ? <p className="mt-2 text-xs text-bd-text-secondary">Owns {component.sidecar_count} sidecar service{component.sidecar_count === 1 ? "" : "s"}.</p> : null}
+              {component.sidecar_count > 0 ? <p className="mt-2 text-xs text-bd-text-secondary">Uses {component.sidecar_count} runtime service{component.sidecar_count === 1 ? "" : "s"}.</p> : null}
+              {component.runtime_summary.sidecar_count > 0 || component.runtime_summary.target_labels.length ? (
+                <p className="mt-2 text-xs text-bd-text-secondary">
+                  Runtime: {targetSupportCopy[component.runtime_summary.target_support]}; {component.runtime_summary.install_size.safe_message} {component.runtime_summary.first_start.safe_message}
+                </p>
+              ) : null}
               {component.target_support.length ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {component.target_support.map((target) => (

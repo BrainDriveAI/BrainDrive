@@ -1,20 +1,40 @@
-import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
-import { canonicalJsonDocumentDigest } from "../contracts/common.js";
+import { canonicalJson, canonicalJsonDocumentDigest } from "../contracts/common.js";
 import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
-import { PackageVerifier } from "./package-verifier.js";
+import {
+  PackageVerifier,
+  parsePackageComponentManifestForConformance,
+  type PackageComponentManifest,
+} from "./package-verifier.js";
 import { parseStoredRuntimePackageManifestWithDigest } from "./runtime-manifest.js";
+import { createVerifiedSidecarPackageBundleFromStore, SidecarBundleStore, type VerifiedSidecarPackageBundle } from "./sidecar-bundle-store.js";
+import { ImmutablePackageStore, type ImmutablePackageRecord } from "./verified-package-store.js";
 
 const roots: string[] = [];
 
+async function makeWritable(root: string): Promise<void> {
+  await chmod(root, 0o700).catch(() => undefined);
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.map(async (entry) => {
+    const child = path.join(root, entry.name);
+    if (entry.isDirectory()) await makeWritable(child);
+    else await chmod(child, 0o600).catch(() => undefined);
+  }));
+}
+
 afterEach(async () => {
   vi.useRealTimers();
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map(async (root) => {
+    await makeWritable(root);
+    await rm(root, { recursive: true, force: true });
+  }));
 });
 
 async function setup() {
@@ -22,6 +42,102 @@ async function setup() {
   roots.push(root);
   const repository = await createFixtureRepository(path.join(root, "source"));
   return { root, repository, verifier: new PackageVerifier("26.7.23") };
+}
+
+function digest(bytes: Buffer | string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+async function sidecarFixture(): Promise<PackageComponentManifest> {
+  const source = JSON.parse(await readFile(new URL("../contracts/fixtures/sidecar-package/sc-001-conformance-corpus.json", import.meta.url), "utf8")) as {
+    valid_cases: Array<{ fixture_id: string; manifest: unknown }>;
+  };
+  const fixture = source.valid_cases.find((candidate) => candidate.fixture_id === "valid-app-owned-sidecar");
+  if (!fixture) throw new Error("valid-app-owned-sidecar fixture is missing");
+  return parsePackageComponentManifestForConformance(clone(fixture.manifest));
+}
+
+async function materializeSidecarPackage(
+  root: string,
+  options: {
+    packageId?: string;
+    packageVersion?: string;
+    dependencyVersion?: string;
+    cacheStrategy?: "package_version_isolated" | "content_addressed_immutable";
+  } = {},
+): Promise<{
+  manifest: PackageComponentManifest;
+  packageRoot: string;
+  packageDigest: `sha256:${string}`;
+  packageRecord: ImmutablePackageRecord;
+  verifiedPackage: VerifiedSidecarPackageBundle;
+}> {
+  const manifest = clone(await sidecarFixture()) as PackageComponentManifest;
+  manifest.package_id = options.packageId ?? manifest.package_id;
+  manifest.package_version = options.packageVersion ?? manifest.package_version;
+  const packageStageRoot = path.join(root, "package-stage", manifest.package_id, manifest.package_version);
+  const fileBytes = new Map<string, Buffer>();
+  const dependencyVersion = options.dependencyVersion ?? "22.17.0";
+
+  for (const file of manifest.files) {
+    let body = `${manifest.package_id}:${manifest.package_version}:${file.path}:${dependencyVersion}\n`;
+    if (file.path.endsWith("lock.json")) {
+      body = `${JSON.stringify({ lockfile_version: 1, package_id: manifest.package_id, dependency_version: dependencyVersion })}\n`;
+    } else if (file.path.endsWith("intoto.jsonl")) {
+      body = `${JSON.stringify({ builder: "bd-ac002-fixture", package_id: manifest.package_id, package_version: manifest.package_version })}\n`;
+    } else if (file.path.endsWith("cyclonedx.json")) {
+      body = `${JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [{ name: "nodejs.runtime", version: dependencyVersion }] })}\n`;
+    }
+    const bytes = Buffer.from(body, "utf8");
+    fileBytes.set(file.path, bytes);
+    file.size_bytes = bytes.byteLength;
+    file.digest = digest(bytes);
+  }
+
+  const filesByPath = new Map(manifest.files.map((file) => [file.path, file]));
+  for (const sidecar of manifest.sidecars) {
+    for (const target of sidecar.targets) {
+      if (target.runtime_kind !== "packaged_process") continue;
+      const bundle = target.dependency_bundle;
+      bundle.dependencies[0].version = dependencyVersion;
+      bundle.dependencies[0].digest = digest(`${bundle.dependencies[0].name}:${dependencyVersion}:${target.target}`);
+      bundle.bundle_digest = filesByPath.get(target.artifact_path)!.digest;
+      bundle.lockfile_digest = filesByPath.get(bundle.lockfile_path)!.digest;
+      bundle.provenance_digest = filesByPath.get(bundle.provenance_path)!.digest;
+      bundle.sbom_digest = filesByPath.get(bundle.sbom_path)!.digest;
+      bundle.cache.strategy = options.cacheStrategy ?? "package_version_isolated";
+      bundle.cache.content_address = bundle.cache.strategy === "content_addressed_immutable" ? bundle.bundle_digest : null;
+    }
+  }
+
+  const parsed = parsePackageComponentManifestForConformance(manifest);
+  for (const [filePath, bytes] of fileBytes) {
+    const targetPath = path.join(packageStageRoot, ...filePath.split("/"));
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, bytes);
+  }
+  const packageDigest = digest(JSON.stringify({ package_id: parsed.package_id, package_version: parsed.package_version }));
+  await writeFile(path.join(packageStageRoot, ...parsed.archive.manifest_path.split("/")), `${canonicalJson(parsed)}\n`, "utf8");
+  const packageStore = new ImmutablePackageStore(path.join(root, "verified-package-store"));
+  const packageRecord: ImmutablePackageRecord = await packageStore.promote({
+    manifest: parsed,
+    packageDigest,
+    descriptorDigest: digest(`descriptor:${packageDigest}`),
+    stageRoot: packageStageRoot,
+    entrypoint: path.join(packageStageRoot, "payload", "sidecars", "notes-worker", "windows-x64", "index.exe"),
+    target: "desktop_windows_x64",
+  });
+  return {
+    manifest: parsed,
+    packageRoot: packageRecord.contentRoot,
+    packageDigest,
+    packageRecord,
+    verifiedPackage: await createVerifiedSidecarPackageBundleFromStore({ packageStore, packageDigest, manifest: parsed }),
+  };
 }
 
 describe("signed fixture package verification", () => {
@@ -292,5 +408,238 @@ describe("signed fixture package verification", () => {
 
     await expect(verifier.verifyAndExtract(repository, "1.0.0", path.join(root, "stage"), "candidate_install_or_update"))
       .rejects.toMatchObject({ code: "host_incompatible" });
+  });
+});
+
+describe("AC-002 immutable desktop sidecar bundle staging", () => {
+  it("stages a verified packaged-process dependency bundle behind an opaque reference", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-bundle-valid-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    const store = new SidecarBundleStore(path.join(root, "store"));
+
+    const staged = await store.stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    });
+    const projection = JSON.stringify(staged.reference);
+
+    expect(staged.reference).toMatchObject({
+      reference_version: 1,
+      package_id: fixture.manifest.package_id,
+      package_version: fixture.manifest.package_version,
+      component_id: "notes.worker",
+      target: "desktop_windows_x64",
+      runtime_kind: "packaged_process",
+      cache_strategy: "package_version_isolated",
+    });
+    expect(staged.reference.bundle_reference_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(projection).not.toContain(root);
+    expect(projection).not.toMatch(/https?:|127\.0\.0\.1|localhost|token|port/i);
+
+    const resolved = await store.resolveForDriver(staged.reference);
+    expect(resolved.entrypoint).toContain(path.join("sidecar-bundles", "packages"));
+    await expect(readFile(resolved.entrypoint, "utf8")).resolves.toContain("notes-worker");
+  });
+
+  it("rejects caller-invented sidecar package authority before staging", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-bundle-unverified-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    const syntheticPackage = {
+      authority: "immutable_package_store",
+      manifest: fixture.manifest,
+      packageDigest: fixture.packageDigest,
+      packageVersion: fixture.manifest.package_version,
+      contentRoot: fixture.packageRoot,
+      target: "desktop_windows_x64",
+    } as unknown as VerifiedSidecarPackageBundle;
+
+    await expect(new SidecarBundleStore(path.join(root, "store")).stage({
+      verifiedPackage: syntheticPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "authority_widening" });
+  });
+
+  it("rejects structural fake package stores as sidecar staging authority", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-fake-store-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+
+    await expect(createVerifiedSidecarPackageBundleFromStore({
+      packageStore: { read: async () => fixture.packageRecord } as unknown as ImmutablePackageStore,
+      packageDigest: fixture.packageDigest,
+      manifest: fixture.manifest,
+    })).rejects.toMatchObject({ code: "authority_widening" });
+  });
+
+  it("rejects same-version sidecar manifests that do not match immutable package store authority", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-wrong-manifest-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    const wrongManifest = clone(fixture.manifest);
+    wrongManifest.package_id = "ai.braindrive.invented-package";
+
+    await expect(createVerifiedSidecarPackageBundleFromStore({
+      packageStore: new ImmutablePackageStore(path.join(root, "verified-package-store")),
+      packageDigest: fixture.packageDigest,
+      manifest: wrongManifest,
+    })).rejects.toMatchObject({ code: "authority_widening" });
+  });
+
+  it("verifies staged copy bytes before promotion", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-staged-copy-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    const target = fixture.manifest.sidecars[0]!.targets.find((candidate) => candidate.target === "desktop_windows_x64");
+    if (!target || target.runtime_kind !== "packaged_process") throw new Error("expected packaged-process fixture target");
+    const store = new SidecarBundleStore(path.join(root, "store"), () => new Date("2026-08-20T12:00:00.000Z"), {
+      afterCopyBeforePromotion: async ({ temporaryRoot }) => {
+        const entrypoint = path.join(temporaryRoot, "payload", "sidecars", "notes-worker", "windows-x64", "index.exe");
+        await chmod(entrypoint, 0o600);
+        await writeFile(entrypoint, "mutated staged copy\n");
+      },
+    });
+
+    await expect(store.stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "package_file_mismatch" });
+
+    const contentRoot = path.join(
+      store.layout.packages,
+      fixture.packageDigest.slice(7),
+      "notes.worker",
+      "desktop_windows_x64",
+      target.dependency_bundle.bundle_digest.slice(7),
+      target.dependency_bundle.lockfile_digest.slice(7),
+    );
+    await expect(access(contentRoot)).rejects.toThrow();
+  });
+
+  it("fails closed when a declared sidecar asset is missing", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-bundle-missing-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    await makeWritable(fixture.packageRoot);
+    await rm(path.join(fixture.packageRoot, "payload", "sidecars", "notes-worker", "windows-x64", "index.exe"));
+
+    await expect(new SidecarBundleStore(path.join(root, "store")).stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "package_file_mismatch" });
+  });
+
+  it("fails closed on dependency bundle digest mismatch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-bundle-digest-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    await makeWritable(fixture.packageRoot);
+    await writeFile(path.join(fixture.packageRoot, "payload", "sidecars", "notes-worker", "windows-x64", "index.exe"), "mutated runtime\n");
+
+    await expect(new SidecarBundleStore(path.join(root, "store")).stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "package_digest_mismatch" });
+  });
+
+  it("fails closed on dependency lockfile mismatch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-bundle-lock-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    await makeWritable(fixture.packageRoot);
+    await writeFile(path.join(fixture.packageRoot, "payload", "dependencies", "notes-worker", "lock.json"), "{\"mutated\":true}\n");
+
+    await expect(new SidecarBundleStore(path.join(root, "store")).stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "package_digest_mismatch" });
+  });
+
+  it("detects immutable cache mutation instead of repairing shared content", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-cache-mutation-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root, { cacheStrategy: "content_addressed_immutable" });
+    const store = new SidecarBundleStore(path.join(root, "store"));
+    const staged = await store.stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    });
+    const resolved = await store.resolveForDriver(staged.reference);
+    await chmod(resolved.contentRoot, 0o700);
+    await chmod(path.dirname(resolved.entrypoint), 0o700);
+    await chmod(resolved.entrypoint, 0o600);
+    await writeFile(resolved.entrypoint, "mutated cache entry\n");
+
+    await expect(store.stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    })).rejects.toMatchObject({ code: "package_file_mismatch" });
+  });
+
+  it("keeps incompatible dependency versions in isolated immutable roots", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-incompatible-"));
+    roots.push(root);
+    const store = new SidecarBundleStore(path.join(root, "store"));
+    const first = await materializeSidecarPackage(root, {
+      packageId: "ai.braindrive.notes-assistant",
+      packageVersion: "1.0.0",
+      dependencyVersion: "22.17.0",
+    });
+    const second = await materializeSidecarPackage(root, {
+      packageId: "ai.braindrive.notes-assistant",
+      packageVersion: "2.0.0",
+      dependencyVersion: "23.0.0",
+    });
+
+    const stagedFirst = await store.stage({ verifiedPackage: first.verifiedPackage, sidecarComponentId: "notes.worker", target: "desktop_windows_x64" });
+    const stagedSecond = await store.stage({ verifiedPackage: second.verifiedPackage, sidecarComponentId: "notes.worker", target: "desktop_windows_x64" });
+    const firstDriver = await store.resolveForDriver(stagedFirst.reference);
+    const secondDriver = await store.resolveForDriver(stagedSecond.reference);
+
+    expect(stagedFirst.reference.dependencies[0].version).toBe("22.17.0");
+    expect(stagedSecond.reference.dependencies[0].version).toBe("23.0.0");
+    expect(stagedFirst.reference.bundle_digest).not.toBe(stagedSecond.reference.bundle_digest);
+    expect(firstDriver.contentRoot).not.toBe(secondDriver.contentRoot);
+  });
+
+  it("fails offline first-run staging when required package assets are unavailable", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-offline-missing-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    await makeWritable(fixture.packageRoot);
+    await rm(fixture.packageRoot, { recursive: true, force: true });
+
+    await expect(new SidecarBundleStore(path.join(root, "store")).stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+      offline: true,
+    })).rejects.toMatchObject({ code: "package_file_mismatch" });
+  });
+
+  it("restarts offline from already staged verified bundle references", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac002-offline-restart-"));
+    roots.push(root);
+    const fixture = await materializeSidecarPackage(root);
+    const store = new SidecarBundleStore(path.join(root, "store"));
+    const staged = await store.stage({
+      verifiedPackage: fixture.verifiedPackage,
+      sidecarComponentId: "notes.worker",
+      target: "desktop_windows_x64",
+    });
+    await makeWritable(fixture.packageRoot);
+    await rm(fixture.packageRoot, { recursive: true, force: true });
+
+    await expect(store.resolveForDriver(staged.reference, { offline: true }))
+      .resolves.toMatchObject({ packageDigest: fixture.packageDigest, target: "desktop_windows_x64" });
   });
 });
