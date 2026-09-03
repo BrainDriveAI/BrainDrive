@@ -410,6 +410,73 @@ describe("Resume Builder chat workspace contract", () => {
     expect(documentWrite?.content).toContain("\n- Reduced first response time");
   });
 
+  it("preserves date-range and title hyphens while normalizing flattened Resume markdown", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: {
+        resume_markdown: "# Maya Hart - Customer Experience Resume ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    const content = String(documentWrite?.content ?? "");
+    expect(content).toContain("# Maya Hart - Customer Experience Resume");
+    expect(content).toContain("January 2022 - Present");
+    expect(content).toContain("June 2019 - December 2021");
+    expect(content).not.toContain("\n- Present");
+    expect(content).not.toContain("\n- December 2021");
+    expect(content).toContain("\n- Reduced first response time");
+    expect(content).toContain("\n- Maintained Zendesk workflows.");
+  });
+
+  it("plans direct Create resume from the current app-owned Resume Profile document", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-direct-create-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.",
+      }],
+    });
+
+    const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(plan).toMatchObject({
+      action_id: "resume.create",
+      steps: [
+        { type: "capability.call", capability: "resume.definitions.write", owner_confirmation: "inherit" },
+        { type: "document.write", document_id: "resume.document", expected_revision: "current" },
+      ],
+    });
+    expect(documentWrite?.content).toBe("# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.");
+  });
+
   it("plans PDF export from the current app-owned Resume document", () => {
     const operationId = crypto.randomUUID();
     const plan = planResumeAction({
@@ -449,6 +516,51 @@ describe("Resume Builder chat workspace contract", () => {
     expect(Buffer.from(String(plan.steps[0].bytes_base64), "base64").subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
   });
 
+  it("renders PDF export with the same resume preview markdown semantics", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya.hart@example.test | 614-555-0192",
+          "",
+          "## Professional Summary",
+          "Customer experience operations manager leading support and success teams.",
+          "",
+          "## Experience",
+          "**Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present",
+          "- Reduced first response time from 11 hours to 2.5 hours",
+        ].join("\n"),
+      }],
+    });
+
+    const pdf = Buffer.from(String(plan.steps[0].bytes_base64), "base64").toString("latin1");
+    expect(pdf).toContain("/BaseFont /Helvetica-Bold");
+    expect(pdf).toContain("/BaseFont /Times-Bold");
+    expect(pdf).toContain("(PROFESSIONAL SUMMARY)");
+    expect(pdf).toContain("(Customer Experience Operations Manager)");
+    expect(pdf).toContain("(\\225)");
+    expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
   it("declares package resources for workspace start, action request, and recovery reference", () => {
     expect(RESUME_CHAT_RESOURCES.map((resource) => resource.resourceId)).toEqual([
       "agent.instructions",
@@ -464,6 +576,7 @@ describe("Resume Builder chat workspace contract", () => {
       "action_request",
       "document_open",
     ]);
+    expect(RESUME_CHAT_RESOURCES.every((resource) => resource.ownerEditable)).toBe(true);
   });
 
   it("keeps Dave W's proven interview and profile guardrails in app-owned resources", async () => {

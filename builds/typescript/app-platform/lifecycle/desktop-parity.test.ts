@@ -93,8 +93,16 @@ describe("Docker and packaged desktop lifecycle parity", () => {
       expect(stageScript).not.toMatch(/Docker Desktop|docker compose|internet-search-searxng|BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL/i);
     }
     const internetSearchManifest = JSON.parse(manifest) as { sidecars: Array<{ targets: Array<{ target: string; runtime_kind: string }> }> };
-    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.target))).toEqual(["docker_linux_x64"]);
-    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.runtime_kind))).toEqual(["container"]);
-    expect(tauriReadme).toMatch(/SearXNG.*unsupported/i);
+    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.target))).toEqual([
+      "docker_linux_x64",
+      "desktop_windows_x64",
+      "desktop_macos_universal",
+    ]);
+    expect(internetSearchManifest.sidecars.flatMap((sidecar) => sidecar.targets.map((target) => target.runtime_kind))).toEqual([
+      "container",
+      "packaged_process",
+      "packaged_process",
+    ]);
+    expect(tauriReadme).toMatch(/SearXNG.*packaged_process/i);
   });
 });

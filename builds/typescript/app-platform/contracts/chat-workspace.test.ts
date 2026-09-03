@@ -271,7 +271,7 @@ describe("chat workspace descriptor contracts", () => {
     workspace.documents[2] = {
       ...workspace.documents[2]!,
       editable: true,
-      model_access: "read_write_draft",
+      model_access: "read_reference",
       data_binding_id: "agent.instructions.owner",
       initial_content: {
         initial_content_version: 1,
@@ -301,6 +301,7 @@ describe("chat workspace descriptor contracts", () => {
       editable: true,
       resource_id: "agent.instructions",
       data_binding_id: "agent.instructions.owner",
+      model_access: "read_reference",
     });
   });
 
@@ -311,6 +312,30 @@ describe("chat workspace descriptor contracts", () => {
       ...workspace,
       resources: [{ ...workspace.resources[0]!, owner_editable: true }],
     }).success).toBe(false);
+  });
+
+  it("rejects owner-editable resource override documents with writable model access", () => {
+    const workspace = awaitedWorkspace() as {
+      documents: Array<Record<string, unknown>>;
+      resources: Array<Record<string, unknown>>;
+    };
+    workspace.resources[0] = { ...workspace.resources[0]!, owner_editable: true };
+    workspace.documents[2] = {
+      ...workspace.documents[2]!,
+      editable: true,
+      model_access: "read_write_draft",
+      data_binding_id: "agent.instructions.owner",
+      initial_content: {
+        initial_content_version: 1,
+        source: "package_file",
+        package_path: "payload/resources/agent-instructions.md",
+        media_type: "text/markdown",
+        content_digest: digest("f"),
+        seed_policy: "when_missing",
+      },
+    };
+
+    expect(ChatWorkspaceDescriptorSchema.safeParse(workspace).success).toBe(false);
   });
 
   it("rejects initial document content that does not bind a declared immutable package file", () => {

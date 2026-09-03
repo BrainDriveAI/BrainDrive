@@ -6,7 +6,13 @@ import * as appsApi from "@/api/apps-adapter";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport } from "./AppChatWorkspace";
 
 const { chatPanelProps } = vi.hoisted(() => ({
-  chatPanelProps: [] as Array<{ onStreamEvent?: (event: unknown) => void | Promise<void> }>,
+  chatPanelProps: [] as Array<{
+    activeConversationId?: string | null;
+    draftKey?: string | null;
+    onConversationComplete?: (conversationId: string) => void;
+    onStreamEvent?: (event: unknown) => void | Promise<void>;
+    queuedMessage?: { id: string; content: string } | null;
+  }>,
 }));
 
 vi.mock("@/api/auth-adapter", () => ({
@@ -24,6 +30,7 @@ vi.mock("@/api/apps-adapter", async () => {
   return {
     ...actual,
     closeAppSession: vi.fn(async () => undefined),
+    executeAppChatWorkspaceAction: vi.fn(),
     finalizeAppExport: vi.fn(async (appKey: string, input: { safe_destination_label: string; outcome: string }) => ({
       receipt_revision_id: "00000000-0000-4000-8000-000000000099",
       safe_destination_label: input.safe_destination_label,
@@ -41,8 +48,12 @@ vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
     contentOverride?: ReactNode;
     emptyStateIntro?: { heading: string; description: string; cta?: string };
+    activeConversationId?: string | null;
+    draftKey?: string | null;
     messageMetadata?: Record<string, unknown>;
+    onConversationComplete?: (conversationId: string) => void;
     onStreamEvent?: (event: unknown) => void | Promise<void>;
+    queuedMessage?: { id: string; content: string } | null;
     statusNotice?: { message: string } | null;
   }) => {
     chatPanelProps.push(props);
@@ -203,6 +214,83 @@ function withProfileDocumentPresentation(current: appsApi.AppChatWorkspaceLaunch
   };
 }
 
+function withDirectResumeActions(current: appsApi.AppChatWorkspaceLaunch): appsApi.AppChatWorkspaceLaunch {
+  const resumeDocument: appsApi.AppWorkspaceDocumentDescriptor = {
+    document_version: 1,
+    document_id: "resume",
+    role: "derived_document",
+    title: "Resume",
+    description: "Generated resume.",
+    editable: false,
+    default_visibility: "primary",
+    model_access: "action_result",
+    resource_id: null,
+    data_binding_id: "resume.current",
+    presentation: {
+      presentation_version: 1,
+      renderer: "paper_document",
+      chrome: "document",
+      title: "Your Resume",
+      subtitle: "Resume Builder",
+      header_actions: [
+        { type: "back_to_chat", label: "Back to chat" },
+        { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "direct_action", action_input: { format: "pdf", destination_intent: "new_download" } },
+      ],
+    },
+  };
+  const documents = current.workspace.documents.some((document) => document.document_id === "resume")
+    ? current.workspace.documents
+    : [...current.workspace.documents, resumeDocument];
+  return {
+    ...current,
+    workspace: {
+      ...current.workspace,
+      documents: documents.map((document) => document.document_id === "profile" ? {
+        ...document,
+        presentation: {
+          presentation_version: 1,
+          renderer: "markdown_document",
+          chrome: "document",
+          title: "Your Resume Profile",
+          subtitle: "Resume Builder",
+          header_actions: [
+            { type: "back_to_chat", label: "Back to chat" },
+            { type: "app_action", action_id: "resume.create", label: "Create resume", delivery: "direct_action" },
+            { type: "edit_document", label: "Edit Profile" },
+          ],
+        },
+      } : document),
+      actions: [
+        ...current.workspace.actions,
+        {
+          action_version: 1,
+          action_id: "resume.create",
+          kind: "render",
+          title: "Create Resume",
+          description: "Create the current general Resume.",
+          input_schema_id: "resume.create.input",
+          result_schema_id: "resume.create.result",
+          confirmation: "owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+        },
+        {
+          action_version: 1,
+          action_id: "resume.export.pdf.request",
+          kind: "export",
+          title: "Request PDF Export",
+          description: "Request a PDF export.",
+          input_schema_id: "resume.export.pdf.input",
+          result_schema_id: "resume.export.pdf.result",
+          confirmation: "trusted_owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+        },
+      ],
+    },
+  };
+}
+
 function withEditableAdvancedResource(current: appsApi.AppChatWorkspaceLaunch): appsApi.AppChatWorkspaceLaunch {
   return {
     ...current,
@@ -211,7 +299,7 @@ function withEditableAdvancedResource(current: appsApi.AppChatWorkspaceLaunch): 
       documents: current.workspace.documents.map((document) => document.document_id === "instructions" ? {
         ...document,
         editable: true,
-        model_access: "read_write_draft",
+        model_access: "read_reference",
         data_binding_id: "instructions.owner",
         presentation: {
           presentation_version: 1,
@@ -241,6 +329,13 @@ describe("AppChatWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     chatPanelProps.length = 0;
+    window.sessionStorage.clear();
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValue({
+      action_id: "resume.create",
+      operation_id: "00000000-0000-4000-8000-000000000501",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000501",
+      result: { result_version: 1, status: "completed" },
+    });
     vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
       result_version: 1,
       state: "missing",
@@ -274,6 +369,69 @@ describe("AppChatWorkspace", () => {
     expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
     expect(screen.getByTestId("app-chat-workspace-pane")).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
     expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
+  });
+
+  it("persists the completed native app-chat conversation across app session relaunches", async () => {
+    const current = launch();
+    const relaunched = launch({
+      session: {
+        ...current.session,
+        session_id: "00000000-0000-4000-8000-000000000301",
+        view_id: "00000000-0000-4000-8000-000000000302",
+        operation_id: "00000000-0000-4000-8000-000000000303",
+      },
+      resumed: true,
+    });
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+
+    const rendered = render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    const initialChat = chatPanelProps.at(-1);
+    expect(initialChat?.activeConversationId).toBeNull();
+    expect(initialChat?.draftKey).toContain("resume-builder");
+    expect(initialChat?.draftKey).not.toContain(current.session.view_id);
+
+    act(() => {
+      initialChat?.onConversationComplete?.("conversation-resume-builder");
+    });
+
+    expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-resume-builder");
+
+    rendered.unmount();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(relaunched.session);
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={relaunched} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-resume-builder");
+    expect(chatPanelProps.at(-1)?.draftKey).not.toContain(relaunched.session.view_id);
+  });
+
+  it("does not reuse a stored app-chat conversation after reinstall changes installation identity", async () => {
+    const current = launch();
+    const reinstalled = launch({
+      session: {
+        ...current.session,
+        session_id: "00000000-0000-4000-8000-000000000401",
+        view_id: "00000000-0000-4000-8000-000000000402",
+        operation_id: "00000000-0000-4000-8000-000000000403",
+        installation_id: "00000000-0000-4000-8000-000000000404",
+      },
+    });
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+
+    const rendered = render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    act(() => {
+      chatPanelProps.at(-1)?.onConversationComplete?.("conversation-before-reinstall");
+    });
+
+    rendered.unmount();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(reinstalled.session);
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={reinstalled} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    expect(chatPanelProps.at(-1)?.activeConversationId).toBeNull();
   });
 
   it("uses app-declared empty-state copy for the conversation start", async () => {
@@ -471,6 +629,227 @@ describe("AppChatWorkspace", () => {
     expect(screen.queryByText("**Experience**")).not.toBeInTheDocument();
   });
 
+  it("executes Create resume directly from the header action without queueing a chat prompt", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(await screen.findByRole("button", { name: "Create resume" }));
+
+    await waitFor(() => expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume.create", {
+      actionInput: {},
+      ownerConfirmed: true,
+    }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Create resume completed.");
+    expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please create"))).toBe(false);
+  });
+
+  it("executes Export PDF directly from the header action and downloads without queueing a chat prompt", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValueOnce({
+      action_id: "resume.export.pdf.request",
+      operation_id: "00000000-0000-4000-8000-000000000601",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000601",
+      result: {
+        result_version: 1,
+        status: "prepared",
+        artifact: {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000602",
+          content_digest: `sha256:${"e".repeat(64)}`,
+          content_size_bytes: 8,
+          media_type: "application/pdf",
+          owner_visible_label: "resume.pdf",
+        },
+        filename: "resume.pdf",
+        media_type: "application/pdf",
+        bytes_base64: btoa("%PDF-1.4"),
+        safe_destination_label: "resume.pdf",
+        replayed: false,
+      },
+    });
+    delete window.__TAURI_INTERNALS__;
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:direct-resume-export");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    try {
+      render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+      await screen.findByText("Conversation transcript");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      await user.click(await screen.findByRole("button", { name: "Export PDF" }));
+
+      await waitFor(() => expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume.export.pdf.request", {
+        actionInput: { format: "pdf", destination_intent: "new_download" },
+        ownerConfirmed: true,
+      }));
+      await waitFor(() => {
+        expect(anchorClick).toHaveBeenCalledTimes(1);
+        expect(appsApi.finalizeAppExport).toHaveBeenCalledWith("resume-builder", {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000602",
+          artifact_digest: `sha256:${"e".repeat(64)}`,
+          safe_destination_label: "resume.pdf",
+          outcome: "completed",
+        });
+      });
+      expect(await screen.findByText("Export PDF completed.")).toBeInTheDocument();
+      expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please export"))).toBe(false);
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+      anchorClick.mockRestore();
+    }
+  });
+
+  it("clears a stale failed export banner after a successful direct header export", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValueOnce({
+      action_id: "resume.export.pdf.request",
+      operation_id: "00000000-0000-4000-8000-000000000611",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000611",
+      result: {
+        result_version: 1,
+        status: "prepared",
+        artifact: {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000612",
+          content_digest: `sha256:${"f".repeat(64)}`,
+          content_size_bytes: 8,
+          media_type: "application/pdf",
+          owner_visible_label: "resume.pdf",
+        },
+        filename: "resume.pdf",
+        media_type: "application/pdf",
+        bytes_base64: btoa("%PDF-1.4"),
+        safe_destination_label: "resume.pdf",
+        replayed: false,
+      },
+    });
+    delete window.__TAURI_INTERNALS__;
+    const create = vi.spyOn(URL, "createObjectURL")
+      .mockImplementationOnce(() => { throw new Error("download_blocked"); })
+      .mockImplementation(() => "blob:direct-resume-export");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    try {
+      render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+      await screen.findByText("Conversation transcript");
+      const onStreamEvent = chatPanelProps.at(-1)?.onStreamEvent;
+      expect(onStreamEvent).toBeTypeOf("function");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      await act(async () => {
+        await onStreamEvent?.({
+          type: "tool-result",
+          id: "tool-1",
+          status: "ok",
+          output: {
+            action_id: "resume.export.pdf.request",
+            operation_id: "00000000-0000-4000-8000-000000000621",
+            idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000621",
+            result: {
+              result_version: 1,
+              status: "prepared",
+              artifact: {
+                artifact_revision_id: "00000000-0000-4000-8000-000000000622",
+                content_digest: `sha256:${"d".repeat(64)}`,
+                content_size_bytes: 8,
+                media_type: "application/pdf",
+                owner_visible_label: "resume.pdf",
+              },
+              filename: "resume.pdf",
+              media_type: "application/pdf",
+              bytes_base64: btoa("%PDF-1.4"),
+              safe_destination_label: "resume.pdf",
+              replayed: false,
+            },
+          },
+        });
+      });
+      expect(await screen.findByText("BrainDrive could not download the export.")).toBeInTheDocument();
+
+      await user.click(await screen.findByRole("button", { name: "Export PDF" }));
+
+      await waitFor(() => {
+        expect(anchorClick).toHaveBeenCalledTimes(1);
+        expect(appsApi.finalizeAppExport).toHaveBeenCalledWith("resume-builder", {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000612",
+          artifact_digest: `sha256:${"f".repeat(64)}`,
+          safe_destination_label: "resume.pdf",
+          outcome: "completed",
+        });
+      });
+      expect(await screen.findByText("Downloaded resume.pdf.")).toBeInTheDocument();
+      expect(await screen.findByText("Export PDF completed.")).toBeInTheDocument();
+      expect(screen.queryByText("BrainDrive could not download the export.")).not.toBeInTheDocument();
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+      anchorClick.mockRestore();
+    }
+  });
+
+  it("does not mark a saved direct export as failed when receipt recording fails", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValueOnce({
+      action_id: "resume.export.pdf.request",
+      operation_id: "00000000-0000-4000-8000-000000000631",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000631",
+      result: {
+        result_version: 1,
+        status: "prepared",
+        artifact: {
+          artifact_revision_id: "00000000-0000-4000-8000-000000000632",
+          content_digest: `sha256:${"9".repeat(64)}`,
+          content_size_bytes: 8,
+          media_type: "application/pdf",
+          owner_visible_label: "resume.pdf",
+        },
+        filename: "resume.pdf",
+        media_type: "application/pdf",
+        bytes_base64: btoa("%PDF-1.4"),
+        safe_destination_label: "resume.pdf",
+        replayed: false,
+      },
+    });
+    vi.mocked(appsApi.finalizeAppExport).mockRejectedValueOnce(new Error("receipt_failed"));
+    delete window.__TAURI_INTERNALS__;
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:direct-resume-export");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    try {
+      render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+      await screen.findByText("Conversation transcript");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      await user.click(await screen.findByRole("button", { name: "Export PDF" }));
+
+      await waitFor(() => {
+        expect(anchorClick).toHaveBeenCalledTimes(1);
+        expect(appsApi.finalizeAppExport).toHaveBeenCalledTimes(1);
+      });
+      expect(await screen.findByText("Downloaded resume.pdf.")).toBeInTheDocument();
+      expect(await screen.findByText("Export PDF completed.")).toBeInTheDocument();
+      expect(screen.queryByText("BrainDrive could not download the export.")).not.toBeInTheDocument();
+      expect(screen.queryByText("Export PDF could not complete safely.")).not.toBeInTheDocument();
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+      anchorClick.mockRestore();
+    }
+  });
+
   it("edits owner overrides for advanced resource-backed documents without showing a package pane", async () => {
     const current = withEditableAdvancedResource(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
@@ -522,6 +901,64 @@ describe("AppChatWorkspace", () => {
     }));
     expect(screen.getByText("Saved Agent Instructions.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Agent Instructions content" })).not.toBeInTheDocument();
+  });
+
+  it("resets owner-edited agent instructions to the verified package default", async () => {
+    const current = withEditableAdvancedResource(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "instructions",
+      document_binding_id: "instructions.owner",
+      record: {
+        revision: 2,
+        media_type: "text/markdown",
+        content: "# Agent Instructions\nUse owner edits.",
+      } as appsApi.AppDocumentRecord,
+    });
+    vi.mocked(appsApi.readAppChatWorkspaceResource).mockResolvedValueOnce({
+      result_version: 1,
+      resource_id: "instructions",
+      title: "Agent Instructions",
+      description: "Read-only app package resource.",
+      role: "agent_instructions",
+      media_type: "text/markdown",
+      content_digest: `sha256:${"c".repeat(64)}`,
+      owner_editable: true,
+      prompt_inclusion: "workspace_start",
+      content: "# Agent Instructions\nUse the package default.",
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1,
+      state: "current",
+      document_id: "instructions",
+      document_binding_id: "instructions.owner",
+      record: {
+        revision: 3,
+        media_type: "text/markdown",
+        content: "# Agent Instructions\nUse the package default.",
+      } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
+    expect(await screen.findByText("Use owner edits.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset to package default" }));
+
+    await waitFor(() => expect(appsApi.readAppChatWorkspaceResource).toHaveBeenCalledWith("test-builder", current.session.session_id, "instructions"));
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledWith("test-builder", current.session.session_id, "instructions", {
+      expectedRevision: 2,
+      content: "# Agent Instructions\nUse the package default.",
+      mediaType: "text/markdown",
+    }));
+    expect(screen.getByText("Reset Agent Instructions to package default.")).toBeInTheDocument();
+    expect(await screen.findByText("Use the package default.")).toBeInTheDocument();
   });
 
   it("keeps app-chat workspace sessions alive while the editor is open", async () => {

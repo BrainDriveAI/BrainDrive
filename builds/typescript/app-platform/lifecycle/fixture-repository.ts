@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.8" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.15" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -265,7 +265,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Rules for supported claims, review, and factual safety.",
     packagePath: "payload/resources/resume-quality-standard.md",
     fileName: "resume-quality-standard.md",
-    ownerEditable: false,
+    ownerEditable: true,
     promptInclusion: "action_request" as const,
   },
   {
@@ -275,7 +275,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Default renderer binding and template-scope limits for this release.",
     packagePath: "payload/resources/resume-template-standard.md",
     fileName: "resume-template-standard.md",
-    ownerEditable: false,
+    ownerEditable: true,
     promptInclusion: "action_request" as const,
   },
   {
@@ -285,7 +285,7 @@ const RESUME_CHAT_RESOURCE_FILES = [
     description: "Resume session recovery and draft reconciliation behavior.",
     packagePath: "payload/resources/recovery-guidance.md",
     fileName: "recovery-guidance.md",
-    ownerEditable: false,
+    ownerEditable: true,
     promptInclusion: "document_open" as const,
   },
 ] as const;
@@ -684,7 +684,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
             subtitle: "Resume Profile",
             header_actions: [
               { type: "back_to_chat", label: "Back to chat" },
-              { type: "app_action", action_id: "resume.create", label: "Create resume", delivery: "chat_prompt", prompt: "Please create the current resume from my reviewed Resume Profile." },
+              { type: "app_action", action_id: "resume.create", label: "Create resume", delivery: "direct_action" },
               { type: "edit_document", label: "Edit" },
             ],
           },
@@ -716,7 +716,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
             subtitle: "Resume",
             header_actions: [
               { type: "back_to_chat", label: "Back to chat" },
-              { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "chat_prompt", prompt: "Please export the current resume as a PDF." },
+              { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "direct_action", action_input: { format: "pdf", destination_intent: "new_download" } },
             ],
           },
         },
@@ -728,7 +728,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           description: resource.ownerEditable ? "Owner-editable override seeded from the package default." : resource.description,
           editable: resource.ownerEditable,
           default_visibility: "advanced" as const,
-          model_access: resource.ownerEditable ? "read_write_draft" as const : "read_reference" as const,
+          model_access: "read_reference" as const,
           resource_id: resource.resourceId,
           data_binding_id: resource.ownerEditable ? `${resource.resourceId}.owner` : null,
           ...(resource.ownerEditable ? {

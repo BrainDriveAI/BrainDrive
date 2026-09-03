@@ -16,7 +16,7 @@ import { McpConnectionManager } from "../../mcp/host/connection-manager.js";
 import { SdkMcpPeer } from "../../mcp/host/sdk-peer.js";
 import { ModernMcpAppsClient, appVisibleToolNames, identityForRuntime, type ModernMcpSession } from "./modern-client.js";
 import { AppViewRegistry, type AppViewResumeRequest } from "./app-view-registry.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppMcpHostAdapter, AppResourceReadResult } from "./app-host.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppMcpHostAdapter, AppResourceReadResult } from "./app-host.js";
 import type { CapabilityGrant } from "../lifecycle/store.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
 import {
@@ -30,6 +30,7 @@ import {
 import {
   assertAppChatMetadataMatchesSession,
   buildAppChatModelContext,
+  validateJsonValueAgainstActionSchema,
   type AppChatActionExecutionRequest,
   type AppChatResourcePromptContent,
 } from "./app-chat-model.js";
@@ -330,6 +331,50 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
     };
   }
 
+  async executeAppChatAction(sessionId: string, actionId: string, input: AppChatActionExecuteInput, ownerActorId: string): Promise<AppChatActionExecuteResult> {
+    const sessionProjection = await this.readChatWorkspaceSession(sessionId);
+    const metadata = {
+      metadata_version: 1 as const,
+      app_id: sessionProjection.app_id,
+      installation_id: sessionProjection.installation_id,
+      package_digest: sessionProjection.package_digest,
+      session_id: sessionProjection.session_id,
+      view_id: sessionProjection.view_id,
+      operation_id: sessionProjection.operation_id,
+      session_generation: sessionProjection.session_generation,
+      presentation_id: sessionProjection.presentation_id,
+      workspace_id: sessionProjection.workspace_id,
+      context_grant_set_digest: sessionProjection.context_grant_set_digest,
+    };
+    const { descriptor, workspace } = await this.requireChatSessionForModel(metadata);
+    if (ownerActorId !== descriptor.grant!.actor_id && ownerActorId !== "owner") throw new AppPlatformError("denied", "Owner actor is not bound to this app-chat action", 403);
+    const action = workspace.actions.find((candidate) => candidate.action_id === actionId);
+    if (!action) throw new AppPlatformError("not_found_within_scope", "App action is not declared for this workspace", 404);
+    const actionInput = input.action_input ?? {};
+    const validationErrors = validateJsonValueAgainstActionSchema(actionInput, action.input_schema.schema);
+    if (validationErrors.length > 0) {
+      throw new AppPlatformError("invalid_input", "App action input failed schema validation", 400);
+    }
+    const result = await this.executeChatWorkspaceAction({
+      metadata,
+      action,
+      actionInput,
+      operationId: input.operation_id,
+      idempotencyKey: input.idempotency_key,
+      ownerConfirmed: input.owner_confirmed,
+    });
+    const resultValidationErrors = validateJsonValueAgainstActionSchema(result, action.result_schema.schema);
+    if (resultValidationErrors.length > 0) {
+      throw new AppPlatformError("validation_failed", "App action result failed schema validation", 409);
+    }
+    return {
+      action_id: action.action_id,
+      operation_id: input.operation_id,
+      idempotency_key: input.idempotency_key,
+      result,
+    };
+  }
+
   async handleBridge(sessionId: string, raw: unknown, context: { origin: string; sourceMatches: boolean }): Promise<{ status: "ready" } | { status: "completed"; result: CompleteMcpResult } | { status: "capability_completed"; result: unknown }> {
     const session = await this.requireSession(sessionId);
     if (context.origin !== "null" || !context.sourceMatches) { this.close(sessionId); throw new AppPlatformError("bridge_denied", "Sandbox message binding is invalid", 403); }
@@ -387,7 +432,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
   private async executeChatWorkspaceAction(request: AppChatActionExecutionRequest): Promise<unknown> {
     const { session, descriptor, workspace } = await this.requireChatSessionForModel(request.metadata);
     const action = workspace.actions.find((candidate) => candidate.action_id === request.action.action_id);
-    if (!action || action.model_exposure !== "available") throw new AppPlatformError("denied", "App action is not declared for model use", 403);
+    if (!action || action.model_exposure !== "available") throw new AppPlatformError("denied", "App action is not declared for workspace use", 403);
     if (action.required_capabilities.length !== 1) throw new AppPlatformError("incompatible_schema", "App action must declare exactly one host capability for model execution", 409);
     const requiredCapability = action.required_capabilities[0]!;
     const manifest = descriptor.storedPackage!.manifest;

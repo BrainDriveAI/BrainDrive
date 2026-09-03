@@ -237,6 +237,12 @@ function createHost() {
         content: (input as { content?: unknown }).content,
       },
     })),
+    executeAppChatAction: vi.fn(async (_sessionId: string, actionId: string, input: Record<string, unknown>) => ({
+      action_id: actionId,
+      operation_id: input.operation_id,
+      idempotency_key: input.idempotency_key,
+      result: { result_version: 1, status: "completed" },
+    })),
     deleteAppDocument: vi.fn(async (_sessionId: string, documentId: string, input: Record<string, unknown>) => ({
       result_version: 1,
       state: "deleted",
@@ -746,6 +752,31 @@ describe("owner MCP Apps host gateway routes", () => {
       media_type: "text/markdown",
       content: "# Updated",
     });
+
+    const actionOperationId = crypto.randomUUID();
+    const actionExecute = await app.inject({
+      method: "POST",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}/actions/resume.create`,
+      payload: {
+        operation_id: actionOperationId,
+        idempotency_key: "chat-action-direct-0001",
+        action_input: {},
+        owner_confirmed: true,
+      },
+    });
+    expect(actionExecute.statusCode).toBe(200);
+    expect(actionExecute.json()).toMatchObject({
+      action_id: "resume.create",
+      operation_id: actionOperationId,
+      idempotency_key: "chat-action-direct-0001",
+      result: { result_version: 1, status: "completed" },
+    });
+    expect(host.executeAppChatAction).toHaveBeenCalledWith(chat.json().session.session_id, "resume.create", {
+      operation_id: actionOperationId,
+      idempotency_key: "chat-action-direct-0001",
+      action_input: {},
+      owner_confirmed: true,
+    }, "owner");
 
     const deleteOperationId = crypto.randomUUID();
     const documentDelete = await app.inject({

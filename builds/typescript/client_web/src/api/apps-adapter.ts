@@ -278,7 +278,8 @@ export type AppChatWorkspaceEmptyState = {
 export type AppWorkspaceDocumentHeaderAction =
   | { type: "back_to_chat"; label: string }
   | { type: "edit_document"; label: string }
-  | { type: "app_action"; action_id: string; label: string; delivery: "chat_prompt"; prompt: string };
+  | { type: "app_action"; action_id: string; label: string; delivery: "chat_prompt"; prompt: string }
+  | { type: "app_action"; action_id: string; label: string; delivery: "direct_action"; action_input?: unknown };
 
 export type AppWorkspaceDocumentPresentation = {
   presentation_version: 1;
@@ -825,6 +826,30 @@ export function writeAppChatWorkspaceDocument(appKey: string, sessionId: string,
       content: input.content,
       ...(input.mediaType ? { media_type: input.mediaType } : {}),
       ...(input.retentionClass ? { retention_class: input.retentionClass } : {}),
+    }),
+  });
+}
+
+export function executeAppChatWorkspaceAction(appKey: string, sessionId: string, actionId: string, input: {
+  actionInput?: unknown;
+  operationId?: string;
+  idempotencyKey?: string;
+  ownerConfirmed?: boolean;
+} = {}): Promise<{
+  action_id: string;
+  operation_id: string;
+  idempotency_key: string;
+  result: unknown;
+}> {
+  const operationId = input.operationId ?? secureRandomUuid();
+  return requestDocumentJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}/actions/${encodeURIComponent(actionId)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: input.idempotencyKey ?? `app-chat-action-${operationId}`,
+      action_input: input.actionInput ?? {},
+      owner_confirmed: input.ownerConfirmed ?? false,
     }),
   });
 }

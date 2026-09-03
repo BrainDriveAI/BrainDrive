@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
 };
-use tauri_plugin_dialog::{DialogExt, FilePath};
+use tauri::Manager;
 use uuid::Uuid;
 
 const MAX_EXPORT_BYTES: usize = 8 * 1024 * 1024;
@@ -30,29 +30,20 @@ pub fn save_resume_export(
     app: tauri::AppHandle,
     request: NativeExportRequest,
 ) -> Result<NativeExportResult, String> {
+    let download_dir = app
+        .path()
+        .download_dir()
+        .map_err(|_| "native export download directory is unavailable".to_string())?;
+    save_export_to_download_dir(&download_dir, &request)
+}
+
+fn save_export_to_download_dir(
+    download_dir: &Path,
+    request: &NativeExportRequest,
+) -> Result<NativeExportResult, String> {
     let bytes = validate_request(&request)?;
-    let (filter_label, extension) = if request.mime_type == "text/plain" {
-        ("Text document", "txt")
-    } else {
-        ("PDF document", "pdf")
-    };
-    let selection = app
-        .dialog()
-        .file()
-        .add_filter(filter_label, &[extension])
-        .set_file_name(&request.safe_filename)
-        .blocking_save_file();
-    let Some(selection) = selection else {
-        return Ok(NativeExportResult {
-            outcome: "cancelled",
-            safe_destination_label: request.safe_filename,
-        });
-    };
-    let destination = match selection {
-        FilePath::Path(path) => path,
-        FilePath::Url(_) => return Err("native export requires a local destination".to_string()),
-    };
-    write_export_atomic(&destination, &bytes)?;
+    let destination = next_available_download_path(download_dir, &request.safe_filename)?;
+    write_new_export_atomic(&destination, &bytes)?;
     let safe_destination_label = destination
         .file_name()
         .and_then(|name| name.to_str())
@@ -98,6 +89,58 @@ fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn next_available_download_path(
+    download_dir: &Path,
+    safe_filename: &str,
+) -> Result<PathBuf, String> {
+    if !download_dir.is_dir() {
+        return Err("native export download directory is unavailable".to_string());
+    }
+    let extension = safe_extension(safe_filename)
+        .ok_or_else(|| "native export request is invalid".to_string())?;
+    let stem = &safe_filename[..safe_filename.len() - extension.len()];
+    for index in 0..=999 {
+        let candidate_name = if index == 0 {
+            safe_filename.to_string()
+        } else {
+            let suffix = format!(" ({index}){extension}");
+            let candidate_stem = truncate_stem_for_suffix(stem, &suffix);
+            format!("{candidate_stem}{suffix}")
+        };
+        if !valid_safe_filename(&candidate_name) {
+            continue;
+        }
+        let candidate = download_dir.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("native export download filename is unavailable".to_string())
+}
+
+fn truncate_stem_for_suffix(stem: &str, suffix: &str) -> String {
+    let max_stem_bytes = 128usize.saturating_sub(suffix.len());
+    let mut output = String::new();
+    for character in stem.chars() {
+        if output.len() + character.len_utf8() > max_stem_bytes {
+            break;
+        }
+        output.push(character);
+    }
+    output
+}
+
+fn safe_extension(value: &str) -> Option<&'static str> {
+    let lower = value.to_ascii_lowercase();
+    if lower.ends_with(".pdf") {
+        Some(".pdf")
+    } else if lower.ends_with(".txt") {
+        Some(".txt")
+    } else {
+        None
+    }
+}
+
 fn valid_safe_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -108,11 +151,14 @@ fn valid_safe_filename(value: &str) -> bool {
         && value.trim() == value
 }
 
-fn write_export_atomic(destination: &Path, bytes: &[u8]) -> Result<(), String> {
+fn write_new_export_atomic(destination: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = destination
         .parent()
         .filter(|parent| parent.is_dir())
         .ok_or_else(|| "native export destination is unavailable".to_string())?;
+    if destination.exists() {
+        return Err("native export destination already exists".to_string());
+    }
     let temporary = parent.join(format!(".braindrive-export-{}.tmp", Uuid::new_v4()));
     let mut file = OpenOptions::new()
         .write(true)
@@ -126,51 +172,23 @@ fn write_export_atomic(destination: &Path, bytes: &[u8]) -> Result<(), String> {
             .map_err(|_| "native export sync failed".to_string())
     })();
     drop(file);
-    let write_result = write_result.and_then(|_| replace_atomic(&temporary, destination));
+    let write_result = write_result.and_then(|_| commit_new_file(&temporary, destination));
     if write_result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     write_result
 }
 
-#[cfg(not(windows))]
-fn replace_atomic(temporary: &Path, destination: &Path) -> Result<(), String> {
-    fs::rename(temporary, destination).map_err(|_| "native export commit failed".to_string())
+#[cfg(unix)]
+fn commit_new_file(temporary: &Path, destination: &Path) -> Result<(), String> {
+    fs::hard_link(temporary, destination)
+        .and_then(|_| fs::remove_file(temporary))
+        .map_err(|_| "native export commit failed".to_string())
 }
 
 #[cfg(windows)]
-fn replace_atomic(temporary: &Path, destination: &Path) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
-
-    if !destination.exists() {
-        return fs::rename(temporary, destination)
-            .map_err(|_| "native export commit failed".to_string());
-    }
-    let destination_wide = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let temporary_wide = temporary
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let replaced = unsafe {
-        ReplaceFileW(
-            destination_wide.as_ptr(),
-            temporary_wide.as_ptr(),
-            std::ptr::null(),
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
-    if replaced == 0 {
-        return Err("native export replacement failed".to_string());
-    }
-    Ok(())
+fn commit_new_file(temporary: &Path, destination: &Path) -> Result<(), String> {
+    fs::rename(temporary, destination).map_err(|_| "native export commit failed".to_string())
 }
 
 #[cfg(test)]
@@ -230,17 +248,35 @@ mod tests {
     }
 
     #[test]
-    fn export_commit_is_atomic_and_replaces_only_the_selected_file() {
+    fn export_writes_to_downloads_with_browser_style_collision_label() {
         let root = std::env::temp_dir().join(format!("bd-native-export-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
-        let destination = root.join("resume.pdf");
-        fs::write(&destination, b"old").unwrap();
-        write_export_atomic(&destination, b"%PDF-1.4\nnew\n%%EOF").unwrap();
-        assert_eq!(fs::read(&destination).unwrap(), b"%PDF-1.4\nnew\n%%EOF");
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
-        let text_destination = root.join("resume.txt");
-        write_export_atomic(&text_destination, "Zoë 李\n".as_bytes()).unwrap();
-        assert_eq!(fs::read(&text_destination).unwrap(), "Zoë 李\n".as_bytes());
+        fs::write(root.join("resume.pdf"), b"old").unwrap();
+        let request = NativeExportRequest {
+            safe_filename: "resume.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            bytes_base64: STANDARD.encode(b"%PDF-1.4\nnew\n%%EOF"),
+        };
+        let result = save_export_to_download_dir(&root, &request).unwrap();
+        assert_eq!(result.outcome, "completed");
+        assert_eq!(result.safe_destination_label, "resume (1).pdf");
+        assert_eq!(fs::read(root.join("resume.pdf")).unwrap(), b"old");
+        assert_eq!(
+            fs::read(root.join("resume (1).pdf")).unwrap(),
+            b"%PDF-1.4\nnew\n%%EOF"
+        );
+
+        let text_request = NativeExportRequest {
+            safe_filename: "resume.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            bytes_base64: STANDARD.encode("Zoë 李\n".as_bytes()),
+        };
+        let text_result = save_export_to_download_dir(&root, &text_request).unwrap();
+        assert_eq!(text_result.safe_destination_label, "resume.txt");
+        assert_eq!(
+            fs::read(root.join("resume.txt")).unwrap(),
+            "Zoë 李\n".as_bytes()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -249,7 +285,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("bd-native-export-missing-{}", Uuid::new_v4()));
         let destination = root.join("resume.pdf");
-        assert!(write_export_atomic(&destination, b"%PDF-1.4\n%%EOF").is_err());
+        assert!(write_new_export_atomic(&destination, b"%PDF-1.4\n%%EOF").is_err());
         assert!(!destination.exists());
     }
 }

@@ -65,13 +65,14 @@ import { AppDocumentStorageService } from "../storage/app-document-store.js";
 import {
   assertAppChatMetadataMatchesSession,
   buildAppChatModelContext,
+  validateJsonValueAgainstActionSchema,
   type AppChatActionExecutionRequest,
   type AppChatResourcePromptContent,
 } from "./app-chat-model.js";
 import { readVerifiedPackageResource } from "./app-package-resource.js";
 import { readOrSeedAppDocument } from "./app-document-content.js";
 import { executeAppActionPlan } from "./app-action-plan-executor.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 import { CurrentProcessRecoveryBindingRegistry } from "./recovery-binding-registry.js";
 import type { ResumeDataCapability as AppDataCapability } from "../../resume-domain/capability-policy.js";
 
@@ -539,7 +540,7 @@ export class ResumeAppHostAdapter {
       workspace,
       storedPackage: descriptor.storedPackage!,
       resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
-      executeAction: (actionRequest) => this.executeChatWorkspaceAction(actionRequest),
+      executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest(actionRequest),
     });
     return {
       prompt_context: context.promptContext,
@@ -548,6 +549,52 @@ export class ResumeAppHostAdapter {
         action_exposure: context.evidence.actionExposure,
         resources: context.evidence.resources,
       },
+    };
+  }
+
+  async executeAppChatAction(sessionId: string, actionId: string, input: AppChatActionExecuteInput, ownerActorId: string): Promise<AppChatActionExecuteResult> {
+    const sessionProjection = await this.readChatWorkspaceSession(sessionId);
+    const metadata = {
+      metadata_version: 1 as const,
+      app_id: sessionProjection.app_id,
+      installation_id: sessionProjection.installation_id,
+      package_digest: sessionProjection.package_digest,
+      session_id: sessionProjection.session_id,
+      view_id: sessionProjection.view_id,
+      operation_id: sessionProjection.operation_id,
+      session_generation: sessionProjection.session_generation,
+      presentation_id: sessionProjection.presentation_id,
+      workspace_id: sessionProjection.workspace_id,
+      context_grant_set_digest: sessionProjection.context_grant_set_digest,
+    };
+    const { descriptor, workspace } = await this.requireChatSessionForModel(metadata);
+    if (ownerActorId !== descriptor.grant!.actor_id && ownerActorId !== "owner") {
+      throw new AppPlatformError("denied", "Owner actor is not bound to this app-chat action", 403);
+    }
+    const action = workspace.actions.find((candidate) => candidate.action_id === actionId);
+    if (!action) throw new AppPlatformError("not_found_within_scope", "App action is not declared for this workspace", 404);
+    const actionInput = input.action_input ?? {};
+    const validationErrors = validateJsonValueAgainstActionSchema(actionInput, action.input_schema.schema);
+    if (validationErrors.length > 0) {
+      throw new AppPlatformError("invalid_input", "App action input failed schema validation", 400);
+    }
+    const result = await this.executeChatWorkspaceActionRequest({
+      metadata,
+      action,
+      actionInput,
+      operationId: input.operation_id,
+      idempotencyKey: input.idempotency_key,
+      ownerConfirmed: input.owner_confirmed,
+    });
+    const resultValidationErrors = validateJsonValueAgainstActionSchema(result, action.result_schema.schema);
+    if (resultValidationErrors.length > 0) {
+      throw new AppPlatformError("validation_failed", "App action result failed schema validation", 409);
+    }
+    return {
+      action_id: action.action_id,
+      operation_id: input.operation_id,
+      idempotency_key: input.idempotency_key,
+      result,
     };
   }
 
@@ -867,6 +914,7 @@ export class ResumeAppHostAdapter {
     try {
       const idempotencyKey = `owner-export-${operationId}`;
       const generic = await this.finalizeGenericExportReceipt(input, operationId, idempotencyKey, descriptor.grant, descriptor.record.installation_id, descriptor.record.active_package_digest as `sha256:${string}` | null, descriptor.record.generation);
+      if (generic) return generic;
       if (isRecordValue(input) && input.request_version === 1) return generic;
       const issued = await this.lifecycle.issueSession({ audience: "app_export", capabilities: ["resume.export.request"], operationId, idempotencyKey });
       const claims = this.consumeIssuedAuthority(issued, descriptor.grant, "resume.export.request", {
@@ -1431,11 +1479,11 @@ export class ResumeAppHostAdapter {
     });
   }
 
-  private async executeChatWorkspaceAction(request: AppChatActionExecutionRequest): Promise<unknown> {
+  private async executeChatWorkspaceActionRequest(request: AppChatActionExecutionRequest): Promise<unknown> {
     const { session, descriptor, workspace } = await this.requireChatSessionForModel(request.metadata);
     const action = workspace.actions.find((candidate) => candidate.action_id === request.action.action_id);
     if (!action || action.model_exposure !== "available") {
-      throw new AppPlatformError("denied", "App action is not declared for model use", 403);
+      throw new AppPlatformError("denied", "App action is not declared for workspace use", 403);
     }
     const grantedCapabilities = new Set(descriptor.grant?.capabilities ?? []);
     for (const capability of action.required_capabilities) {

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,9 +7,26 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AppLifecycleService } from "./service.js";
 import { revokeFixtureVersion } from "./fixture-repository.js";
 import { createLifecycleHarness } from "./test-helpers.js";
+import { ImmutablePackageStore } from "./verified-package-store.js";
 
 const roots: string[] = [];
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
+afterEach(async () => Promise.all(roots.splice(0).map(async (root) => {
+  await makeTreeWritable(root);
+  await rm(root, { recursive: true, force: true });
+})));
+
+async function makeTreeWritable(root: string): Promise<void> {
+  try {
+    await chmod(root, 0o700);
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      const target = path.join(root, entry.name);
+      if (entry.isDirectory()) await makeTreeWritable(target);
+      else if (entry.isFile()) await chmod(target, 0o600);
+    }
+  } catch {
+    return;
+  }
+}
 
 async function harness() {
   const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-lifecycle-"));
@@ -167,6 +184,90 @@ describe("trusted lifecycle service", () => {
     await restarted.disable({ idempotencyKey: "disable-key-00001" });
     await restarted.initialize();
     expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(0);
+  });
+
+  it("ignores unreferenced malformed package records while migrating active runtime references", async () => {
+    const h = await harness();
+    h.dependencies.immutablePackages = new ImmutablePackageStore(path.join(path.dirname(h.store.root), "immutable-packages"));
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    const unreferencedDigest = `sha256:${"f".repeat(64)}`;
+    await writeFile(
+      path.join(h.store.root, "registry", "packages", `${unreferencedDigest.slice(7)}.json`),
+      `${JSON.stringify({ store_version: 1, package_digest: unreferencedDigest, manifest: { manifest_version: 2, invalid: true } })}\n`,
+      "utf8",
+    );
+
+    await h.supervisor.stop(h.supervisor.inspect(installed.record.installation_id!)[0], "reconcile");
+    const restarted = new AppLifecycleService(h.dependencies);
+    await restarted.initialize();
+
+    await expect(restarted.status()).resolves.toMatchObject({
+      state: "active",
+      active_package_digest: installed.record.active_package_digest,
+    });
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
+  });
+
+  it("recovers with a fresh live grant after fail-closed startup revokes authority", async () => {
+    const h = await harness();
+    h.dependencies.immutablePackages = new ImmutablePackageStore(path.join(path.dirname(h.store.root), "immutable-packages"));
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    await h.dependencies.store.revokeGrant(installed.grant!.grant_id);
+    h.tokenBroker.revokeInstallation(installed.record.installation_id!);
+    await h.supervisor.stop(h.supervisor.inspect(installed.record.installation_id!)[0], "reconcile");
+    const failed = {
+      ...installed.record,
+      state: "failed_recoverable" as const,
+      generation: installed.record.generation + 1,
+      successful_use_checkpoint: installed.record.successful_use_checkpoint
+        ? { ...installed.record.successful_use_checkpoint, status: "failed" as const, completed_at: new Date().toISOString() }
+        : null,
+      updated_at: new Date().toISOString(),
+    };
+    await h.store.compareAndSwapLifecycle(installed.record.generation, failed);
+
+    const recovered = await h.service.recover({
+      idempotencyKey: "recover-fresh-grant-001",
+      installationId: installed.record.installation_id,
+      expectedGeneration: failed.generation,
+    });
+
+    expect(recovered.record.state).toBe("active");
+    expect(recovered.record.grant_id).not.toBe(installed.grant!.grant_id);
+    expect(recovered.record.successful_use_checkpoint).toMatchObject({
+      package_digest: installed.record.active_package_digest,
+      status: "pending",
+    });
+    expect((await h.store.readGrant(recovered.record.grant_id!))?.revoked_at).toBeNull();
+    expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(false);
+    await expect(h.service.issueSession({
+      audience: "app_data",
+      capabilities: ["career.context.read"],
+      operationId: crypto.randomUUID(),
+    })).resolves.toMatchObject({ claims: { grant_id: recovered.record.grant_id } });
+  });
+
+  it("repairs a revoked active grant during startup reconciliation", async () => {
+    const h = await harness();
+    h.dependencies.immutablePackages = new ImmutablePackageStore(path.join(path.dirname(h.store.root), "immutable-packages"));
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    await h.dependencies.store.revokeGrant(installed.grant!.grant_id);
+    h.tokenBroker.revokeInstallation(installed.record.installation_id!);
+    await h.supervisor.stop(h.supervisor.inspect(installed.record.installation_id!)[0], "reconcile");
+
+    const restarted = new AppLifecycleService(h.dependencies);
+    await restarted.initialize();
+    const repaired = await restarted.status();
+
+    expect(repaired.state).toBe("active");
+    expect(repaired.grant_id).not.toBe(installed.grant!.grant_id);
+    expect((await h.store.readGrant(repaired.grant_id!))?.revoked_at).toBeNull();
+    expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(false);
+    await expect(restarted.issueSession({
+      audience: "app_data",
+      capabilities: ["career.context.read"],
+      operationId: crypto.randomUUID(),
+    })).resolves.toMatchObject({ claims: { grant_id: repaired.grant_id } });
   });
 
   it("fails closed without blocking startup when persisted active package metadata is stale", async () => {

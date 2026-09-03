@@ -1,8 +1,8 @@
 import type { AppViewResumeRequest } from "./app-view-registry.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
-import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
+import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 
-export type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
+export type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 
 export interface AppMcpHostAdapter {
   readonly appId: string;
@@ -17,6 +17,7 @@ export interface AppMcpHostAdapter {
   deleteAppDocument(sessionId: string, documentId: string, input: AppDocumentDeleteInput): Promise<AppDocumentDeleteResult>;
   registerAppArtifact(input: AppArtifactRegistrationInput): Promise<AppArtifactRegistrationResult>;
   requestAppExport(input: AppExportPrepareInput, ownerActorId: string): Promise<AppExportPrepared>;
+  executeAppChatAction(sessionId: string, actionId: string, input: AppChatActionExecuteInput, ownerActorId: string): Promise<AppChatActionExecuteResult>;
   buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext>;
   handleAppsBridge(sessionId: string, rawEnvelope: unknown): Promise<unknown>;
   cancelAppsBridgeRequest(sessionId: string, operationId: string): boolean;
@@ -46,6 +47,7 @@ export class AppMcpHost implements AppMcpHostAdapter {
   deleteAppDocument(sessionId: string, documentId: string, input: AppDocumentDeleteInput): Promise<AppDocumentDeleteResult> { return this.adapter.deleteAppDocument(sessionId, documentId, input); }
   registerAppArtifact(input: AppArtifactRegistrationInput): Promise<AppArtifactRegistrationResult> { return this.adapter.registerAppArtifact(input); }
   requestAppExport(input: AppExportPrepareInput, ownerActorId: string): Promise<AppExportPrepared> { return this.adapter.requestAppExport(input, ownerActorId); }
+  executeAppChatAction(sessionId: string, actionId: string, input: AppChatActionExecuteInput, ownerActorId: string): Promise<AppChatActionExecuteResult> { return this.adapter.executeAppChatAction(sessionId, actionId, input, ownerActorId); }
   buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext> { return this.adapter.buildChatWorkspaceModelContext(request); }
   handleAppsBridge(sessionId: string, rawEnvelope: unknown): Promise<unknown> { return this.adapter.handleAppsBridge(sessionId, rawEnvelope); }
   cancelAppsBridgeRequest(sessionId: string, operationId: string): boolean { return this.adapter.cancelAppsBridgeRequest(sessionId, operationId); }

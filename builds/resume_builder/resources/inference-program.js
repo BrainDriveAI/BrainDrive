@@ -491,10 +491,16 @@ function renderResumeMarkdown(input) {
   return lines.join("\n").trim();
 }
 
+const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
+
 function normalizeResumeMarkdown(markdown) {
+  const dateTrailingBulletPattern = new RegExp(String.raw`\b(${DATE_ENDPOINT_PATTERN})\s+([-*+]\s+)(?!(?:${DATE_ENDPOINT_PATTERN})\b)`, "gi");
   return String(markdown ?? "")
     .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
-    .replace(/\s+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
+    .replace(/(^|\n)(#{2,6}\s+[A-Za-z][A-Za-z0-9 &/().,:]{0,80})\s+([-*+]\s+)/g, "$1$2\n$3")
+    .replace(dateTrailingBulletPattern, "$1\n$2")
+    .replace(/([.!?])\s+((?:[-*+]|\d+[.)])\s+)/g, "$1\n$2")
+    .replace(/\n[ \t]+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -512,15 +518,23 @@ function normalizePdfFilename(value) {
 }
 
 function renderResumeMarkdownPdf(markdown) {
-  const lines = markdownToPdfLines(markdown);
-  const textCommands = lines.map((line, index) => `BT /F1 10 Tf 72 ${760 - (index * 16)} Td (${escapePdfText(line)}) Tj ET`).join("\n");
+  const pages = renderPdfPages(markdownToPdfBlocks(markdown));
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${Buffer.byteLength(textCommands, "utf8")} >>\nstream\n${textCommands}\nendstream`,
+    "",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>",
   ];
+  const pageRefs = [];
+  for (const page of pages) {
+    const pageRef = objects.length + 1;
+    const contentRef = pageRef + 1;
+    pageRefs.push(pageRef);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents ${contentRef} 0 R >>`);
+    objects.push(`<< /Length ${Buffer.byteLength(page, "utf8")} >>\nstream\n${page}\nendstream`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${pageRefs.map((ref) => `${ref} 0 R`).join(" ")}] /Count ${pageRefs.length} >>`;
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
   for (let index = 0; index < objects.length; index += 1) {
@@ -533,35 +547,179 @@ function renderResumeMarkdownPdf(markdown) {
   return Buffer.from(pdf, "utf8");
 }
 
-function markdownToPdfLines(markdown) {
-  const lines = [];
+function markdownToPdfBlocks(markdown) {
+  const blocks = [];
   for (const rawLine of markdown.split(/\r?\n/)) {
-    const text = normalizeStatementText(rawLine.replace(/^#{1,6}\s+/, "").replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
-    if (!text) {
-      if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+    const line = rawLine.trim();
+    if (!line) {
+      if (blocks.length > 0 && blocks.at(-1)?.kind !== "spacer") blocks.push({ kind: "spacer" });
       continue;
     }
-    for (const part of wrapPdfLine(text, 92)) lines.push(part);
-    if (lines.length >= 42) break;
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      blocks.push({ kind: "heading", depth: heading[1].length, runs: parsePdfInlineMarkdown(heading[2]) });
+      continue;
+    }
+    const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+    if (bullet) {
+      blocks.push({ kind: "bullet", runs: parsePdfInlineMarkdown(bullet[1]) });
+      continue;
+    }
+    blocks.push({ kind: "paragraph", runs: parsePdfInlineMarkdown(line) });
   }
-  return lines.length > 0 ? lines.slice(0, 42) : ["Resume"];
+  return blocks.length > 0 ? blocks : [{ kind: "paragraph", runs: [{ text: "Resume", bold: false }] }];
 }
 
-function wrapPdfLine(value, width) {
-  const lines = [];
-  let current = "";
-  for (const word of value.split(/\s+/)) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= width) { current = next; continue; }
-    if (current) lines.push(current);
-    current = word.slice(0, width);
+function renderPdfPages(blocks) {
+  const pages = [];
+  let commands = [];
+  let y = 738;
+  const left = 54;
+  const right = 558;
+  const contentWidth = right - left;
+
+  const newPage = () => {
+    if (commands.length > 0) pages.push(commands.join("\n"));
+    commands = [];
+    y = 738;
+  };
+  const ensure = (height) => {
+    if (y - height < 48) newPage();
+  };
+  const drawRuns = (runs, x, baseline, fontSize) => {
+    let cursor = x;
+    for (const run of runs) {
+      if (!run.text) continue;
+      commands.push(textCommand(run.bold ? "F2" : "F1", fontSize, cursor, baseline, run.text));
+      cursor += textWidth(run.text, fontSize, run.bold);
+    }
+  };
+
+  for (const block of blocks) {
+    if (block.kind === "spacer") {
+      y -= 8;
+      continue;
+    }
+    if (block.kind === "heading") {
+      if (block.depth === 1) {
+        ensure(38);
+        const text = runsPlainText(block.runs);
+        const fontSize = 20;
+        commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text));
+        y -= 30;
+      } else {
+        ensure(34);
+        y -= 10;
+        const text = runsPlainText(block.runs).toUpperCase();
+        commands.push(textCommand("F2", 9.5, left, y, text));
+        commands.push(`0.72 0.75 0.80 RG 0.5 w ${left} ${round(y - 8)} m ${right} ${round(y - 8)} l S 0 0 0 RG`);
+        y -= 28;
+      }
+      continue;
+    }
+    if (block.kind === "bullet") {
+      const lines = wrapPdfRuns(block.runs, contentWidth - 20, 10);
+      ensure(lines.length * 15 + 6);
+      commands.push(`BT /F1 10 Tf ${left} ${round(y)} Td (\\225) Tj ET`);
+      for (const line of lines) {
+        drawRuns(line.runs, left + 16, y, 10);
+        y -= 15;
+      }
+      y -= 3;
+      continue;
+    }
+    const lines = wrapPdfRuns(block.runs, contentWidth, 10);
+    ensure(lines.length * 15 + 8);
+    for (const line of lines) {
+      drawRuns(line.runs, left, y, 10);
+      y -= 15;
+    }
+    y -= 7;
   }
-  if (current) lines.push(current);
-  return lines;
+  if (commands.length > 0) pages.push(commands.join("\n"));
+  return pages.length > 0 ? pages : [textCommand("F1", 10, left, y, "Resume")];
+}
+
+function parsePdfInlineMarkdown(text) {
+  return text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g).filter(Boolean).map((part) => {
+    const strong = /^(\*\*|__)(.+)\1$/.exec(part);
+    return strong ? { text: normalizePdfText(strong[2]), bold: true } : { text: normalizePdfText(part), bold: false };
+  }).filter((run) => run.text.length > 0);
+}
+
+function wrapPdfRuns(runs, maxWidth, fontSize) {
+  const lines = [];
+  let current = [];
+  let currentWidth = 0;
+  const pushRun = (run) => {
+    const last = current.at(-1);
+    if (last && last.bold === run.bold) last.text += run.text;
+    else current.push({ ...run });
+    currentWidth += textWidth(run.text, fontSize, run.bold);
+  };
+  const flush = () => {
+    if (current.length === 0) return;
+    lines.push({ runs: current, width: currentWidth });
+    current = [];
+    currentWidth = 0;
+  };
+
+  for (const run of runs) {
+    for (const word of run.text.split(/\s+/).filter(Boolean)) {
+      const prefix = current.length > 0 ? " " : "";
+      const piece = `${prefix}${word}`;
+      const pieceWidth = textWidth(piece, fontSize, run.bold);
+      if (current.length > 0 && currentWidth + pieceWidth > maxWidth) flush();
+      if (pieceWidth > maxWidth) {
+        const chunkSize = Math.max(8, Math.floor(maxWidth / (fontSize * 0.55)));
+        for (let index = 0; index < word.length; index += chunkSize) {
+          const chunkPrefix = current.length > 0 ? " " : "";
+          pushRun({ text: `${chunkPrefix}${word.slice(index, index + chunkSize)}`, bold: run.bold });
+          flush();
+        }
+        continue;
+      }
+      pushRun({ text: current.length > 0 ? piece : word, bold: run.bold });
+    }
+  }
+  flush();
+  return lines.length > 0 ? lines : [{ runs: [{ text: "", bold: false }], width: 0 }];
+}
+
+function runsPlainText(runs) {
+  return runs.map((run) => run.text).join("");
+}
+
+function textWidth(value, fontSize, bold) {
+  return normalizePdfText(value).split("").reduce((sum, character) => {
+    if (character === " ") return sum + fontSize * 0.28;
+    if (/[ilI.,|]/.test(character)) return sum + fontSize * 0.24;
+    if (/[mwMW@]/.test(character)) return sum + fontSize * 0.78;
+    if (/[A-Z]/.test(character)) return sum + fontSize * (bold ? 0.65 : 0.61);
+    return sum + fontSize * (bold ? 0.55 : 0.51);
+  }, 0);
+}
+
+function textCommand(font, size, x, y, value) {
+  return `BT /${font} ${size} Tf ${round(x)} ${round(y)} Td (${escapePdfText(value)}) Tj ET`;
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function normalizePdfText(value) {
+  return String(value ?? "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[\u2012-\u2015]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/\u00a0/g, " ")
+    .trim();
 }
 
 function escapePdfText(value) {
-  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  return normalizePdfText(value).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
 function sectionIdFor(value) {

@@ -308,7 +308,7 @@ export const AppResourceDescriptorSchema = z
   })
   .strict();
 
-export const WorkspaceDocumentHeaderActionSchema = z.discriminatedUnion("type", [
+export const WorkspaceDocumentHeaderActionSchema = z.union([
   z
     .object({
       type: z.literal("back_to_chat"),
@@ -328,6 +328,15 @@ export const WorkspaceDocumentHeaderActionSchema = z.discriminatedUnion("type", 
       label: safePresentationText(40),
       delivery: z.literal("chat_prompt"),
       prompt: safePresentationText(512),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("app_action"),
+      action_id: DescriptorActionIdSchema,
+      label: safePresentationText(40),
+      delivery: z.literal("direct_action"),
+      action_input: z.unknown().optional(),
     })
     .strict(),
 ]);
@@ -481,6 +490,7 @@ export const ChatWorkspaceDescriptorSchema = z
         document.resource_id === resource.resource_id &&
         document.editable &&
         document.data_binding_id &&
+        document.model_access === "read_reference" &&
         document.initial_content?.source === "package_file" &&
         document.initial_content.package_path === resource.package_path &&
         document.initial_content.media_type === resource.media_type &&
@@ -488,7 +498,7 @@ export const ChatWorkspaceDescriptorSchema = z
         document.initial_content.seed_policy === "when_missing"
       );
       if (!overrideDocument) {
-        context.addIssue({ code: "custom", path: ["resources", index, "owner_editable"], message: "owner-editable resources require an editable bound document seeded from the immutable package resource" });
+        context.addIssue({ code: "custom", path: ["resources", index, "owner_editable"], message: "owner-editable resources require an editable read-reference bound document seeded from the immutable package resource" });
       }
     }
   });

@@ -108,6 +108,20 @@ export type AppChatModelContext = {
 
 export type AppChatModelContextRequest = AppChatModelMetadata;
 
+export type AppChatActionExecuteInput = {
+  action_input: unknown;
+  operation_id: string;
+  idempotency_key: string;
+  owner_confirmed: boolean;
+};
+
+export type AppChatActionExecuteResult = {
+  action_id: string;
+  operation_id: string;
+  idempotency_key: string;
+  result: unknown;
+};
+
 export type AppDocumentReadResult = {
   result_version: 1;
   state: "current" | "missing";

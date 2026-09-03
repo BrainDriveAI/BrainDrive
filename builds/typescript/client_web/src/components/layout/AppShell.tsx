@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { getOnboardingStatus } from "@/api/gateway-adapter";
@@ -11,6 +10,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { ProjectFile } from "@/types/ui";
 
+import { MobileSidebarDrawer, MobileSidebarHeader } from "./MobileSidebarShell";
 import Sidebar from "./Sidebar";
 
 type AppShellProps = {
@@ -251,34 +251,23 @@ export default function AppShell({
     ? null
     : createPortal(
         <div className="pointer-events-none fixed inset-x-0 top-0 z-30 md:hidden">
-          <div
+          <MobileSidebarHeader
             ref={mobileHeaderRef}
-            className="pointer-events-auto flex items-center gap-3 border-b border-bd-border bg-bd-bg-primary/95 px-4 py-3 backdrop-blur-sm"
-            style={{
-              paddingTop: "max(0.75rem, var(--safe-area-top))",
-              paddingLeft: "max(1rem, var(--safe-area-left))",
-              paddingRight: "max(1rem, var(--safe-area-right))"
+            openLabel="Open navigation menu"
+            onOpen={() => {
+              setIsMobileSidebarOpen(true);
             }}
-          >
-            <button
-              type="button"
-              aria-label="Open navigation menu"
-              onClick={() => {
-                setIsMobileSidebarOpen(true);
-              }}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover"
-            >
-              <Menu size={18} strokeWidth={1.5} />
-            </button>
-            <button
-              type="button"
-              aria-label="Go to BrainDrive home"
-              onClick={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
-              className="cursor-pointer bg-transparent p-0"
-            >
-              <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
-            </button>
-          </div>
+            leading={(
+              <button
+                type="button"
+                aria-label="Go to BrainDrive home"
+                onClick={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
+                className="cursor-pointer bg-transparent p-0"
+              >
+                <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
+              </button>
+            )}
+          />
         </div>,
         document.body
       );
@@ -316,49 +305,43 @@ export default function AppShell({
         />
       </div> : null}
 
-      {isMobileSidebarOpen && !isAppWorkspaceActive ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close sidebar backdrop"
-            onClick={() => {
-              setIsMobileSidebarOpen(false);
-            }}
-            className="absolute inset-0 bg-black/50"
-          />
-          <div className="absolute left-0 top-0 h-full w-[300px] transform transition-transform duration-300">
-            <Sidebar
-              isCollapsed={false}
-              onToggle={() => {}}
-              projects={projects}
-              selectedProjectId={selectedProjectId}
-              selectedProject={selectedProject}
-              projectFiles={projectFiles}
-              activeFilePath={activeFile?.path ?? null}
-              isLoadingProjects={isLoadingProjects}
-              isLoadingFiles={isLoadingFiles}
-              onSelectProject={handleSelectProject}
-              onDeselectProject={deselectProject}
-              onReturnToChat={handleReturnToChat}
-              onFileClick={handleFileClick}
-              onOpenSettings={() => {
-                setIsMobileSidebarOpen(false);
-                setIsSettingsOpen(true);
-              }}
-              onOpenApps={() => { handleOpenApps(); setIsMobileSidebarOpen(false); }}
-              isAppsActive={isAppsOpen}
-              onLogout={() => onLogout?.()}
-              tier={deploymentMode === "managed" ? "concierge" : "local"}
-              onAddProject={addProject}
-              onRemoveProject={removeProject}
-              onRenameProject={renameProject}
-              onClose={() => {
-                setIsMobileSidebarOpen(false);
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
+      <MobileSidebarDrawer
+        isOpen={isMobileSidebarOpen && !isAppWorkspaceActive}
+        closeBackdropLabel="Close sidebar backdrop"
+        onClose={() => {
+          setIsMobileSidebarOpen(false);
+        }}
+      >
+        <Sidebar
+          isCollapsed={false}
+          onToggle={() => {}}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          selectedProject={selectedProject}
+          projectFiles={projectFiles}
+          activeFilePath={activeFile?.path ?? null}
+          isLoadingProjects={isLoadingProjects}
+          isLoadingFiles={isLoadingFiles}
+          onSelectProject={handleSelectProject}
+          onDeselectProject={deselectProject}
+          onReturnToChat={handleReturnToChat}
+          onFileClick={handleFileClick}
+          onOpenSettings={() => {
+            setIsMobileSidebarOpen(false);
+            setIsSettingsOpen(true);
+          }}
+          onOpenApps={() => { handleOpenApps(); setIsMobileSidebarOpen(false); }}
+          isAppsActive={isAppsOpen}
+          onLogout={() => onLogout?.()}
+          tier={deploymentMode === "managed" ? "concierge" : "local"}
+          onAddProject={addProject}
+          onRemoveProject={removeProject}
+          onRenameProject={renameProject}
+          onClose={() => {
+            setIsMobileSidebarOpen(false);
+          }}
+        />
+      </MobileSidebarDrawer>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
         <div
