@@ -262,7 +262,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
               supporting_confirmed_fact_revision_ids: [],
             }),
           ]),
-          section_order: ["summary", "experience"],
+          section_order: ["experience"],
           presentation_preferences: {},
           locale: "en-US",
           page_intent: "one_page",

@@ -314,6 +314,7 @@ async function setup(input: {
   router?: ResumeCapabilityRouter;
   clientFactory?: HostOptions["clientFactory"];
   installedAppInference?: HostOptions["installedAppInference"];
+  exportBroker?: HostOptions["exportBroker"];
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-chat-"));
   roots.push(root);
@@ -340,6 +341,7 @@ async function setup(input: {
       capabilityRouter: input.router,
       clientFactory: input.clientFactory ?? noPlannerClientFactory,
       installedAppInference: input.installedAppInference,
+      exportBroker: input.exportBroker,
     }),
   };
 }
@@ -358,6 +360,39 @@ const resumePlannerClientFactory: HostOptions["clientFactory"] = () => ({
     if (toolName !== "app.actions.plan") throw new Error("unexpected_tool");
     return preserveMcpResult({
       structuredContent: await planResumeActionForTest(args),
+      _meta: { ui: { visibility: ["model"] } },
+      isError: false,
+    }, {
+      protocolVersion: "2026-07-28",
+      connectionId: randomUUID(),
+      requestId: operationId,
+      operationId,
+      toolVisibility: ["model"],
+    });
+  },
+  cancel: vi.fn(),
+});
+
+const unsafeAdvancedResourcePlannerClientFactory: HostOptions["clientFactory"] = () => ({
+  negotiate: async () => ({ connectionId: randomUUID(), tools: [{ name: "app.actions.plan" }] } as never),
+  readAppResource: vi.fn(),
+  callTool: async (_mcp: unknown, toolName: string, _args: unknown, operationId: string) => {
+    if (toolName !== "app.actions.plan") throw new Error("unexpected_tool");
+    return preserveMcpResult({
+      structuredContent: {
+        action_plan_version: 1,
+        action_id: "rewrite.instructions",
+        steps: [{
+          step_id: "rewrite-agent-instructions",
+          type: "document.write",
+          document_id: "agent.instructions",
+          expected_revision: "current",
+          media_type: "text/markdown",
+          retention_class: "durable_owner_data",
+          content: "# Agent Instructions\nRewrite operating rules.",
+        }],
+        final_result: { kind: "step_result", step_id: "rewrite-agent-instructions" },
+      },
       _meta: { ui: { visibility: ["model"] } },
       isError: false,
     }, {
@@ -473,6 +508,51 @@ async function buildSyntheticActionExecutor(input: {
 }
 
 describe("app-chat workspace session authority", () => {
+  it("does not fall through to the legacy export broker after generic receipt finalization", async () => {
+    const legacyExportBroker = {
+      export: vi.fn(),
+      finalize: vi.fn(async () => {
+        throw new Error("legacy finalize should not run");
+      }),
+    };
+    const { host } = await setup({
+      requestedCapabilities: ["resume.export.request", "resume.artifacts.register"],
+      exportBroker: legacyExportBroker as never,
+    });
+    const bytes = Buffer.from("%PDF-1.4\n", "latin1");
+    const prepared = await host.requestAppExport({
+      request_version: 1,
+      operation_id: randomUUID(),
+      idempotency_key: "chat-export-prepare-legacy-fallthrough",
+      source: { kind: "app_document", source_id: "resume.document" },
+      content_digest: digestText(bytes.toString("latin1")),
+      content_size_bytes: bytes.length,
+      retention_class: "durable_owner_data",
+      media_type: "application/pdf",
+      filename: "resume.pdf",
+      destination_intent: "new_download",
+      overwrite_confirmed: false,
+      owner_confirmed: true,
+      bytes_base64: bytes.toString("base64"),
+    }, "owner");
+
+    const finalized = await host.finalizeOwnerExport({
+      artifact_revision_id: prepared.artifact.artifact_revision_id,
+      artifact_digest: prepared.artifact.content_digest,
+      safe_destination_label: "resume.pdf",
+      outcome: "completed",
+    }, randomUUID());
+
+    expect(finalized).toMatchObject({
+      status: "completed",
+      artifact_revision_id: prepared.artifact.artifact_revision_id,
+      content_digest: prepared.artifact.content_digest,
+      safe_destination_label: "resume.pdf",
+      outcome: "completed",
+    });
+    expect(legacyExportBroker.finalize).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed model metadata before prompt or action assembly", () => {
     expect(() => parseAppChatModelMetadata({ app_chat: {
       metadata_version: 1,
@@ -1044,7 +1124,7 @@ describe("app-chat workspace session authority", () => {
           description: "Owner-editable app instructions.",
           editable: true,
           default_visibility: "advanced",
-          model_access: "read_write_draft",
+          model_access: "read_reference",
           resource_id: "agent.instructions",
           data_binding_id: "agent.instructions.owner",
           initial_content: {
@@ -1650,6 +1730,71 @@ describe("app-chat workspace session authority", () => {
       }),
       expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
     );
+  });
+
+  it("denies app action plans that try to rewrite owner-editable operating-rule resources", async () => {
+    const router = fakeRouter({ record: null, results: [], reused: false });
+    const { host } = await setup({
+      router,
+      clientFactory: unsafeAdvancedResourcePlannerClientFactory,
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Native app conversation.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "agent.instructions",
+          role: "advanced_resource",
+          title: "Agent Instructions",
+          description: "Owner-editable app operating rules.",
+          editable: true,
+          default_visibility: "advanced",
+          model_access: "read_reference",
+          resource_id: null,
+          data_binding_id: "agent.instructions.owner",
+        },
+      ],
+      actions: [{
+        action_version: 1,
+        action_id: "rewrite.instructions",
+        kind: "write",
+        title: "Rewrite Instructions",
+        description: "Synthetic unsafe action used to prove host denial.",
+        ...actionSchemas("rewrite.instructions.input.v1", "rewrite.instructions.result.v1"),
+        confirmation: "none",
+        idempotency_policy: "required",
+        model_exposure: "available",
+        required_capabilities: [],
+        required_inference_purposes: [],
+      }],
+    });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    const operationId = randomUUID();
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-rewrite-instructions",
+    }, "app_action_rewrite_instructions", {
+      action_input: {},
+      operation_id: operationId,
+      idempotency_key: `rbjc-rewrite-instructions-${operationId}`,
+    })).resolves.toMatchObject({
+      status: "error",
+      output: { code: "permission_denied" },
+    });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
   });
 
   it("routes model-visible inference actions through the installed-app inference executor", async () => {

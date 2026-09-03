@@ -212,7 +212,7 @@ function createAppChatActionTools(
   return { tools, evidence };
 }
 
-function validateJsonValueAgainstActionSchema(value: unknown, schema: Record<string, unknown>, path: string[] = []): string[] {
+export function validateJsonValueAgainstActionSchema(value: unknown, schema: Record<string, unknown>, path: string[] = []): string[] {
   const errors: string[] = [];
   if (!schemaTypeMatches(value, schema.type)) {
     errors.push(`${path.join(".") || "action_input"} type mismatch`);

@@ -154,6 +154,83 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(documentWrite?.content).toContain("\n- Improved gross retention");
   });
 
+  it("runtime planner preserves date ranges while splitting flattened bullets", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.create",
+      action_input: {
+        title: "Maya Hart - Customer Experience Resume",
+        resume_markdown: "# Maya Hart - Customer Experience Resume Columbus, Ohio ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Leads customer operations. - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    const documentWrite = plan.steps.find((step: any) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(documentWrite?.content).toContain("# Maya Hart - Customer Experience Resume");
+    expect(documentWrite?.content).toContain("January 2022 - Present\n- Leads customer operations.");
+    expect(documentWrite?.content).toContain("June 2019 - December 2021\n- Maintained Zendesk workflows.");
+    expect(documentWrite?.content).not.toContain("\n- Customer Experience Resume");
+    expect(documentWrite?.content).not.toContain("\n- Present");
+    expect(documentWrite?.content).not.toContain("\n- December 2021");
+  });
+
+  it("runtime PDF export renders resume markdown instead of exposing raw markdown", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Maya-Hart-Resume.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya.hart@example.test | 614-555-0192 | linkedin.com/in/maya-hart-cx",
+          "",
+          "## Professional Summary",
+          "",
+          "Customer experience operations manager leading support and success teams.",
+          "",
+          "## Experience",
+          "",
+          "**Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present",
+          "- Leads customer experience operations for an 18-person support and success organization using Zendesk, Looker, Jira, Confluence, and Google Sheets",
+        ].join("\n"),
+      }],
+    });
+
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string } | undefined;
+    const pdf = Buffer.from(exportStep?.bytes_base64 ?? "", "base64").toString("latin1");
+    expect(pdf).toContain("/Helvetica-Bold");
+    expect(pdf).toContain("/Times-Bold");
+    expect(pdf).toContain("(Maya Hart)");
+    expect(pdf).toContain("(PROFESSIONAL SUMMARY)");
+    expect(pdf).toContain("(Customer Experience Operations Manager)");
+    expect(pdf).toContain("(\\225)");
+    expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
   it("assembles exact evidence slots in the app and asks the provider for text only", () => {
     const dimensions = ["responsibilities", "responsibilities", "accomplishments", "outcomes", "tools", "scope", "progression"];
     const evidenceFacts = dimensions.map((dimension, index) => ({

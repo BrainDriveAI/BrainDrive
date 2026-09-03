@@ -239,6 +239,10 @@ describe("signed fixture package verification", () => {
       ? verified.manifest.presentations?.workspaces.find((candidate) => candidate.workspace_id === "resume.chat")
       : null;
     const action = workspace?.actions.find((candidate) => candidate.action_id === "resume.export.pdf.request");
+    const resumeDocument = workspace?.documents.find((candidate) => candidate.document_id === "resume.document");
+    const exportHeaderAction = resumeDocument?.presentation?.header_actions.find((candidate) => (
+      candidate.type === "app_action" && candidate.action_id === "resume.export.pdf.request"
+    ));
 
     expect(action?.result_schema.schema).toMatchObject({
       type: "object",
@@ -253,6 +257,13 @@ describe("signed fixture package verification", () => {
       "bytes_base64",
       "safe_destination_label",
     ]));
+    expect(exportHeaderAction).toMatchObject({
+      delivery: "direct_action",
+      action_input: {
+        format: "pdf",
+        destination_intent: "new_download",
+      },
+    });
   });
 
   it("normalizes historical stored v2 manifests without accepting them as new package candidates", async () => {

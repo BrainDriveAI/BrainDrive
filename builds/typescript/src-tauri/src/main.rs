@@ -720,7 +720,6 @@ fn main() {
     let setup_launch_state = launch_state.clone();
     let window_runtime = runtime.clone();
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .manage(runtime.clone())
         .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![

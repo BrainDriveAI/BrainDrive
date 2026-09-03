@@ -398,15 +398,31 @@ export class AppLifecycleService {
       if (!prior.active_package_digest || !prior.grant_id || !prior.installation_id) throw new AppPlatformError("invalid_state_transition", "Recovery requires retained verified package authority");
       let operation = this.newOperation("recover", prior, prior.installation_id, input.idempotencyKey, {}, "active", "active", input.operationId);
       await this.dependencies.store.saveOperation(operation);
+      let replacementGrant: CapabilityGrant | null = null;
       try {
-        await this.restartPrior(prior);
-        const active = LifecycleRecordSchema.parse({ ...prior, state: "active", generation: prior.generation + 1, pending_operation_id: null, updated_at: new Date().toISOString() });
+        operation = await this.stage(operation, "verifying_package");
+        const stored = await this.requireStoredPackage(prior.active_package_digest);
+        const verified = await this.verifyStoredPackage(stored);
+        const priorGrant = await this.requireGrant(prior.grant_id);
+        const grant = priorGrant.revoked_at ? this.createGrant(prior.installation_id, verified) : priorGrant;
+        if (priorGrant.revoked_at) {
+          replacementGrant = grant;
+          await this.dependencies.store.saveGrant(grant);
+        }
+        await this.prepareOwnerData(grant, verified, "enable");
+        operation = await this.stage(operation, "starting");
+        const started = await this.dependencies.supervisor.start(this.runtimeDescriptor(prior, verified, grant));
+        operation = await this.stage(operation, "awaiting_readiness");
+        await this.dependencies.supervisor.awaitReadiness(started.runtime!);
+        this.dependencies.tokenBroker.permitInstallation(prior.installation_id);
+        const active = LifecycleRecordSchema.parse({ ...prior, grant_id: grant.grant_id, state: "active", generation: prior.generation + 1, pending_operation_id: null, successful_use_checkpoint: { checkpoint_version: 1, package_digest: verified.packageDigest, status: "pending", started_at: new Date().toISOString(), completed_at: null, evidence_operation_id: null }, updated_at: new Date().toISOString() });
         await this.dependencies.store.compareAndSwapLifecycle(prior.generation, active);
         operation = await this.complete(operation, active, "committed", false);
         this.emit("app.lifecycle.recover.committed", prior, active, operation);
         return { record: active, operation, grant: await this.requireGrant(active.grant_id!) };
       } catch (error) {
         const failure = asAppPlatformError(error);
+        if (replacementGrant) await this.dependencies.store.revokeGrant(replacementGrant.grant_id).catch(() => undefined);
         await this.fail(operation, failure.code, "reconcile_committed_pointer");
         throw failure;
       }
@@ -541,13 +557,25 @@ export class AppLifecycleService {
     }
   }
 
-  private async restartPrior(record: LifecycleRecord): Promise<void> {
+  private async restartPrior(record: LifecycleRecord): Promise<LifecycleRecord> {
     const stored = await this.requireStoredPackage(record.active_package_digest!);
-    const grant = await this.requireGrant(record.grant_id!);
+    let grant = await this.requireGrant(record.grant_id!);
     const verified = await this.verifyStoredPackage(stored);
+    if (grant.revoked_at) {
+      grant = this.createGrant(record.installation_id!, verified);
+      await this.dependencies.store.saveGrant(grant);
+      const latest = await this.dependencies.store.readLifecycle();
+      if (latest.state === record.state && latest.generation === record.generation && latest.grant_id === record.grant_id) {
+        const repaired = LifecycleRecordSchema.parse({ ...latest, grant_id: grant.grant_id, generation: latest.generation + 1, updated_at: new Date().toISOString() });
+        await this.dependencies.store.compareAndSwapLifecycle(latest.generation, repaired);
+        record = repaired;
+      }
+    }
     await this.prepareOwnerData(grant, verified, "enable");
     const started = await this.dependencies.supervisor.start(this.runtimeDescriptor(record, verified, grant));
     await this.dependencies.supervisor.awaitReadiness(started.runtime!);
+    this.dependencies.tokenBroker.permitInstallation(record.installation_id!);
+    return record;
   }
 
   private async stopInstallation(installationId: string, reason: StopReason): Promise<void> {
@@ -789,8 +817,9 @@ export class AppLifecycleService {
     if (!packages) return;
     const record = await this.dependencies.store.readLifecycle();
     const referencedDigests = new Set([record.active_package_digest, record.last_known_good_package_digest].filter((value): value is string => Boolean(value)));
-    for (const stored of await this.dependencies.store.listPackages()) {
-      if (!referencedDigests.has(stored.package_digest)) continue;
+    for (const packageDigest of referencedDigests) {
+      const stored = await this.dependencies.store.readPackage(packageDigest);
+      if (!stored) continue;
       const packagesRoot = path.resolve(packages.layout.packages);
       const storedRoot = path.resolve(stored.package_root);
       if (stored.package_reference_id && storedRoot.startsWith(`${packagesRoot}${path.sep}`)) continue;

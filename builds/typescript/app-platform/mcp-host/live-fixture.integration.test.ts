@@ -295,6 +295,9 @@ describe("live signed modern MCP Apps fixture", () => {
         expect.objectContaining({ document_id: "resume.document", title: "Your Resume", data_binding_id: "resume.definition.current.general" }),
         expect.objectContaining({ document_id: "agent.instructions", title: "Agent Instructions", editable: true, data_binding_id: "agent.instructions.owner" }),
         expect.objectContaining({ document_id: "interview.guide", title: "Interview Guide", editable: true, data_binding_id: "interview.guide.owner" }),
+        expect.objectContaining({ document_id: "quality.standard", title: "Resume Quality Standard", editable: true, data_binding_id: "quality.standard.owner" }),
+        expect.objectContaining({ document_id: "template.standard", title: "Resume Template Standard", editable: true, data_binding_id: "template.standard.owner" }),
+        expect.objectContaining({ document_id: "recovery.guidance", title: "Recovery Guidance", editable: true, data_binding_id: "recovery.guidance.owner" }),
       ]));
       await expect(host.readAppDocument(launch.session.session_id, "agent.instructions")).resolves.toMatchObject({
         state: "current",
@@ -318,7 +321,29 @@ describe("live signed modern MCP Apps fixture", () => {
           content: "# Resume Builder Agent Instructions\nOwner override.",
         },
       });
-      const resources = launch.workspace.resources as Array<{ resource_id: string }>;
+      await expect(host.readAppDocument(launch.session.session_id, "quality.standard")).resolves.toMatchObject({
+        state: "current",
+        document_id: "quality.standard",
+        document_binding_id: "quality.standard.owner",
+        record: {
+          role: "app_state",
+          content: expect.stringContaining("The Resume Profile is the editable source of truth"),
+        },
+      });
+      await expect(host.writeAppDocument(launch.session.session_id, "quality.standard", {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-chat-fixture-quality-standard-override",
+        expected_revision: 1,
+        content: "# Resume Quality Standard\nOwner override.",
+      })).resolves.toMatchObject({
+        state: "current",
+        document_id: "quality.standard",
+        record: {
+          revision: 2,
+          content: "# Resume Quality Standard\nOwner override.",
+        },
+      });
+      const resources = launch.workspace.resources as Array<{ resource_id: string; owner_editable: boolean }>;
       const actions = launch.workspace.actions as Array<{ action_id: string }>;
       expect(resources.map((resource) => resource.resource_id)).toEqual([
         "agent.instructions",
@@ -327,6 +352,7 @@ describe("live signed modern MCP Apps fixture", () => {
         "template.standard",
         "recovery.guidance",
       ]);
+      expect(resources.every((resource) => resource.owner_editable)).toBe(true);
       expect(actions.map((action) => action.action_id)).toEqual([
         "resume.profile.read",
         "career.fact.propose",

@@ -212,4 +212,16 @@ describe("AppShell project file refresh", () => {
     expect(screen.getByRole("complementary")).toBeInTheDocument();
   });
 
+  it("opens and closes the host mobile sidebar through the shared drawer shell", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open navigation menu" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close sidebar backdrop" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
 });

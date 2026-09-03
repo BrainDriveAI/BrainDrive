@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from "react";
-import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Menu, Pencil, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Pencil, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { getSession } from "@/api/auth-adapter";
 import {
   closeAppSession,
+  executeAppChatWorkspaceAction,
   finalizeAppExport,
   readAppChatWorkspaceDocument,
   readAppChatWorkspaceResource,
@@ -20,6 +21,7 @@ import {
 } from "@/api/apps-adapter";
 import type { ChatEvent } from "@/api/types";
 import ChatPanel from "@/components/chat/ChatPanel";
+import { MobileSidebarDrawer, MobileSidebarHeader } from "@/components/layout/MobileSidebarShell";
 import ProfileMenu from "@/components/layout/ProfileMenu";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,7 @@ type AppChatPreparedExport = {
   safeDestinationLabel: string;
   payload: HostAppExportPayload;
 };
+type AppChatExportHandlingResult = "ignored" | "completed" | "cancelled" | "failed";
 
 type AppChatWorkspaceProps = {
   appKey: string;
@@ -51,6 +54,7 @@ type AppChatWorkspaceProps = {
 };
 
 const APP_CHAT_SESSION_HEARTBEAT_MS = 2 * 60_000;
+const APP_CHAT_CONVERSATION_STORAGE_PREFIX = "braindrive:app-chat-conversation:";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -116,6 +120,36 @@ function workspaceEmptyStateIntro(launch: AppChatWorkspaceLaunch) {
   };
 }
 
+function appChatConversationStorageKey(appKey: string, launch: AppChatWorkspaceLaunch): string {
+  return `${APP_CHAT_CONVERSATION_STORAGE_PREFIX}${[
+    appKey,
+    launch.session.app_id,
+    launch.session.owner_id,
+    launch.session.installation_id,
+    launch.session.presentation_id,
+    launch.session.workspace_id,
+  ].map(encodeURIComponent).join(":")}`;
+}
+
+function readStoredAppChatConversationId(storageKey: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(storageKey);
+    return value && value.trim().length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredAppChatConversationId(storageKey: string, conversationId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(storageKey, conversationId);
+  } catch {
+    // Chat persistence is best-effort; the gateway conversation remains durable.
+  }
+}
+
 export function extractPreparedAppChatExport(output: unknown): AppChatPreparedExport | null {
   if (!isRecord(output) || !isRecord(output.result)) return null;
   const result = output.result;
@@ -172,7 +206,9 @@ export default function AppChatWorkspace({
   const items = useMemo(() => buildItems(launch), [launch]);
   const itemKeysSignature = useMemo(() => items.map(itemKey).join("|"), [items]);
   const workspaceIdentity = `${launch.session.app_id}:${launch.session.package_digest}:${launch.session.lifecycle_generation}:${launch.presentation.presentation_id}:${launch.workspace.workspace_id}:${itemKeysSignature}`;
+  const conversationStorageKey = appChatConversationStorageKey(appKey, launch);
   const [activeItemKey, setActiveItemKey] = useState(() => defaultItemKey(launch, items));
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(() => readStoredAppChatConversationId(conversationStorageKey));
   const [sessionState, setSessionState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -183,7 +219,8 @@ export default function AppChatWorkspace({
   const navButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const closedSessionIdsRef = useRef(new Set<string>());
   const cleanupTimerRef = useRef<{ sessionId: string; timer: number } | null>(null);
-  const completedExportIdsRef = useRef(new Set<string>());
+  const exportStatusByIdRef = useRef(new Map<string, AppChatExportHandlingResult>());
+  const inFlightExportIdsRef = useRef(new Set<string>());
   const launchRef = useRef(launch);
 
   useEffect(() => {
@@ -227,6 +264,10 @@ export default function AppChatWorkspace({
       };
     };
   }, [closeSessionById, launch.session.session_id]);
+
+  useEffect(() => {
+    setActiveConversationId(readStoredAppChatConversationId(conversationStorageKey));
+  }, [conversationStorageKey]);
 
   useEffect(() => {
     setActiveItemKey((current) => items.some((item) => item.key === current) ? current : defaultItemKey(launch, items));
@@ -319,13 +360,14 @@ export default function AppChatWorkspace({
     });
   }
 
-  const handleAppChatStreamEvent = useCallback(async (event: ChatEvent) => {
-    if (event.type !== "tool-result" || event.status !== "ok") return;
-    const prepared = extractPreparedAppChatExport(event.output);
-    if (!prepared) return;
+  const handlePreparedAppChatExport = useCallback(async (output: unknown): Promise<AppChatExportHandlingResult> => {
+    const prepared = extractPreparedAppChatExport(output);
+    if (!prepared) return "ignored";
     const exportKey = `${prepared.artifactRevisionId}:${prepared.artifactDigest}`;
-    if (completedExportIdsRef.current.has(exportKey)) return;
-    completedExportIdsRef.current.add(exportKey);
+    const priorStatus = exportStatusByIdRef.current.get(exportKey);
+    if (priorStatus) return priorStatus;
+    if (inFlightExportIdsRef.current.has(exportKey)) return "ignored";
+    inFlightExportIdsRef.current.add(exportKey);
     setExportNotice({ tone: "info", message: `Downloading ${prepared.payload.filename}...` });
     try {
       const browserBroker = new BrowserActionBroker({
@@ -342,13 +384,21 @@ export default function AppChatWorkspace({
       }, true, true);
       if (!exportDecision.allowed) throw new Error(exportDecision.code);
       const projection = await saveHostAppExport(prepared.payload);
-      const receipt = await finalizeAppExport(appKey, {
-        artifact_revision_id: prepared.artifactRevisionId,
-        artifact_digest: prepared.artifactDigest,
-        safe_destination_label: projection.safe_destination_label,
-        outcome: "completed",
-      });
-      setExportNotice({ tone: "success", message: `Downloaded ${receipt.safe_destination_label}.` });
+      let safeDestinationLabel = projection.safe_destination_label;
+      try {
+        const receipt = await finalizeAppExport(appKey, {
+          artifact_revision_id: prepared.artifactRevisionId,
+          artifact_digest: prepared.artifactDigest,
+          safe_destination_label: projection.safe_destination_label,
+          outcome: "completed",
+        });
+        safeDestinationLabel = receipt.safe_destination_label || safeDestinationLabel;
+      } catch {
+        // The file is already saved; receipt recording must not be reported as a failed download.
+      }
+      setExportNotice({ tone: "success", message: `Downloaded ${safeDestinationLabel}.` });
+      exportStatusByIdRef.current.set(exportKey, "completed");
+      return "completed";
     } catch (downloadError) {
       const cancelled = downloadError instanceof Error && downloadError.message === "cancelled";
       await finalizeAppExport(appKey, {
@@ -357,12 +407,27 @@ export default function AppChatWorkspace({
         safe_destination_label: prepared.safeDestinationLabel,
         outcome: cancelled ? "cancelled" : "failed",
       }).catch(() => undefined);
+      const result = cancelled ? "cancelled" : "failed";
       setExportNotice({
         tone: cancelled ? "info" : "error",
         message: cancelled ? "Export was cancelled." : "BrainDrive could not download the export.",
       });
+      exportStatusByIdRef.current.set(exportKey, result);
+      return result;
+    } finally {
+      inFlightExportIdsRef.current.delete(exportKey);
     }
   }, [appKey]);
+
+  const handleAppChatStreamEvent = useCallback(async (event: ChatEvent) => {
+    if (event.type !== "tool-result" || event.status !== "ok") return;
+    await handlePreparedAppChatExport(event.output);
+  }, [handlePreparedAppChatExport]);
+
+  const handleConversationComplete = useCallback((conversationId: string) => {
+    setActiveConversationId(conversationId);
+    writeStoredAppChatConversationId(conversationStorageKey, conversationId);
+  }, [conversationStorageKey]);
 
   function selectWorkspaceItem(key: string) {
     setActiveItemKey(key);
@@ -393,9 +458,10 @@ export default function AppChatWorkspace({
   const advancedItems = items.filter((item) => item.kind === "resource" || (item.kind === "document" && item.document.default_visibility === "advanced"));
   const chatPanel = (
     <ChatPanel
-      activeConversationId={null}
-      draftKey={`app-chat:${launch.session.app_id}:${launch.session.view_id}`}
-      isEmpty
+      activeConversationId={activeConversationId}
+      draftKey={conversationStorageKey}
+      isEmpty={activeConversationId === null}
+      onConversationComplete={handleConversationComplete}
       messageMetadata={messageMetadata}
       emptyStateIntro={emptyStateIntro}
       contentOverride={isConversation ? undefined : (
@@ -411,6 +477,8 @@ export default function AppChatWorkspace({
           onRecoverSession={recoverSession}
           onBackToChat={() => setActiveItemKey(itemKey(items.find((candidate) => candidate.kind === "document" && candidate.document.role === "conversation") ?? items[0] ?? { key: "document:conversation", kind: "document", document: FALLBACK_CONVERSATION }))}
           onQueueChatPrompt={queueWorkspaceChatPrompt}
+          onClearExportNotice={() => setExportNotice(null)}
+          onDirectActionResult={handlePreparedAppChatExport}
         />
       )}
       queuedMessage={queuedChatMessage}
@@ -422,26 +490,13 @@ export default function AppChatWorkspace({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary md:flex-row" aria-label={`${appName} native app workspace`} data-testid="app-chat-workspace">
-      <div
-        className="flex items-center gap-3 border-b border-bd-border bg-bd-bg-primary/95 px-4 py-3 backdrop-blur-sm md:hidden"
-        style={{
-          paddingTop: "max(0.75rem, var(--safe-area-top))",
-          paddingLeft: "max(1rem, var(--safe-area-left))",
-          paddingRight: "max(1rem, var(--safe-area-right))"
-        }}
-      >
-        <button
-          type="button"
-          aria-label="Open workspace navigation menu"
-          onClick={() => setIsMobileNavOpen(true)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover"
-        >
-          <Menu size={18} strokeWidth={1.5} />
-        </button>
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
-          <p className="truncate font-heading text-base text-bd-text-heading">{activeItemTitle}</p>
-        </div>
+      <div className="md:hidden">
+        <MobileSidebarHeader
+          openLabel="Open workspace navigation menu"
+          onOpen={() => setIsMobileNavOpen(true)}
+          eyebrow={appName}
+          title={activeItemTitle}
+        />
       </div>
 
       <div className="hidden md:flex md:shrink-0">
@@ -463,35 +518,30 @@ export default function AppChatWorkspace({
         />
       </div>
 
-      {isMobileNavOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={`${appName} workspace navigation`}>
-          <button
-            type="button"
-            aria-label="Close workspace navigation backdrop"
-            onClick={() => setIsMobileNavOpen(false)}
-            className="absolute inset-0 bg-black/50"
-          />
-          <div className="absolute left-0 top-0 h-full w-[300px] transform transition-transform duration-300">
-            <WorkspaceNavigation
-              appName={appName}
-              sessionError={sessionError}
-              primaryItems={primaryItems}
-              advancedItems={advancedItems}
-              activeItemKey={activeItemKey}
-              advancedOpen={advancedOpen}
-              navButtonRefs={navButtonRefs}
-              onSelect={selectWorkspaceItem}
-              onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
-              onMoveFocus={moveNavigationFocus}
-              onCloseWorkspace={closeWorkspace}
-              onCloseNavigation={() => setIsMobileNavOpen(false)}
-              onOpenSettings={onOpenSettings}
-              onLogout={onLogout}
-              tier={tier}
-            />
-          </div>
-        </div>
-      ) : null}
+      <MobileSidebarDrawer
+        isOpen={isMobileNavOpen}
+        ariaLabel={`${appName} workspace navigation`}
+        closeBackdropLabel="Close workspace navigation backdrop"
+        onClose={() => setIsMobileNavOpen(false)}
+      >
+        <WorkspaceNavigation
+          appName={appName}
+          sessionError={sessionError}
+          primaryItems={primaryItems}
+          advancedItems={advancedItems}
+          activeItemKey={activeItemKey}
+          advancedOpen={advancedOpen}
+          navButtonRefs={navButtonRefs}
+          onSelect={selectWorkspaceItem}
+          onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
+          onMoveFocus={moveNavigationFocus}
+          onCloseWorkspace={closeWorkspace}
+          onCloseNavigation={() => setIsMobileNavOpen(false)}
+          onOpenSettings={onOpenSettings}
+          onLogout={onLogout}
+          tier={tier}
+        />
+      </MobileSidebarDrawer>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
         {!isConversation && exportNotice ? (
@@ -778,6 +828,8 @@ function WorkspaceDetail({
   onRecoverSession,
   onBackToChat,
   onQueueChatPrompt,
+  onClearExportNotice,
+  onDirectActionResult,
 }: {
   appKey: string;
   appName: string;
@@ -790,6 +842,8 @@ function WorkspaceDetail({
   onRecoverSession: () => Promise<string | null>;
   onBackToChat: () => void;
   onQueueChatPrompt: (prompt: string) => void;
+  onClearExportNotice: () => void;
+  onDirectActionResult: (result: unknown) => Promise<AppChatExportHandlingResult>;
 }) {
   const title = item.kind === "document" ? item.document.title : item.resource.title;
   const description = item.kind === "document" ? item.document.description : item.resource.description;
@@ -806,10 +860,12 @@ function WorkspaceDetail({
   const [resourceStatus, setResourceStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [documentNotice, setDocumentNotice] = useState<string | null>(null);
+  const [runningActionId, setRunningActionId] = useState<string | null>(null);
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
   const boundDocument = item.kind === "document" && Boolean(item.document.data_binding_id) ? item.document : null;
   const packageResource = boundDocument ? null : resource;
+  const canResetToPackageDefault = Boolean(boundDocument?.resource_id && editable);
   const sessionIdRef = useRef(sessionId);
   const boundDocumentRef = useRef(boundDocument);
   const resourceRef = useRef(packageResource);
@@ -948,6 +1004,74 @@ function WorkspaceDetail({
     }
   }
 
+  async function resetDocumentToPackageDefault() {
+    if (!boundDocument?.resource_id || documentStatus === "saving") return;
+    setDocumentStatus("saving");
+    setDocumentError(null);
+    setDocumentNotice(null);
+    setCurrentRevisionHint(null);
+    try {
+      const result = await withSessionRecovery(async (activeSessionId) => {
+        const packageDefault = await readAppChatWorkspaceResource(appKey, activeSessionId, boundDocument.resource_id!);
+        return writeAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id, {
+          expectedRevision: documentRecord?.revision ?? null,
+          content: contentFromDraft(packageDefault.content, packageDefault.media_type),
+          mediaType: packageDefault.media_type,
+        });
+      });
+      setDocumentResult(result);
+      setDraftContent(draftFromRecord(result.record));
+      setDocumentStatus("ready");
+      setDocumentNotice(`Reset ${title} to package default.`);
+      if (renderer !== "json_editor") {
+        setIsEditing(false);
+      }
+    } catch (error) {
+      setDocumentStatus("ready");
+      setDocumentNotice(null);
+      if (error instanceof AppDocumentError) {
+        setDocumentError(error.safeMessage);
+        setCurrentRevisionHint(error.currentRevision);
+      } else {
+        setDocumentError(`${title} could not be reset to the package default.`);
+      }
+    }
+  }
+
+  async function executeDirectHeaderAction(action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>) {
+    if (runningActionId) return;
+    const isExportAction = action.action_id.toLowerCase().includes("export");
+    setRunningActionId(action.action_id);
+    setDocumentError(null);
+    setDocumentNotice(`Running ${action.label}...`);
+    onClearExportNotice();
+    setCurrentRevisionHint(null);
+    try {
+      const result = await withSessionRecovery((activeSessionId) => executeAppChatWorkspaceAction(appKey, activeSessionId, action.action_id, {
+        actionInput: action.action_input ?? {},
+        ownerConfirmed: true,
+      }));
+      const exportResult = await onDirectActionResult(result);
+      if (isExportAction && exportResult === "ignored") throw new Error("export_result_missing");
+      if (exportResult === "cancelled") {
+        setDocumentNotice(null);
+        return;
+      }
+      if (exportResult === "failed") throw new Error("export_download_failed");
+      setDocumentNotice(`${action.label} completed.`);
+    } catch (error) {
+      setDocumentNotice(null);
+      if (error instanceof AppDocumentError) {
+        setDocumentError(error.safeMessage);
+        setCurrentRevisionHint(error.currentRevision);
+      } else {
+        setDocumentError(`${action.label} could not complete safely.`);
+      }
+    } finally {
+      setRunningActionId(null);
+    }
+  }
+
   function handleHeaderAction(action: AppWorkspaceDocumentHeaderAction) {
     if (action.type === "back_to_chat") {
       onBackToChat();
@@ -957,7 +1081,11 @@ function WorkspaceDetail({
       setIsEditing(true);
       return;
     }
-    onQueueChatPrompt(action.prompt);
+    if (action.delivery === "chat_prompt") {
+      onQueueChatPrompt(action.prompt);
+      return;
+    }
+    void executeDirectHeaderAction(action);
   }
 
   const documentStatusLabel = documentStatus === "loading"
@@ -993,13 +1121,31 @@ function WorkspaceDetail({
                 variant={action.type === "app_action" ? "default" : "ghost"}
                 size="sm"
                 onClick={() => handleHeaderAction(action)}
-                disabled={action.type === "edit_document" && (!editable || isEditing)}
+                disabled={
+                  runningActionId !== null ||
+                  (action.type === "edit_document" && (!editable || isEditing))
+                }
                 className="gap-2"
               >
-                <HeaderActionIcon action={action} />
+                {action.type === "app_action" && runningActionId === action.action_id
+                  ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+                  : <HeaderActionIcon action={action} />}
                 {action.label}
               </Button>
             ))}
+            {canResetToPackageDefault ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void resetDocumentToPackageDefault()}
+                disabled={documentStatus === "loading" || documentStatus === "saving" || documentRecord === null || runningActionId !== null}
+                className="gap-2"
+              >
+                {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                Reset to package default
+              </Button>
+            ) : null}
             {shouldShowEditor ? (
               <Button type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className="gap-2">
                 {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <FileText size={15} />}

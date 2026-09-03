@@ -55,6 +55,10 @@ const chatDocumentParamsSchema = z.object({
   sessionId: z.string().uuid(),
   documentId: HostBindingIdSchema,
 }).passthrough();
+const chatActionParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+  actionId: HostBindingIdSchema,
+}).passthrough();
 const chatResourceParamsSchema = z.object({
   sessionId: z.string().uuid(),
   resourceId: HostBindingIdSchema,
@@ -72,6 +76,12 @@ const chatDocumentDeleteRequestSchema = z.object({
   idempotency_key: z.string().min(16).max(256),
   expected_revision: z.number().int().positive(),
   delete_mode: AppDocumentDeleteModeSchema.default("tombstone"),
+}).strict();
+const chatActionExecuteRequestSchema = z.object({
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  action_input: z.unknown().default({}),
+  owner_confirmed: z.boolean().default(false),
 }).strict();
 const finalizeExportRequestSchema = z.object({
   operation_id: z.string().uuid(),
@@ -327,6 +337,22 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     if (!parsedParams.success || !parsedBody.success) return reply.code(400).send({ error: "invalid_request" });
     try { return reply.send(await selected.host.deleteAppDocument(parsedParams.data.sessionId, parsedParams.data.documentId, parsedBody.data)); }
     catch (error) { return sendDocumentError(reply, error); }
+  });
+
+  app.post("/apps/:appKey/chat-workspaces/sessions/:sessionId/actions/:actionId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsedParams = chatActionParamsSchema.safeParse(request.params);
+    const parsedBody = chatActionExecuteRequestSchema.safeParse(request.body);
+    if (!parsedParams.success || !parsedBody.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      return reply.send(await selected.host.executeAppChatAction(
+        parsedParams.data.sessionId,
+        parsedParams.data.actionId,
+        parsedBody.data,
+        request.authContext!.actorId,
+      ));
+    } catch (error) { return sendOwnerDataError(reply, error, parsedBody.data.operation_id, parsedParams.data.actionId); }
   });
 
   app.post("/apps/:appKey/bridge", async (request, reply) => {
