@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { deflateSync } from "node:zlib";
 
 import { INTERVIEW_TOPICS, type DurableWorkflowSnapshot, type InterviewTopic } from "./workflow.js";
 
@@ -180,6 +182,18 @@ export type ResumeChatCreateActionInput = {
   page_intent?: "one_page" | "two_pages" | "concise" | "detailed";
 };
 
+export function resumeCreateInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      locale: { type: "string", minLength: 2, maxLength: 35 },
+      page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+    },
+    required: [],
+  };
+}
+
 export type ResumeChatActionRuntimeContext = {
   sessionId: string;
   occurredAt?: string;
@@ -317,9 +331,13 @@ export function planResumeAction(request: ResumeActionPlanRequest): ResumeAction
   }
   if (request.action_id === "resume.create") {
     const rawInput = isRecord(request.action_input) ? request.action_input as ResumeChatCreateActionInput : {};
-    const input = rawInput.resume_markdown || rawInput.sections
-      ? rawInput
-      : { ...rawInput, resume_markdown: currentDocumentText(request, "resume.profile") ?? "" };
+    const profileMarkdown = currentDocumentText(request, "resume.profile");
+    if (!profileMarkdown) throw new Error("resume_profile_required");
+    const input = {
+      locale: rawInput.locale,
+      page_intent: rawInput.page_intent,
+      resume_markdown: profileMarkdown,
+    } satisfies ResumeChatCreateActionInput;
     const capabilityInput = buildResumeCreateCapabilityInput(input, context);
     return actionPlan(request.action_id, [
       capabilityStep("write-resume-capability", "resume.definitions.write", capabilityInput, "inherit"),
@@ -329,7 +347,7 @@ export function planResumeAction(request: ResumeActionPlanRequest): ResumeAction
   if (request.action_id === "resume.export.pdf.request") {
     const input = request.action_input as { safe_filename?: string; destination_intent?: "new_download" | "replace_existing"; overwrite_confirmed?: boolean };
     const markdown = currentDocumentText(request, "resume.document");
-    if (!markdown) throw new Error("resume_document_required");
+    if (!isExportableResumeMarkdown(markdown)) throw new Error("formatted_resume_required");
     const bytes = renderResumeMarkdownPdf(markdown);
     return actionPlan(request.action_id, [
       {
@@ -639,6 +657,16 @@ function currentDocumentText(request: ResumeActionPlanRequest, documentId: strin
   return typeof document?.content === "string" && document.content.trim() ? document.content : null;
 }
 
+function isExportableResumeMarkdown(markdown: string | null): markdown is string {
+  if (!markdown) return false;
+  const normalized = normalizeResumeMarkdown(markdown);
+  const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return false;
+  if (lines.length === 1 && /^#\s*resume\s*$/i.test(lines[0] ?? "")) return false;
+  return lines.some((line) => /^#{2,6}\s+\S/.test(line))
+    && lines.some((line) => !/^#{1,6}\s+\S/.test(line));
+}
+
 function normalizePdfFilename(value?: string): string {
   const candidate = (value ?? "resume.pdf").replace(/[\/\\\u0000-\u001f\u007f]/g, "").trim().slice(0, 128);
   if (!candidate) return "resume.pdf";
@@ -661,34 +689,128 @@ type PdfLine = {
   width: number;
 };
 
+type PdfObject = string | { dictionary: string; stream: Buffer };
+
+const PDF_FONTS = {
+  regular: { baseFont: "Questrial-Regular", fileName: "Questrial-Regular.ttf", type0Ref: 4, cidRef: 6, descriptorRef: 8, fileRef: 10, cidToGidRef: 12 },
+  bold: { baseFont: "Montserrat-Bold", fileName: "Montserrat-Bold.ttf", type0Ref: 5, cidRef: 7, descriptorRef: 9, fileRef: 11, cidToGidRef: 13 },
+} as const;
+
+const pdfFontCache = new Map<string, Buffer>();
+
 function renderResumeMarkdownPdf(markdown: string): Buffer {
   const pages = renderPdfPages(markdownToPdfBlocks(markdown));
-  const objects: string[] = [
+  const objects: PdfObject[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>",
+    toUnicodeCMapObject(),
+    type0FontObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.cidRef),
+    type0FontObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.cidRef),
+    cidFontObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.descriptorRef, PDF_FONTS.regular.cidToGidRef),
+    cidFontObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.descriptorRef, PDF_FONTS.bold.cidToGidRef),
+    fontDescriptorObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.fileRef),
+    fontDescriptorObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.fileRef),
+    fontFileObject(readPackageFont(PDF_FONTS.regular.fileName)),
+    fontFileObject(readPackageFont(PDF_FONTS.bold.fileName)),
+    cidToGidMapObject(readPackageFont(PDF_FONTS.regular.fileName)),
+    cidToGidMapObject(readPackageFont(PDF_FONTS.bold.fileName)),
   ];
   const pageRefs: number[] = [];
   for (const page of pages) {
     const pageRef = objects.length + 1;
     const contentRef = pageRef + 1;
     pageRefs.push(pageRef);
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents ${contentRef} 0 R >>`);
-    objects.push(`<< /Length ${Buffer.byteLength(page, "utf8")} >>\nstream\n${page}\nendstream`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${PDF_FONTS.regular.type0Ref} 0 R /F2 ${PDF_FONTS.bold.type0Ref} 0 R /F3 ${PDF_FONTS.bold.type0Ref} 0 R >> >> /Contents ${contentRef} 0 R >>`);
+    objects.push(pdfStream(Buffer.from(page, "utf8"), "", true));
   }
   objects[1] = `<< /Type /Pages /Kids [${pageRefs.map((ref) => `${ref} 0 R`).join(" ")}] /Count ${pageRefs.length} >>`;
-  let pdf = "%PDF-1.4\n";
+  return buildPdf(objects);
+}
+
+function buildPdf(objects: readonly PdfObject[]): Buffer {
+  const chunks: Buffer[] = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "latin1")];
   const offsets = [0];
+  let byteLength = chunks[0].length;
   for (let index = 0; index < objects.length; index += 1) {
-    offsets.push(Buffer.byteLength(pdf, "utf8"));
-    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+    offsets.push(byteLength);
+    const chunk = Buffer.concat([
+      Buffer.from(`${index + 1} 0 obj\n`, "latin1"),
+      objectBuffer(objects[index]),
+      Buffer.from("\nendobj\n", "latin1"),
+    ]);
+    chunks.push(chunk);
+    byteLength += chunk.length;
   }
-  const xrefOffset = Buffer.byteLength(pdf, "utf8");
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\n`;
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(pdf, "utf8");
+  const xrefOffset = byteLength;
+  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\n`, "latin1"));
+  chunks.push(Buffer.from(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`, "latin1"));
+  return Buffer.concat(chunks);
+}
+
+function readPackageFont(filename: string): Buffer {
+  const cached = pdfFontCache.get(filename);
+  if (cached) return cached;
+  const bytes = readFileSync(new URL(`../resources/fonts/${filename}`, import.meta.url));
+  pdfFontCache.set(filename, bytes);
+  return bytes;
+}
+
+function type0FontObject(baseFont: string, cidFontRef: number): string {
+  return `<< /Type /Font /Subtype /Type0 /BaseFont /${baseFont} /Encoding /Identity-H /DescendantFonts [${cidFontRef} 0 R] /ToUnicode 3 0 R >>`;
+}
+
+function cidFontObject(baseFont: string, descriptorRef: number, cidToGidRef: number): string {
+  return `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${baseFont} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptorRef} 0 R /DW 500 /CIDToGIDMap ${cidToGidRef} 0 R >>`;
+}
+
+function fontDescriptorObject(fontName: string, fontFileRef: number): string {
+  return `<< /Type /FontDescriptor /FontName /${fontName} /Flags 32 /FontBBox [-600 -300 1600 1100] /ItalicAngle 0 /Ascent 920 /Descent -260 /CapHeight 700 /StemV 80 /MissingWidth 500 /FontFile2 ${fontFileRef} 0 R >>`;
+}
+
+function fontFileObject(bytes: Buffer): PdfObject {
+  return pdfStream(bytes, ` /Length1 ${bytes.length}`, true);
+}
+
+function cidToGidMapObject(fontBytes: Buffer): PdfObject {
+  return pdfStream(buildCidToGidMap(fontBytes), "", true);
+}
+
+function toUnicodeCMapObject(): PdfObject {
+  return pdfStream(Buffer.from([
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+    "1 beginbfrange",
+    "<0000> <FFFF> <0000>",
+    "endbfrange",
+    "endcmap",
+    "CMapName currentdict /CMap defineresource pop",
+    "end",
+    "end",
+  ].join("\n"), "utf8"), "", true);
+}
+
+function pdfStream(stream: Buffer, extraDictionary = "", compress = false): PdfObject {
+  const output = compress ? deflateSync(stream) : stream;
+  return {
+    dictionary: `<< /Length ${output.length}${extraDictionary}${compress ? " /Filter /FlateDecode" : ""} >>`,
+    stream: output,
+  };
+}
+
+function objectBuffer(object: PdfObject): Buffer {
+  if (typeof object === "string") return Buffer.from(object, "latin1");
+  return Buffer.concat([
+    Buffer.from(`${object.dictionary}\nstream\n`, "latin1"),
+    object.stream,
+    Buffer.from("\nendstream", "latin1"),
+  ]);
 }
 
 function markdownToPdfBlocks(markdown: string): PdfBlock[] {
@@ -764,7 +886,7 @@ function renderPdfPages(blocks: PdfBlock[]): string[] {
     if (block.kind === "bullet") {
       const lines = wrapPdfRuns(block.runs, contentWidth - 20, 10);
       ensure(lines.length * 15 + 6);
-      commands.push(`BT /F1 10 Tf ${left} ${round(y)} Td (\\225) Tj ET`);
+      commands.push(textCommand("F1", 10, left, y, "\u2022"));
       for (const line of lines) {
         drawRuns(line.runs, left + 16, y, 10);
         y -= 15;
@@ -845,7 +967,7 @@ function textWidth(value: string, fontSize: number, bold: boolean): number {
 }
 
 function textCommand(font: "F1" | "F2" | "F3", size: number, x: number, y: number, value: string): string {
-  return `BT /${font} ${size} Tf ${round(x)} ${round(y)} Td (${escapePdfText(value)}) Tj ET`;
+  return `BT /${font} ${size} Tf ${round(x)} ${round(y)} Td <${encodePdfUtf16Hex(value)}> Tj ET`;
 }
 
 function round(value: number): number {
@@ -862,8 +984,108 @@ function normalizePdfText(value: string): string {
     .trim();
 }
 
-function escapePdfText(value: string): string {
-  return normalizePdfText(value).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+function encodePdfUtf16Hex(value: string): string {
+  return Buffer.from(normalizePdfText(value).replace(/[\u0000-\u001f\u007f]/g, " "), "utf16le").swap16().toString("hex").toUpperCase();
+}
+
+function buildCidToGidMap(fontBytes: Buffer): Buffer {
+  const glyphs = readTrueTypeCmap(fontBytes);
+  const map = Buffer.alloc(65_536 * 2);
+  for (let code = 0; code <= 0xffff; code += 1) {
+    map.writeUInt16BE(glyphs[code] ?? 0, code * 2);
+  }
+  return map;
+}
+
+function readTrueTypeCmap(fontBytes: Buffer): Uint16Array {
+  const cmapOffset = findTrueTypeTable(fontBytes, "cmap");
+  if (cmapOffset === null) throw new Error("pdf_font_cmap_missing");
+  const tableCount = fontBytes.readUInt16BE(cmapOffset + 2);
+  let selectedOffset: number | null = null;
+  let selectedRank = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < tableCount; index += 1) {
+    const recordOffset = cmapOffset + 4 + index * 8;
+    const platform = fontBytes.readUInt16BE(recordOffset);
+    const encoding = fontBytes.readUInt16BE(recordOffset + 2);
+    const subtableOffset = cmapOffset + fontBytes.readUInt32BE(recordOffset + 4);
+    const format = fontBytes.readUInt16BE(subtableOffset);
+    const rank = cmapRank(platform, encoding, format);
+    if (rank < selectedRank) {
+      selectedRank = rank;
+      selectedOffset = subtableOffset;
+    }
+  }
+  if (selectedOffset === null) throw new Error("pdf_font_cmap_unsupported");
+  const format = fontBytes.readUInt16BE(selectedOffset);
+  if (format === 12) return readFormat12Cmap(fontBytes, selectedOffset);
+  if (format === 4) return readFormat4Cmap(fontBytes, selectedOffset);
+  throw new Error("pdf_font_cmap_unsupported");
+}
+
+function cmapRank(platform: number, encoding: number, format: number): number {
+  if (format === 12 && platform === 3 && encoding === 10) return 0;
+  if (format === 12 && platform === 0) return 1;
+  if (format === 4 && platform === 3 && encoding === 1) return 2;
+  if (format === 4 && platform === 0) return 3;
+  return Number.POSITIVE_INFINITY;
+}
+
+function findTrueTypeTable(fontBytes: Buffer, tag: string): number | null {
+  const tableCount = fontBytes.readUInt16BE(4);
+  for (let index = 0; index < tableCount; index += 1) {
+    const recordOffset = 12 + index * 16;
+    if (fontBytes.toString("latin1", recordOffset, recordOffset + 4) === tag) {
+      return fontBytes.readUInt32BE(recordOffset + 8);
+    }
+  }
+  return null;
+}
+
+function readFormat12Cmap(fontBytes: Buffer, offset: number): Uint16Array {
+  const glyphs = new Uint16Array(65_536);
+  const groupCount = fontBytes.readUInt32BE(offset + 12);
+  for (let index = 0; index < groupCount; index += 1) {
+    const groupOffset = offset + 16 + index * 12;
+    const start = fontBytes.readUInt32BE(groupOffset);
+    const end = fontBytes.readUInt32BE(groupOffset + 4);
+    const startGlyph = fontBytes.readUInt32BE(groupOffset + 8);
+    const cappedEnd = Math.min(end, 0xffff);
+    for (let code = start; code <= cappedEnd; code += 1) {
+      glyphs[code] = (startGlyph + code - start) & 0xffff;
+    }
+  }
+  return glyphs;
+}
+
+function readFormat4Cmap(fontBytes: Buffer, offset: number): Uint16Array {
+  const glyphs = new Uint16Array(65_536);
+  const length = fontBytes.readUInt16BE(offset + 2);
+  const segCount = fontBytes.readUInt16BE(offset + 6) / 2;
+  const endCodeOffset = offset + 14;
+  const startCodeOffset = endCodeOffset + segCount * 2 + 2;
+  const idDeltaOffset = startCodeOffset + segCount * 2;
+  const idRangeOffsetOffset = idDeltaOffset + segCount * 2;
+  for (let segment = 0; segment < segCount; segment += 1) {
+    const start = fontBytes.readUInt16BE(startCodeOffset + segment * 2);
+    const end = fontBytes.readUInt16BE(endCodeOffset + segment * 2);
+    const delta = fontBytes.readInt16BE(idDeltaOffset + segment * 2);
+    const rangeOffsetPosition = idRangeOffsetOffset + segment * 2;
+    const rangeOffset = fontBytes.readUInt16BE(rangeOffsetPosition);
+    for (let code = start; code <= end && code !== 0xffff; code += 1) {
+      let glyph = 0;
+      if (rangeOffset === 0) {
+        glyph = (code + delta) & 0xffff;
+      } else {
+        const glyphOffset = rangeOffsetPosition + rangeOffset + (code - start) * 2;
+        if (glyphOffset + 2 <= offset + length) {
+          glyph = fontBytes.readUInt16BE(glyphOffset);
+          if (glyph !== 0) glyph = (glyph + delta) & 0xffff;
+        }
+      }
+      glyphs[code] = glyph;
+    }
+  }
+  return glyphs;
 }
 
 function digestBytes(bytes: Buffer): `sha256:${string}` {

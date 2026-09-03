@@ -22,13 +22,36 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
   memory_export: "Preparing export...",
   auth_whoami: "Checking identity...",
   auth_check: "Checking permissions...",
+  app_action_resume_create: "Creating your resume...",
+  app_action_resume_export_pdf_request: "Preparing your resume download...",
+  app_action_resume_profile_read: "Reading your resume profile...",
+  app_action_resume_profile_update: "Updating your resume profile...",
+  app_action_resume_state_read: "Checking your resume workspace...",
+  app_action_career_fact_propose: "Updating your career profile...",
+  app_action_career_fact_confirm: "Saving your career profile...",
 };
 
 function formatToolStatus(toolName: string): string {
   if (toolName.startsWith("Approval")) {
     return toolName;
   }
-  return TOOL_STATUS_LABELS[toolName] ?? `Using ${toolName.replace(/_/g, " ")}...`;
+  if (TOOL_STATUS_LABELS[toolName]) {
+    return TOOL_STATUS_LABELS[toolName];
+  }
+  if (toolName.startsWith("app_action_")) {
+    return `${ownerActionVerb(toolName.slice("app_action_".length))}...`;
+  }
+  return `Using ${toolName.replace(/_/g, " ")}...`;
+}
+
+function ownerActionVerb(actionName: string): string {
+  const words = actionName.replace(/[_-]+/g, " ").trim();
+  if (words.includes("export")) return "Preparing download";
+  if (words.includes("read")) return `Reading ${words.replace(/\bread\b/g, "").trim() || "app data"}`;
+  if (words.includes("write") || words.includes("confirm") || words.includes("save")) return `Saving ${words.replace(/\b(write|confirm|save)\b/g, "").trim() || "app data"}`;
+  if (words.includes("create")) return `Creating ${words.replace(/\bcreate\b/g, "").trim() || "app result"}`;
+  if (words.includes("propose") || words.includes("update")) return `Updating ${words.replace(/\b(propose|update)\b/g, "").trim() || "app data"}`;
+  return `Working on ${words || "app action"}`;
 }
 
 type ChatPanelProps = {
@@ -43,6 +66,7 @@ type ChatPanelProps = {
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
   onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
+  localResponseForMessage?: (message: string) => string | null;
   statusNotice?: { tone: "info" | "success" | "error"; message: string } | null;
   queuedMessage?: { id: string; content: string } | null;
 };
@@ -71,6 +95,7 @@ export default function ChatPanel({
   onSendMessage,
   onOpenSettings,
   onStreamEvent,
+  localResponseForMessage,
   statusNotice,
   queuedMessage
 }: ChatPanelProps) {
@@ -103,6 +128,7 @@ export default function ChatPanel({
     draftKey,
     initialMessages: historyMessages,
     onStreamEvent,
+    localResponseForMessage,
   });
 
   useEffect(() => {
@@ -161,7 +187,7 @@ export default function ChatPanel({
   }, [error, historyError]);
 
   useEffect(() => {
-    if (wasLoadingRef.current && !isLoading && !error && conversationId) {
+    if (wasLoadingRef.current && !isLoading && conversationId) {
       if (completedConversationIdRef.current !== conversationId) {
         completedConversationIdRef.current = conversationId;
         onConversationComplete?.(conversationId);
@@ -173,7 +199,7 @@ export default function ChatPanel({
     }
 
     wasLoadingRef.current = isLoading;
-  }, [conversationId, error, isLoading, onConversationComplete]);
+  }, [conversationId, isLoading, onConversationComplete]);
 
   if (toolStatus) {
     hasUsedToolRef.current = true;

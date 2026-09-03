@@ -26,6 +26,7 @@ export type ModelResponse = {
 };
 
 export type ModelAdapterCallOptions = {
+  signal?: AbortSignal;
   promptAudit?: {
     recorder: PromptAuditRecorder;
     modelCall: ModelCallAuditContext;

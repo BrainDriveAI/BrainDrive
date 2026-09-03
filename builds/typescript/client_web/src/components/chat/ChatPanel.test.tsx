@@ -17,6 +17,7 @@ function makeHookState(overrides: Partial<{
   error: Error | null;
   errorCode: string | null;
   toolStatus: string | null;
+  conversationId: string | null;
   contextWindowWarning: {
     estimated_tokens: number;
     budget_tokens: number;
@@ -31,7 +32,7 @@ function makeHookState(overrides: Partial<{
     isLoading: overrides.isLoading ?? false,
     error: overrides.error ?? null,
     errorCode: overrides.errorCode ?? null,
-    conversationId: null,
+    conversationId: overrides.conversationId ?? null,
     toolStatus: overrides.toolStatus ?? null,
     pendingApprovals: [],
     activity: [],
@@ -95,6 +96,21 @@ describe("ChatPanel typing indicator behavior", () => {
 
     expect(screen.getByText("This session is getting long.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
+  });
+
+  it("renders app action status in owner words", () => {
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        isLoading: true,
+        toolStatus: "app_action_resume_create",
+        messages: [{ id: "u-1", role: "user", content: "Create my resume." }],
+      })
+    );
+
+    render(<ChatPanel activeConversationId={null} isEmpty={false} />);
+
+    expect(screen.getByText("Creating your resume...")).toBeInTheDocument();
+    expect(screen.queryByText(/Using app action resume create/)).not.toBeInTheDocument();
   });
 
   it("renders host status notices in the conversation stream", () => {
@@ -183,6 +199,41 @@ describe("ChatPanel typing indicator behavior", () => {
       },
       echoUserMessage: false,
     });
+  });
+
+  it("reports a conversation id after a failed first turn so parents can retain the durable conversation", () => {
+    const onConversationComplete = vi.fn();
+    const firstState = makeHookState({
+      isLoading: true,
+      messages: [{ id: "u-1", role: "user", content: "Start." }],
+    });
+    const failedState = makeHookState({
+      isLoading: false,
+      error: new Error("Provider failed"),
+      errorCode: "provider_error",
+      conversationId: "conv-created-before-error",
+      messages: [{ id: "u-1", role: "user", content: "Start." }],
+    });
+    useGatewayChatMock
+      .mockReturnValueOnce(firstState)
+      .mockReturnValue(failedState);
+
+    const rendered = render(
+      <ChatPanel
+        activeConversationId={null}
+        isEmpty={false}
+        onConversationComplete={onConversationComplete}
+      />
+    );
+    rendered.rerender(
+      <ChatPanel
+        activeConversationId={null}
+        isEmpty={false}
+        onConversationComplete={onConversationComplete}
+      />
+    );
+
+    expect(onConversationComplete).toHaveBeenCalledWith("conv-created-before-error");
   });
 
   it("does not offer a fresh conversation action for normal existing history", () => {

@@ -15,6 +15,9 @@ import { classifyProviderError } from "./errors.js";
 import { ToolExecutor } from "./tool-executor.js";
 
 const EMPTY_COMPLETION_MAX_RETRIES = 1;
+const INVALID_TOOL_INPUT_MAX_RETRIES = 3;
+const INVALID_TOOL_INPUT_FALLBACK =
+  "I couldn't complete that action because the model kept sending invalid tool input. Please try again, or rephrase the request if it keeps happening.";
 
 type LoopOptions = {
   memoryRoot: string;
@@ -28,6 +31,7 @@ type LoopOptions = {
     providerProfile?: string;
     model?: string;
   };
+  signal?: AbortSignal;
 };
 
 export type ToolExecutionGuard = (
@@ -48,8 +52,13 @@ export async function* runAgentLoop(
   const recentNonDestructiveMutationPaths: string[] = [];
   const repeatToolCallThreshold = options.repeatToolCallThreshold ?? 2;
   let iteration = 0;
+  let consecutiveInvalidToolInputs = 0;
 
   while (true) {
+    if (options.signal?.aborted) {
+      return;
+    }
+
     if (options.safetyIterationLimit !== undefined && iteration >= options.safetyIterationLimit) {
       yield {
         type: "error",
@@ -102,13 +111,19 @@ export async function* runAgentLoop(
             tools,
             options.promptAudit
               ? {
-                  promptAudit: {
-                    recorder: options.promptAudit.recorder,
-                    modelCall,
-                  },
-                }
-              : undefined
+                promptAudit: {
+                  recorder: options.promptAudit.recorder,
+                  modelCall,
+                },
+                signal: options.signal,
+              }
+              : options.signal
+                ? { signal: options.signal }
+                : undefined
           )) {
+            if (options.signal?.aborted) {
+              return;
+            }
             if (chunk.type === "text-delta") {
               if (chunk.delta.trim().length > 0) {
                 streamedAssistantText = true;
@@ -139,15 +154,21 @@ export async function* runAgentLoop(
             tools,
             options.promptAudit
               ? {
-                  promptAudit: {
-                    recorder: options.promptAudit.recorder,
-                    modelCall,
-                  },
-                }
-              : undefined
+                promptAudit: {
+                  recorder: options.promptAudit.recorder,
+                  modelCall,
+                },
+                signal: options.signal,
+              }
+              : options.signal
+                ? { signal: options.signal }
+                : undefined
           );
         }
       } catch (error) {
+        if (options.signal?.aborted) {
+          return;
+        }
         await options.promptAudit?.recorder.append(
           "prompt_audit.error",
           {
@@ -460,6 +481,25 @@ export async function* runAgentLoop(
         }),
       });
 
+      if (isInvalidToolInputFailure(result)) {
+        consecutiveInvalidToolInputs += 1;
+        if (consecutiveInvalidToolInputs >= INVALID_TOOL_INPUT_MAX_RETRIES) {
+          yield {
+            type: "text-delta",
+            delta: INVALID_TOOL_INPUT_FALLBACK,
+          };
+          yield {
+            type: "done",
+            conversation_id: request.metadata.conversation_id ?? "",
+            message_id: crypto.randomUUID(),
+            finish_reason: "tool_input_invalid",
+          };
+          return;
+        }
+      } else if (result.status !== "error") {
+        consecutiveInvalidToolInputs = 0;
+      }
+
       if (result.status === "error" && result.recoverable === false) {
         yield {
           type: "error",
@@ -472,6 +512,21 @@ export async function* runAgentLoop(
       trackNonDestructiveMutationPath(tool.name, tool.readOnly, toolCall.input, result.status, recentNonDestructiveMutationPaths);
     }
   }
+}
+
+function isInvalidToolInputFailure(result: ToolExecutionResult): boolean {
+  if (result.status !== "error" || result.recoverable === false) {
+    return false;
+  }
+
+  if (!result.output || typeof result.output !== "object" || Array.isArray(result.output)) {
+    return false;
+  }
+
+  const output = result.output as Record<string, unknown>;
+  const code = typeof output.code === "string" ? output.code.toLowerCase() : "";
+  const message = typeof output.message === "string" ? output.message.toLowerCase() : "";
+  return code === "invalid_input" || message.includes("schema validation") || message.includes("invalid input");
 }
 
 function serializeToolDefinitionForAudit(tool: ToolDefinition): Record<string, unknown> {

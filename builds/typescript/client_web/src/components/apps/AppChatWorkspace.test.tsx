@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
-import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport } from "./AppChatWorkspace";
+import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, resumePdfLocationAnswer } from "./AppChatWorkspace";
 
 const { chatPanelProps } = vi.hoisted(() => ({
   chatPanelProps: [] as Array<{
@@ -11,6 +11,7 @@ const { chatPanelProps } = vi.hoisted(() => ({
     draftKey?: string | null;
     onConversationComplete?: (conversationId: string) => void;
     onStreamEvent?: (event: unknown) => void | Promise<void>;
+    localResponseForMessage?: (message: string) => string | null;
     queuedMessage?: { id: string; content: string } | null;
   }>,
 }));
@@ -53,6 +54,7 @@ vi.mock("@/components/chat/ChatPanel", () => ({
     messageMetadata?: Record<string, unknown>;
     onConversationComplete?: (conversationId: string) => void;
     onStreamEvent?: (event: unknown) => void | Promise<void>;
+    localResponseForMessage?: (message: string) => string | null;
     queuedMessage?: { id: string; content: string } | null;
     statusNotice?: { message: string } | null;
   }) => {
@@ -330,6 +332,7 @@ describe("AppChatWorkspace", () => {
     vi.clearAllMocks();
     chatPanelProps.length = 0;
     window.sessionStorage.clear();
+    window.localStorage.clear();
     vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValue({
       action_id: "resume.create",
       operation_id: "00000000-0000-4000-8000-000000000501",
@@ -405,6 +408,27 @@ describe("AppChatWorkspace", () => {
     await screen.findByText("Conversation transcript");
     expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-resume-builder");
     expect(chatPanelProps.at(-1)?.draftKey).not.toContain(relaunched.session.view_id);
+    expect(window.localStorage.getItem(initialChat?.draftKey ?? "")).toBe("conversation-resume-builder");
+    expect(window.sessionStorage.getItem(initialChat?.draftKey ?? "")).toBeNull();
+  });
+
+  it("restores an app-chat conversation pointer from durable browser storage in a new tab or relaunch", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+
+    const initial = render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    const storageKey = chatPanelProps.at(-1)?.draftKey;
+    expect(storageKey).toContain("resume-builder");
+    initial.unmount();
+
+    window.sessionStorage.clear();
+    window.localStorage.setItem(storageKey!, "conversation-durable");
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+
+    expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-durable");
   });
 
   it("does not reuse a stored app-chat conversation after reinstall changes installation identity", async () => {
@@ -1279,5 +1303,13 @@ describe("AppChatWorkspace", () => {
     expect(serialized).not.toContain("bridge_token");
     expect(serialized).not.toContain("server_id");
     expect(serialized).not.toContain("/home/");
+  });
+
+  it("answers recent PDF location questions from the completed host download notice", () => {
+    expect(resumePdfLocationAnswer("I just clicked Export PDF. Where is my PDF now?", "resume.pdf")).toBe(
+      "BrainDrive downloaded resume.pdf through your browser or desktop download flow. Check your browser's Downloads list or your computer's Downloads folder. Resume Builder is not given a filesystem path."
+    );
+    expect(resumePdfLocationAnswer("Can you export a PDF for me?", "resume.pdf")).toBeNull();
+    expect(resumePdfLocationAnswer("I just clicked Export PDF. Where is my PDF now?", null)).toBeNull();
   });
 });

@@ -70,7 +70,10 @@ export class OpenAICompatibleGatewayAdapter implements GatewayAdapter {
 
   toClientStreamEvent(event: StreamEvent, context: { conversationId: string; messageId: string }): StreamEvent {
     if (event.type !== "done") {
-      return event;
+      return {
+        ...event,
+        conversation_id: context.conversationId,
+      };
     }
 
     return {

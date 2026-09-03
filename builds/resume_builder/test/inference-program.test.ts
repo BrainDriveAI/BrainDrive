@@ -127,14 +127,15 @@ describe("Resume Builder-owned General draft inference program", () => {
     ]);
   });
 
-  it("runtime planner accepts model-flattened Resume markdown", () => {
+  it("runtime planner ignores model-authored Resume markdown and creates from the Profile document", () => {
     const operationId = crypto.randomUUID();
+    const profileMarkdown = "# Maya Ortiz\n\n## Professional Summary\nCustomer operations leader.\n\n## Experience\n- Improved gross retention from 86% to 93%.";
     const plan = planResumeAction({
       action_planning_contract_version: 1,
       action_id: "resume.create",
       action_input: {
-        title: "Maya Ortiz - Director of Customer Operations Resume",
-        resume_markdown: "# Maya Ortiz Austin, Texas ## Professional Summary Customer operations leader. ## Experience - Reduced first response time from 9.4 hours to 1.8 hours. - Improved gross retention from 86% to 93%.",
+        title: "Ignored model title",
+        resume_markdown: "# Model Draft\n\n## Experience\n- This model-authored line must not persist.",
       },
       owner_confirmed: true,
       operation_id: operationId,
@@ -146,12 +147,17 @@ describe("Resume Builder-owned General draft inference program", () => {
         app_id: "ai.braindrive.resume-builder",
         installation_id: crypto.randomUUID(),
       },
-      documents: [],
+      documents: [{
+        document_id: "resume.profile",
+        content: profileMarkdown,
+      }],
     });
 
     const documentWrite = plan.steps.find((step: any) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(documentWrite?.content).toBe(profileMarkdown);
     expect(documentWrite?.content).toContain("\n\n## Professional Summary");
     expect(documentWrite?.content).toContain("\n- Improved gross retention");
+    expect(JSON.stringify(plan)).not.toContain("model-authored");
   });
 
   it("runtime planner preserves date ranges while splitting flattened bullets", () => {
@@ -160,8 +166,7 @@ describe("Resume Builder-owned General draft inference program", () => {
       action_planning_contract_version: 1,
       action_id: "resume.create",
       action_input: {
-        title: "Maya Hart - Customer Experience Resume",
-        resume_markdown: "# Maya Hart - Customer Experience Resume Columbus, Ohio ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Leads customer operations. - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+        resume_markdown: "# Ignored Model Draft\n\n## Experience\n- Ignored content.",
       },
       owner_confirmed: true,
       operation_id: operationId,
@@ -173,7 +178,10 @@ describe("Resume Builder-owned General draft inference program", () => {
         app_id: "ai.braindrive.resume-builder",
         installation_id: crypto.randomUUID(),
       },
-      documents: [],
+      documents: [{
+        document_id: "resume.profile",
+        content: "# Maya Hart - Customer Experience Resume Columbus, Ohio ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Leads customer operations. - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+      }],
     });
 
     const documentWrite = plan.steps.find((step: any) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
@@ -183,6 +191,26 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(documentWrite?.content).not.toContain("\n- Customer Experience Resume");
     expect(documentWrite?.content).not.toContain("\n- Present");
     expect(documentWrite?.content).not.toContain("\n- December 2021");
+  });
+
+  it("runtime planner rejects Create resume without the Profile document", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    })).toThrow("resume_profile_required");
   });
 
   it("runtime PDF export renders resume markdown instead of exposing raw markdown", () => {
@@ -220,15 +248,42 @@ describe("Resume Builder-owned General draft inference program", () => {
       }],
     });
 
-    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string } | undefined;
-    const pdf = Buffer.from(exportStep?.bytes_base64 ?? "", "base64").toString("latin1");
-    expect(pdf).toContain("/Helvetica-Bold");
-    expect(pdf).toContain("/Times-Bold");
-    expect(pdf).toContain("(Maya Hart)");
-    expect(pdf).toContain("(PROFESSIONAL SUMMARY)");
-    expect(pdf).toContain("(Customer Experience Operations Manager)");
-    expect(pdf).toContain("(\\225)");
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string; content_size_bytes?: number } | undefined;
+    const pdfBytes = Buffer.from(exportStep?.bytes_base64 ?? "", "base64");
+    const pdf = pdfBytes.toString("latin1");
+    expect(exportStep?.content_size_bytes).toBe(pdfBytes.length);
+    expect(pdfBytes.length).toBeLessThan(1_048_576);
+    expect(pdf).toContain("/Filter /FlateDecode");
+    expect(pdf).toContain("/FontFile2");
+    expect(pdf).toContain("/Montserrat-Bold");
+    expect(pdf).toContain("/Encoding /Identity-H");
+    expect(pdf).toContain("/ToUnicode 3 0 R");
+    expect(pdf).not.toContain("/Subtype /Type1");
+    expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("runtime PDF export blocks the empty Resume placeholder", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "resume.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: "# Resume\n\nYour finished resume will appear here after you create it from your Resume Profile.",
+      }],
+    })).toThrow("formatted_resume_required");
   });
 
   it("assembles exact evidence slots in the app and asks the provider for text only", () => {

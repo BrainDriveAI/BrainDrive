@@ -187,6 +187,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
 
     const payload = await parseProviderPayload(response);
@@ -299,6 +300,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
 
     const contentType = response.headers.get("content-type") ?? "";

@@ -1004,6 +1004,14 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
 
     reply.raw.writeHead(200, streamHeaders);
 
+    const streamAbortController = new AbortController();
+    const handleClientDisconnect = () => {
+      if (!reply.raw.writableEnded) {
+        streamAbortController.abort(new Error("client_disconnected"));
+      }
+    };
+    reply.raw.on("close", handleClientDisconnect);
+
     let assistantBuffer = "";
     let currentAssistantMessageId = crypto.randomUUID();
     let lastPersistedAssistantMessageId: string | null = null;
@@ -1050,8 +1058,12 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
                 },
               }
             : {}),
+          signal: streamAbortController.signal,
         }
       )) {
+        if (streamAbortController.signal.aborted) {
+          break;
+        }
         if (event.type === "tool-call") {
           pendingToolCalls.set(event.id, {
             name: event.name,
@@ -1119,6 +1131,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       await promptAuditRecorder?.append("prompt_audit.trace_completed", {
         status: traceStatus,
       });
+      reply.raw.off("close", handleClientDisconnect);
       reply.raw.end();
     }
 

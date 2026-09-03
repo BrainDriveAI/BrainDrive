@@ -116,14 +116,18 @@ export type GatewayEngineRequest = {
   };
 };
 
+type StreamEventConversation = {
+  conversation_id?: string;
+};
+
 export type StreamEvent =
-  | { type: "text-delta"; delta: string }
-  | { type: "tool-call"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool-result"; id: string; status: "ok" | "denied" | "error"; output: unknown }
-  | { type: "approval-request"; request_id: string; tool_name: string; summary: string }
-  | { type: "approval-result"; request_id: string; decision: "approved" | "denied" }
-  | { type: "done"; conversation_id: string; message_id: string; finish_reason: string }
-  | { type: "error"; code: "provider_error" | "tool_error" | "context_overflow"; message: string };
+  | (StreamEventConversation & { type: "text-delta"; delta: string })
+  | (StreamEventConversation & { type: "tool-call"; id: string; name: string; input: Record<string, unknown> })
+  | (StreamEventConversation & { type: "tool-result"; id: string; status: "ok" | "denied" | "error"; output: unknown })
+  | (StreamEventConversation & { type: "approval-request"; request_id: string; tool_name: string; summary: string })
+  | (StreamEventConversation & { type: "approval-result"; request_id: string; decision: "approved" | "denied" })
+  | (StreamEventConversation & { type: "done"; conversation_id: string; message_id: string; finish_reason: string })
+  | (StreamEventConversation & { type: "error"; code: "provider_error" | "tool_error" | "context_overflow"; message: string });
 
 export type PendingApproval = {
   requestId: string;

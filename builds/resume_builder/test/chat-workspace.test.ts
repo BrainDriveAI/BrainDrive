@@ -23,6 +23,7 @@ import {
   projectResumeStorageDocuments,
   projectResumeDocument,
   projectResumeProfile,
+  resumeCreateInputSchema,
   type DurableWorkflowSnapshot,
 } from "../src/index.js";
 
@@ -219,6 +220,17 @@ describe("Resume Builder chat workspace contract", () => {
     expect(JSON.stringify(RESUME_CHAT_ACTIONS)).not.toMatch(/docx|linkedin|import|tailor|template.choice/i);
   });
 
+  it("declares Create Resume input as app-derived from Profile, not model-authored markdown", () => {
+    const schema = resumeCreateInputSchema();
+    expect(schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: [],
+    });
+    expect((schema.properties as Record<string, unknown>)).not.toHaveProperty("resume_markdown");
+    expect((schema.properties as Record<string, unknown>)).not.toHaveProperty("sections");
+  });
+
   it("owns Resume chat action conversion before generic host dispatch", () => {
     const sessionId = crypto.randomUUID();
     const turnId = crypto.randomUUID();
@@ -328,15 +340,13 @@ describe("Resume Builder chat workspace contract", () => {
     ]);
   });
 
-  it("plans Resume chat actions into generic host-executable steps", () => {
+  it("plans Resume chat actions into generic host-executable steps from the Profile document", () => {
     const sessionId = crypto.randomUUID();
     const operationId = crypto.randomUUID();
+    const profileMarkdown = "## Experience\n- Reduced launch slips by 38% across six product squads.";
     const request = {
       action_id: "resume.create",
-      action_input: {
-        title: "Maya Torres - Director of Product Operations",
-        resume_markdown: "## Experience\n- Reduced launch slips by 38% across six product squads.",
-      },
+      action_input: {},
       owner_confirmed: true,
       operation_id: operationId,
       idempotency_key: `resume-plan-${operationId}`,
@@ -347,7 +357,14 @@ describe("Resume Builder chat workspace contract", () => {
         app_id: "ai.braindrive.resume-builder",
         installation_id: crypto.randomUUID(),
       },
-      documents: [],
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: profileMarkdown,
+      }],
     };
 
     const first = planResumeAction(request);
@@ -369,7 +386,7 @@ describe("Resume Builder chat workspace contract", () => {
           document_id: "resume.document",
           expected_revision: "current",
           media_type: "text/markdown",
-          content: request.action_input.resume_markdown,
+          content: profileMarkdown,
         },
       ],
       final_result: { kind: "step_result", step_id: "write-resume-capability" },
@@ -377,13 +394,14 @@ describe("Resume Builder chat workspace contract", () => {
     expect(JSON.stringify(first)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
   });
 
-  it("normalizes model-flattened Resume markdown before planning a create action", () => {
+  it("ignores model-supplied Resume markdown and creates only from the Profile document", () => {
     const operationId = crypto.randomUUID();
+    const profileMarkdown = "# Maya Profile\n\n## Experience\n- Profile-owned result.";
     const plan = planResumeAction({
       action_id: "resume.create",
       action_input: {
-        title: "Maya Ortiz - Director of Customer Operations Resume",
-        resume_markdown: "# Maya Ortiz Austin, Texas ## Professional Summary Customer operations leader. ## Experience - Reduced first response time from 9.4 hours to 1.8 hours. - Improved gross retention from 86% to 93%.",
+        resume_markdown: "# Model Draft\n\n## Experience\n- Model-authored content that must not persist.",
+        sections: [{ title: "Model Section", statements: ["Model-authored section"] }],
       },
       owner_confirmed: true,
       operation_id: operationId,
@@ -395,19 +413,24 @@ describe("Resume Builder chat workspace contract", () => {
         app_id: "ai.braindrive.resume-builder",
         installation_id: crypto.randomUUID(),
       },
-      documents: [],
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: profileMarkdown,
+      }],
     });
 
     const capabilityInput = plan.steps.find((step) => step.step_id === "write-resume-capability")?.input as { statements?: Array<{ text: string }> };
     const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
     expect(capabilityInput.statements?.map((statement) => statement.text)).toEqual(expect.arrayContaining([
-      "Professional Summary Customer operations leader.",
       "Experience",
-      "Reduced first response time from 9.4 hours to 1.8 hours.",
-      "Improved gross retention from 86% to 93%.",
+      "Profile-owned result.",
     ]));
-    expect(documentWrite?.content).toContain("\n\n## Professional Summary");
-    expect(documentWrite?.content).toContain("\n- Reduced first response time");
+    expect(documentWrite?.content).toBe(profileMarkdown);
+    expect(JSON.stringify(plan)).not.toContain("Model-authored");
   });
 
   it("preserves date-range and title hyphens while normalizing flattened Resume markdown", () => {
@@ -415,7 +438,7 @@ describe("Resume Builder chat workspace contract", () => {
     const plan = planResumeAction({
       action_id: "resume.create",
       action_input: {
-        resume_markdown: "# Maya Hart - Customer Experience Resume ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+        resume_markdown: "# Ignored Model Draft\n\n## Experience\n- Ignored content.",
       },
       owner_confirmed: true,
       operation_id: operationId,
@@ -427,7 +450,14 @@ describe("Resume Builder chat workspace contract", () => {
         app_id: "ai.braindrive.resume-builder",
         installation_id: crypto.randomUUID(),
       },
-      documents: [],
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Maya Hart - Customer Experience Resume ## Experience **Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present - Reduced first response time from 11 hours to 2.5 hours. **Support Operations Specialist** | Riverbend Analytics | June 2019 - December 2021 - Maintained Zendesk workflows.",
+      }],
     });
 
     const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
@@ -475,6 +505,25 @@ describe("Resume Builder chat workspace contract", () => {
       ],
     });
     expect(documentWrite?.content).toBe("# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.");
+  });
+
+  it("rejects Create resume when no reviewed Profile document is available", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-direct-create-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    })).toThrow("resume_profile_required");
   });
 
   it("plans PDF export from the current app-owned Resume document", () => {
@@ -552,13 +601,44 @@ describe("Resume Builder chat workspace contract", () => {
       }],
     });
 
-    const pdf = Buffer.from(String(plan.steps[0].bytes_base64), "base64").toString("latin1");
-    expect(pdf).toContain("/BaseFont /Helvetica-Bold");
-    expect(pdf).toContain("/BaseFont /Times-Bold");
-    expect(pdf).toContain("(PROFESSIONAL SUMMARY)");
-    expect(pdf).toContain("(Customer Experience Operations Manager)");
-    expect(pdf).toContain("(\\225)");
+    const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
+    const pdf = pdfBytes.toString("latin1");
+    expect(plan.steps[0].content_size_bytes).toBe(pdfBytes.length);
+    expect(pdfBytes.length).toBeLessThan(1_048_576);
+    expect(pdf).toContain("/Filter /FlateDecode");
+    expect(pdf).toContain("/FontFile2");
+    expect(pdf).toContain("/BaseFont /Montserrat-Bold");
+    expect(pdf).toContain("/Encoding /Identity-H");
+    expect(pdf).toContain("/ToUnicode 3 0 R");
+    expect(pdf).not.toContain("/Subtype /Type1");
+    expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("blocks PDF export of the empty Resume placeholder", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Resume\n\nYour finished resume will appear here after you create it from your Resume Profile.",
+      }],
+    })).toThrow("formatted_resume_required");
   });
 
   it("declares package resources for workspace start, action request, and recovery reference", () => {
@@ -589,6 +669,10 @@ describe("Resume Builder chat workspace contract", () => {
     expect(agent).toContain("No appended effects");
     expect(agent).toContain("No wording upgrades");
     expect(agent).toContain("Your Resume Profile is ready to review in the sidebar");
+    expect(agent).toContain("do not request another export");
+    expect(agent).toContain("Resume Builder is not given a filesystem path");
+    expect(agent).toContain("If the owner asks where a PDF went after a confirmed host download");
+    expect(agent).toContain("Do not run another export just to answer where it went");
     expect(interview).toContain("Resume dates are absolute");
     expect(interview).toContain("An owner's hedge stays hedged");
     expect(interview).toContain("Do not use this as a checklist");

@@ -132,6 +132,27 @@ describe("useGatewayChat", () => {
     ]);
   });
 
+  it("uses a local assistant response without sending upstream when one is supplied", async () => {
+    const { result } = renderHook(() => useGatewayChat({
+      localResponseForMessage: (message) => message.includes("Export PDF")
+        ? "BrainDrive downloaded resume.pdf through your browser or desktop download flow."
+        : null,
+    }));
+
+    act(() => {
+      result.current.append("I just clicked Export PDF. Where is my PDF now?");
+    });
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.messages).toEqual([
+      { id: "message-1", role: "user", content: "I just clicked Export PDF. Where is my PDF now?" },
+      { id: "message-2", role: "assistant", content: "BrainDrive downloaded resume.pdf through your browser or desktop download flow." },
+    ]);
+  });
+
   it("can replay a message without echoing a duplicate user message", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([
@@ -374,6 +395,47 @@ describe("useGatewayChat", () => {
       type: "tool-result",
       output: { result: { status: "prepared" } },
     }));
+  });
+
+  it("keeps streamed assistant text readable across tool-call boundaries", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "text-delta", delta: "I saved this for future use." },
+        {
+          type: "tool-call",
+          id: "tool-1",
+          name: "app_action_resume_create",
+          input: {},
+        },
+        {
+          type: "tool-result",
+          id: "tool-1",
+          status: "ok",
+          output: { result: { status: "completed" } },
+        },
+        { type: "text-delta", delta: "Before I announce it, I checked the result." },
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-spacing",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Create the resume.");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I saved this for future use. Before I announce it, I checked the result.",
+    });
   });
 
   it("handles /skills slash command without invoking message streaming", async () => {
