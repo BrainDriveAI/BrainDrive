@@ -18,6 +18,10 @@
 
 <!-- For every check: exact command, working directory, actual result, and public-safe CI/evidence link when available. State "Not run" with a reason where applicable. -->
 
+| Command | Working directory | Result | CI/status evidence |
+|---|---|---|---|
+|  |  |  |  |
+
 ## Manual verification evidence
 
 <!-- Environment, steps, expected result, actual result, and sanitized evidence. State "None" with a reason when no manual check applies. -->

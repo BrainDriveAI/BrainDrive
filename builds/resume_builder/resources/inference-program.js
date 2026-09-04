@@ -829,10 +829,13 @@ function runsPlainText(runs) {
 function textWidth(value, fontSize, bold) {
   const font = bold ? PDF_FONTS.bold : PDF_FONTS.regular;
   const metrics = getPdfFontMetrics(font.fileName);
+  assertPdfFontCoverage(value, font.fileName);
   return pdfTextCodeUnits(value).reduce((sum, code) => sum + (pdfWidthForCode(metrics, code) * fontSize / 1000), 0);
 }
 
 function textCommand(font, size, x, y, value, usedCodes) {
+  const fontFileName = font === "F1" ? PDF_FONTS.regular.fileName : PDF_FONTS.bold.fileName;
+  assertPdfFontCoverage(value, fontFileName);
   for (const code of pdfTextCodeUnits(value)) usedCodes.add(code);
   return `BT /${font} ${size} Tf ${round(x)} ${round(y)} Td <${encodePdfUtf16Hex(value)}> Tj ET`;
 }
@@ -857,6 +860,20 @@ function encodePdfUtf16Hex(value) {
 
 function createPdfFontUsage() {
   return { regular: new Set(), bold: new Set() };
+}
+
+function assertPdfFontCoverage(value, filename) {
+  const metrics = getPdfFontMetrics(filename);
+  const unsupported = [];
+  for (const character of Array.from(normalizePdfText(value, false).replace(/[\u0000-\u001f\u007f]/g, " "))) {
+    const code = character.codePointAt(0);
+    if (code === undefined) continue;
+    if (code <= 0xffff && metrics.cmap[code] !== 0) continue;
+    if (!unsupported.includes(character)) unsupported.push(character);
+  }
+  if (unsupported.length > 0) {
+    throw new Error(`PDF export cannot include unsupported characters: ${unsupported.slice(0, 12).join(", ")}. Remove or replace those characters and try again.`);
+  }
 }
 
 function pdfTextCodeUnits(value) {

@@ -215,6 +215,10 @@ export class AppLifecycleService {
         const candidateRoot = path.join(this.dependencies.runtimeRoot, "staging", operation.operation_id);
         operation = await this.stage(operation, "verifying_package");
         candidate = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, input.version, candidateRoot, "candidate_install_or_update", { appId: this.appId, publisherId: this.publisherId });
+        const priorPackage = await this.requireStoredPackage(prior.active_package_digest!);
+        if (comparePackageVersion(candidate.manifest.package_version, priorPackage.package_version) <= 0) {
+          throw new AppPlatformError("conflict", "Update version must be newer than the active version", 409);
+        }
         candidate = await this.promoteVerifiedPackage(candidate);
         const priorGrant = await this.requireGrant(prior.grant_id!);
         const diff = capabilityDiff(priorGrant.capabilities, manifestCapabilities(candidate.manifest));
@@ -916,6 +920,18 @@ function capabilityDiff(prior: CapabilityGrant["capabilities"], requested: Capab
   const removed = prior.filter((item) => !requestedSet.has(item));
   const unchanged = requested.filter((item) => priorSet.has(item));
   return CapabilityDiffSchema.parse({ diff_version: 1, prior_capabilities: prior, requested_capabilities: requested, added, removed, unchanged, decision: added.length ? "owner_approval_required" : removed.length ? "narrowing_allowed" : "no_change" });
+}
+
+function comparePackageVersion(left: string, right: string): number {
+  const parse = (value: string): { core: number[]; pre: string[] | null } => {
+    const [core, pre] = value.split("-", 2);
+    return { core: core.split(".").map(Number), pre: pre ? pre.split(".") : null };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < 3; index += 1) if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index];
+  if (a.pre === null || b.pre === null) return a.pre === b.pre ? 0 : a.pre === null ? 1 : -1;
+  return a.pre.join(".").localeCompare(b.pre.join("."));
 }
 
 function storedPackageAvailabilityErrorCode(error: unknown): string | null {

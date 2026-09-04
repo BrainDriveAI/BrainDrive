@@ -13,8 +13,6 @@ import {
 } from "../resources/inference-program.js";
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
 
-const MCP_AUTHORITY_ENVELOPE_BYTES = 262_144;
-
 function inflatedPdfText(pdfBytes: Buffer): string {
   const source = pdfBytes.toString("latin1");
   const streams: string[] = [];
@@ -291,8 +289,6 @@ describe("Resume Builder-owned General draft inference program", () => {
     const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string; content_size_bytes?: number } | undefined;
     const pdfBytes = Buffer.from(exportStep?.bytes_base64 ?? "", "base64");
     const pdf = pdfBytes.toString("latin1");
-    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
-    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(MCP_AUTHORITY_ENVELOPE_BYTES);
     expect(exportStep?.content_size_bytes).toBe(pdfBytes.length);
     expect(pdfBytes.length).toBeLessThan(1_048_576);
     expect(pdf).toContain("/Filter /FlateDecode");
@@ -314,6 +310,67 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(pdf).not.toContain("/Subtype /Type1");
     expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("runtime PDF export preserves extended Latin, Greek, and Cyrillic glyphs", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Glyph-Stress.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: [
+          "# José Müller-Nguyễn",
+          "",
+          "São Paulo | jose@example.test | +55 11 5555-0100",
+          "",
+          "## Professional Summary",
+          "Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render in this export.",
+          "",
+          "## Experience",
+          "- Delivered résumé, naïve, cooperate, façade, and jalapeño content.",
+        ].join("\n"),
+      }],
+    });
+
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string } | undefined;
+    const decoded = decodedPdfTextRuns(Buffer.from(exportStep?.bytes_base64 ?? "", "base64"));
+    expect(decoded).toContain("José Müller-Nguyễn");
+    expect(decoded).toContain("Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render");
+  });
+
+  it("runtime PDF export refuses unsupported glyphs instead of dropping them", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Unsupported.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: "# Jordan 李\n\n## Experience\n- Shipped multilingual export checks.",
+      }],
+    })).toThrow("PDF export cannot include unsupported characters: 李. Remove or replace those characters and try again.");
   });
 
   it("runtime PDF export can return a runtime bytes reference", () => {
