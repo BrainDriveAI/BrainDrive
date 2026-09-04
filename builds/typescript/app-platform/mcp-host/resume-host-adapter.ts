@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 
@@ -41,6 +41,7 @@ import {
   type ResumeRecoveryOperationLifecycleProjection,
 } from "../../app-capabilities/recovery-reconciliation.js";
 import { AppActionPlanRequestSchema } from "../contracts/app-action-plan.js";
+import type { RuntimeExportBytesReference } from "../contracts/app-action-plan.js";
 import type { AppResourceDescriptor } from "../contracts/app-registry.js";
 import { AppArtifactExportService } from "../../app-capabilities/artifact-export.js";
 import { InstalledAppInferenceExecutor, InstalledAppInferenceInvocationSchema } from "../../app-inference/installed-program.js";
@@ -1519,6 +1520,7 @@ export class ResumeAppHostAdapter {
           capabilityDispatcher: this.capabilityDispatcher,
           documentStorage: this.documentStorage,
           artifactExports: this.artifactExports,
+          resolveRuntimeExportBytes: (reference, expected) => this.resolveRuntimeExportBytes(session, reference, expected),
           storageAuthority: this.storageAuthority(session, descriptor.grant!),
           artifactAuthority: this.artifactAuthority(descriptor.grant!, session.installationId, session.packageDigest, session.lifecycleGeneration),
           audit: this.audit,
@@ -1616,6 +1618,59 @@ export class ResumeAppHostAdapter {
       throw new AppPlatformError("validation_failed", "Installed app action planner returned no structured plan", 409);
     }
     return projected.structuredContent;
+  }
+
+  private async resolveRuntimeExportBytes(
+    session: AppChatSessionRecord,
+    reference: RuntimeExportBytesReference,
+    expected: {
+      contentDigest: string;
+      contentSizeBytes: number;
+      mediaType: string;
+      filename: string;
+    },
+  ): Promise<Buffer> {
+    const connection = this.lifecycle.dependencies.supervisor.connectionFor(session.installationId);
+    if (connection.runtime.package_digest !== session.packageDigest) {
+      throw new AppPlatformError("runtime_conflict", "Active app runtime does not match the chat workspace package", 409);
+    }
+    const exportUrl = new URL(`/runtime-exports/${encodeURIComponent(reference.export_id)}`, connection.url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    let response: Response;
+    let bytes: Buffer;
+    try {
+      response = await fetch(exportUrl, {
+        method: "GET",
+        headers: { authorization: `Bearer ${connection.authorization}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new AppPlatformError("validation_failed", "App runtime export bytes were unavailable", 409);
+      }
+      const contentLength = response.headers.get("content-length");
+      if (contentLength && Number(contentLength) > expected.contentSizeBytes) {
+        throw new AppPlatformError("validation_failed", "App runtime export bytes exceed the planned size", 409);
+      }
+      const mediaType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+      if (mediaType && mediaType !== "application/octet-stream" && mediaType !== expected.mediaType.toLowerCase()) {
+        throw new AppPlatformError("validation_failed", "App runtime export bytes media type did not match the plan", 409);
+      }
+      bytes = Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      if (error instanceof AppPlatformError) throw error;
+      throw new AppPlatformError("validation_failed", error instanceof Error ? error.message : "App runtime export bytes could not be fetched", 409);
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (bytes.length !== expected.contentSizeBytes) {
+      throw new AppPlatformError("validation_failed", "App runtime export bytes size did not match the plan", 409);
+    }
+    const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    if (digest !== expected.contentDigest) {
+      throw new AppPlatformError("validation_failed", "App runtime export bytes digest did not match the plan", 409);
+    }
+    return bytes;
   }
 
   private rememberChatAction(sessionId: string, installationId: string, capability: string, idempotencyKey: string): void {

@@ -230,6 +230,21 @@ export type ResumeActionExecutionPlan = {
   final_result?: Record<string, unknown>;
 };
 
+export type RuntimeExportBytesReferenceInput = {
+  bytes: Buffer;
+  contentDigest: `sha256:${string}`;
+  contentSizeBytes: number;
+  mediaType: string;
+  filename: string;
+  operationId: string;
+  idempotencyKey: string;
+};
+
+export type ResumeActionPlanOptions = {
+  exportByteDelivery?: "inline" | "runtime_reference";
+  createExportBytesReference?: (input: RuntimeExportBytesReferenceInput) => string;
+};
+
 type ChatResumeStatement = {
   statement_id: string;
   section_id: string;
@@ -297,7 +312,7 @@ export function buildResumeCreateCapabilityInput(input: ResumeChatCreateActionIn
   } as const;
 }
 
-export function planResumeAction(request: ResumeActionPlanRequest): ResumeActionExecutionPlan {
+export function planResumeAction(request: ResumeActionPlanRequest, options: ResumeActionPlanOptions = {}): ResumeActionExecutionPlan {
   const context = {
     sessionId: request.session.session_id,
     turnId: request.operation_id,
@@ -349,19 +364,38 @@ export function planResumeAction(request: ResumeActionPlanRequest): ResumeAction
     const markdown = currentDocumentText(request, "resume.document");
     if (!isExportableResumeMarkdown(markdown)) throw new Error("formatted_resume_required");
     const bytes = renderResumeMarkdownPdf(markdown);
+    const filename = normalizePdfFilename(input?.safe_filename);
+    const contentDigest = digestBytes(bytes);
+    const contentSizeBytes = bytes.length;
+    const bytesSource = options.exportByteDelivery === "runtime_reference"
+      ? {
+        bytes_reference: {
+          kind: "runtime_http",
+          export_id: requireExportBytesReference(options, {
+            bytes,
+            contentDigest,
+            contentSizeBytes,
+            mediaType: "application/pdf",
+            filename,
+            operationId: request.operation_id,
+            idempotencyKey: request.idempotency_key,
+          }),
+        },
+      }
+      : { bytes_base64: bytes.toString("base64") };
     return actionPlan(request.action_id, [
       {
         step_id: "prepare-pdf-export",
         type: "export.prepare",
         source: { kind: "app_document", source_id: "resume.document" },
-        content_digest: digestBytes(bytes),
-        content_size_bytes: bytes.length,
+        content_digest: contentDigest,
+        content_size_bytes: contentSizeBytes,
         retention_class: "durable_owner_data",
         media_type: "application/pdf",
-        filename: normalizePdfFilename(input?.safe_filename),
+        filename,
         destination_intent: input?.destination_intent ?? "new_download",
         overwrite_confirmed: input?.overwrite_confirmed ?? false,
-        bytes_base64: bytes.toString("base64"),
+        ...bytesSource,
       },
     ]);
   }
@@ -690,24 +724,34 @@ type PdfLine = {
 };
 
 type PdfObject = string | { dictionary: string; stream: Buffer };
+type PdfFontKey = "regular" | "bold";
+type PdfFontUsage = Record<PdfFontKey, Set<number>>;
+type TrueTypeFontMetrics = {
+  cmap: Uint16Array;
+  advanceWidths: Uint16Array;
+  unitsPerEm: number;
+  defaultWidth: number;
+};
 
 const PDF_FONTS = {
-  regular: { baseFont: "Questrial-Regular", fileName: "Questrial-Regular.ttf", type0Ref: 4, cidRef: 6, descriptorRef: 8, fileRef: 10, cidToGidRef: 12 },
-  bold: { baseFont: "Montserrat-Bold", fileName: "Montserrat-Bold.ttf", type0Ref: 5, cidRef: 7, descriptorRef: 9, fileRef: 11, cidToGidRef: 13 },
+  regular: { baseFont: "LiberationSans-Regular", fileName: "LiberationSans-Regular.ttf", type0Ref: 4, cidRef: 6, descriptorRef: 8, fileRef: 10, cidToGidRef: 12 },
+  bold: { baseFont: "LiberationSans-Bold", fileName: "LiberationSans-Bold.ttf", type0Ref: 5, cidRef: 7, descriptorRef: 9, fileRef: 11, cidToGidRef: 13 },
 } as const;
 
 const pdfFontCache = new Map<string, Buffer>();
+const pdfFontMetricsCache = new Map<string, TrueTypeFontMetrics>();
 
 function renderResumeMarkdownPdf(markdown: string): Buffer {
-  const pages = renderPdfPages(markdownToPdfBlocks(markdown));
+  const fontUsage = createPdfFontUsage();
+  const pages = renderPdfPages(markdownToPdfBlocks(markdown), fontUsage);
   const objects: PdfObject[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "",
     toUnicodeCMapObject(),
     type0FontObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.cidRef),
     type0FontObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.cidRef),
-    cidFontObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.descriptorRef, PDF_FONTS.regular.cidToGidRef),
-    cidFontObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.descriptorRef, PDF_FONTS.bold.cidToGidRef),
+    cidFontObject(PDF_FONTS.regular, fontUsage.regular),
+    cidFontObject(PDF_FONTS.bold, fontUsage.bold),
     fontDescriptorObject(PDF_FONTS.regular.baseFont, PDF_FONTS.regular.fileRef),
     fontDescriptorObject(PDF_FONTS.bold.baseFont, PDF_FONTS.bold.fileRef),
     fontFileObject(readPackageFont(PDF_FONTS.regular.fileName)),
@@ -759,8 +803,9 @@ function type0FontObject(baseFont: string, cidFontRef: number): string {
   return `<< /Type /Font /Subtype /Type0 /BaseFont /${baseFont} /Encoding /Identity-H /DescendantFonts [${cidFontRef} 0 R] /ToUnicode 3 0 R >>`;
 }
 
-function cidFontObject(baseFont: string, descriptorRef: number, cidToGidRef: number): string {
-  return `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${baseFont} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptorRef} 0 R /DW 500 /CIDToGIDMap ${cidToGidRef} 0 R >>`;
+function cidFontObject(font: (typeof PDF_FONTS)[PdfFontKey], usedCodes: ReadonlySet<number>): string {
+  const metrics = getPdfFontMetrics(font.fileName);
+  return `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${font.baseFont} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${font.descriptorRef} 0 R /DW ${metrics.defaultWidth} /W ${pdfFontWidthArray(metrics, usedCodes)} /CIDToGIDMap ${font.cidToGidRef} 0 R >>`;
 }
 
 function fontDescriptorObject(fontName: string, fontFileRef: number): string {
@@ -836,7 +881,7 @@ function markdownToPdfBlocks(markdown: string): PdfBlock[] {
   return blocks.length > 0 ? blocks : [{ kind: "paragraph", runs: [{ text: "Resume", bold: false }] }];
 }
 
-function renderPdfPages(blocks: PdfBlock[]): string[] {
+function renderPdfPages(blocks: PdfBlock[], fontUsage: PdfFontUsage): string[] {
   const pages: string[] = [];
   let commands: string[] = [];
   let y = 738;
@@ -856,7 +901,8 @@ function renderPdfPages(blocks: PdfBlock[]): string[] {
     let cursor = x;
     for (const run of runs) {
       if (!run.text) continue;
-      commands.push(textCommand(run.bold ? "F2" : "F1", fontSize, cursor, baseline, run.text));
+      const fontKey = run.bold ? "bold" : "regular";
+      commands.push(textCommand(run.bold ? "F2" : "F1", fontSize, cursor, baseline, run.text, fontUsage[fontKey]));
       cursor += textWidth(run.text, fontSize, run.bold);
     }
   };
@@ -871,13 +917,13 @@ function renderPdfPages(blocks: PdfBlock[]): string[] {
         ensure(38);
         const text = runsPlainText(block.runs);
         const fontSize = 20;
-        commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text));
+        commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else {
         ensure(34);
         y -= 10;
         const text = runsPlainText(block.runs).toUpperCase();
-        commands.push(textCommand("F2", 9.5, left, y, text));
+        commands.push(textCommand("F2", 9.5, left, y, text, fontUsage.bold));
         commands.push(`0.72 0.75 0.80 RG 0.5 w ${left} ${round(y - 8)} m ${right} ${round(y - 8)} l S 0 0 0 RG`);
         y -= 28;
       }
@@ -886,7 +932,7 @@ function renderPdfPages(blocks: PdfBlock[]): string[] {
     if (block.kind === "bullet") {
       const lines = wrapPdfRuns(block.runs, contentWidth - 20, 10);
       ensure(lines.length * 15 + 6);
-      commands.push(textCommand("F1", 10, left, y, "\u2022"));
+      commands.push(textCommand("F1", 10, left, y, "\u2022", fontUsage.regular));
       for (const line of lines) {
         drawRuns(line.runs, left + 16, y, 10);
         y -= 15;
@@ -903,13 +949,13 @@ function renderPdfPages(blocks: PdfBlock[]): string[] {
     y -= 7;
   }
   if (commands.length > 0) pages.push(commands.join("\n"));
-  return pages.length > 0 ? pages : [textCommand("F1", 10, left, y, "Resume")];
+  return pages.length > 0 ? pages : [textCommand("F1", 10, left, y, "Resume", fontUsage.regular)];
 }
 
 function parsePdfInlineMarkdown(text: string): PdfTextRun[] {
   return text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g).filter(Boolean).map((part) => {
     const strong = /^(\*\*|__)(.+)\1$/.exec(part);
-    return strong ? { text: normalizePdfText(strong[2]), bold: true } : { text: normalizePdfText(part), bold: false };
+    return strong ? { text: normalizePdfText(strong[2], true), bold: true } : { text: normalizePdfText(part, false), bold: false };
   }).filter((run) => run.text.length > 0);
 }
 
@@ -957,16 +1003,13 @@ function runsPlainText(runs: readonly PdfTextRun[]): string {
 }
 
 function textWidth(value: string, fontSize: number, bold: boolean): number {
-  return normalizePdfText(value).split("").reduce((sum, character) => {
-    if (character === " ") return sum + fontSize * 0.28;
-    if (/[ilI.,|]/.test(character)) return sum + fontSize * 0.24;
-    if (/[mwMW@]/.test(character)) return sum + fontSize * 0.78;
-    if (/[A-Z]/.test(character)) return sum + fontSize * (bold ? 0.65 : 0.61);
-    return sum + fontSize * (bold ? 0.55 : 0.51);
-  }, 0);
+  const font = bold ? PDF_FONTS.bold : PDF_FONTS.regular;
+  const metrics = getPdfFontMetrics(font.fileName);
+  return pdfTextCodeUnits(value).reduce((sum, code) => sum + (pdfWidthForCode(metrics, code) * fontSize / 1000), 0);
 }
 
-function textCommand(font: "F1" | "F2" | "F3", size: number, x: number, y: number, value: string): string {
+function textCommand(font: "F1" | "F2" | "F3", size: number, x: number, y: number, value: string, usedCodes: Set<number>): string {
+  for (const code of pdfTextCodeUnits(value)) usedCodes.add(code);
   return `BT /${font} ${size} Tf ${round(x)} ${round(y)} Td <${encodePdfUtf16Hex(value)}> Tj ET`;
 }
 
@@ -974,18 +1017,84 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function normalizePdfText(value: string): string {
-  return value
+function normalizePdfText(value: string, trim = true): string {
+  const normalized = value
     .replace(/[ \t]+/g, " ")
     .replace(/[\u2012-\u2015]/g, "-")
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
-    .replace(/\u00a0/g, " ")
-    .trim();
+    .replace(/\u00a0/g, " ");
+  return trim ? normalized.trim() : normalized;
 }
 
 function encodePdfUtf16Hex(value: string): string {
-  return Buffer.from(normalizePdfText(value).replace(/[\u0000-\u001f\u007f]/g, " "), "utf16le").swap16().toString("hex").toUpperCase();
+  return Buffer.from(normalizePdfText(value, false).replace(/[\u0000-\u001f\u007f]/g, " "), "utf16le").swap16().toString("hex").toUpperCase();
+}
+
+function createPdfFontUsage(): PdfFontUsage {
+  return { regular: new Set<number>(), bold: new Set<number>() };
+}
+
+function pdfTextCodeUnits(value: string): number[] {
+  const normalized = normalizePdfText(value, false).replace(/[\u0000-\u001f\u007f]/g, " ");
+  const codes: number[] = [];
+  for (let index = 0; index < normalized.length; index += 1) {
+    codes.push(normalized.charCodeAt(index));
+  }
+  return codes;
+}
+
+function getPdfFontMetrics(filename: string): TrueTypeFontMetrics {
+  const cached = pdfFontMetricsCache.get(filename);
+  if (cached) return cached;
+  const metrics = readTrueTypeFontMetrics(readPackageFont(filename));
+  pdfFontMetricsCache.set(filename, metrics);
+  return metrics;
+}
+
+function readTrueTypeFontMetrics(fontBytes: Buffer): TrueTypeFontMetrics {
+  const headOffset = requireTrueTypeTable(fontBytes, "head");
+  const hheaOffset = requireTrueTypeTable(fontBytes, "hhea");
+  const hmtxOffset = requireTrueTypeTable(fontBytes, "hmtx");
+  const maxpOffset = requireTrueTypeTable(fontBytes, "maxp");
+  const unitsPerEm = fontBytes.readUInt16BE(headOffset + 18);
+  const glyphCount = fontBytes.readUInt16BE(maxpOffset + 4);
+  const metricCount = fontBytes.readUInt16BE(hheaOffset + 34);
+  const advanceWidths = new Uint16Array(glyphCount);
+  let lastAdvanceWidth = 0;
+  for (let glyph = 0; glyph < glyphCount; glyph += 1) {
+    if (glyph < metricCount) lastAdvanceWidth = fontBytes.readUInt16BE(hmtxOffset + glyph * 4);
+    advanceWidths[glyph] = lastAdvanceWidth;
+  }
+  const cmap = readTrueTypeCmap(fontBytes);
+  return {
+    cmap,
+    advanceWidths,
+    unitsPerEm,
+    defaultWidth: pdfWidthForGlyph(advanceWidths[cmap[32] ?? 0] ?? 0, unitsPerEm) || 500,
+  };
+}
+
+function requireTrueTypeTable(fontBytes: Buffer, tag: string): number {
+  const offset = findTrueTypeTable(fontBytes, tag);
+  if (offset === null) throw new Error(`pdf_font_${tag}_missing`);
+  return offset;
+}
+
+function pdfFontWidthArray(metrics: TrueTypeFontMetrics, usedCodes: ReadonlySet<number>): string {
+  const codes = [...usedCodes].filter((code) => code >= 0 && code <= 0xffff).sort((left, right) => left - right);
+  const entries = codes.map((code) => `${code} [${pdfWidthForCode(metrics, code)}]`);
+  return `[${entries.length > 0 ? ` ${entries.join(" ")} ` : ""}]`;
+}
+
+function pdfWidthForCode(metrics: TrueTypeFontMetrics, code: number): number {
+  const glyph = metrics.cmap[code] ?? 0;
+  return pdfWidthForGlyph(metrics.advanceWidths[glyph] ?? 0, metrics.unitsPerEm) || metrics.defaultWidth;
+}
+
+function pdfWidthForGlyph(advanceWidth: number, unitsPerEm: number): number {
+  if (unitsPerEm <= 0 || advanceWidth <= 0) return 0;
+  return Math.round((advanceWidth / unitsPerEm) * 1000);
 }
 
 function buildCidToGidMap(fontBytes: Buffer): Buffer {
@@ -1090,6 +1199,12 @@ function readFormat4Cmap(fontBytes: Buffer, offset: number): Uint16Array {
 
 function digestBytes(bytes: Buffer): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function requireExportBytesReference(options: ResumeActionPlanOptions, input: RuntimeExportBytesReferenceInput): string {
+  const exportId = options.createExportBytesReference?.(input);
+  if (!exportId) throw new Error("export_reference_unavailable");
+  return exportId;
 }
 
 function stableUuid(seed: string): string {

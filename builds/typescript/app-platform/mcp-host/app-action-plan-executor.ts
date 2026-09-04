@@ -8,6 +8,7 @@ import type { AppDocumentStorageService } from "../storage/app-document-store.js
 import {
   AppActionExecutionPlanSchema,
 } from "../contracts/app-action-plan.js";
+import type { RuntimeExportBytesReference } from "../contracts/app-action-plan.js";
 import type {
   AppDocumentStorageAuthority,
 } from "../contracts/app-storage.js";
@@ -36,6 +37,12 @@ export async function executeAppActionPlan(input: {
   capabilityDispatcher: CapabilityDispatcher;
   documentStorage: AppDocumentStorageService;
   artifactExports: AppArtifactExportService;
+  resolveRuntimeExportBytes?: (reference: RuntimeExportBytesReference, expected: {
+    contentDigest: string;
+    contentSizeBytes: number;
+    mediaType: string;
+    filename: string;
+  }) => Promise<Buffer>;
   storageAuthority: AppDocumentStorageAuthority;
   artifactAuthority: AppDocumentStorageAuthority;
   audit: (event: string, details: Record<string, unknown>) => void;
@@ -134,6 +141,14 @@ export async function executeAppActionPlan(input: {
     if (input.action.kind !== "export") {
       throw new AppPlatformError("denied", "Only export actions can prepare app artifacts", 403);
     }
+    const bytesBase64 = step.bytes_reference
+      ? await resolveReferencedExportBytes(input.resolveRuntimeExportBytes, step.bytes_reference, {
+        contentDigest: step.content_digest,
+        contentSizeBytes: step.content_size_bytes,
+        mediaType: step.media_type,
+        filename: step.filename,
+      })
+      : step.bytes_base64!;
     const prepared = await input.artifactExports.prepareExport({
       request_version: 1,
       authority: input.artifactAuthority,
@@ -148,7 +163,7 @@ export async function executeAppActionPlan(input: {
       destination_intent: step.destination_intent,
       overwrite_confirmed: step.overwrite_confirmed,
       owner_confirmed: input.ownerConfirmed,
-      bytes_base64: step.bytes_base64,
+      bytes_base64: bytesBase64,
     });
     results.set(step.step_id, prepared);
   }
@@ -166,4 +181,33 @@ export function childIdempotencyKey(parent: string, stepId: string): string {
 function stableProofId(operationId: string, stepId: string): string {
   const hex = createHash("sha256").update(`${operationId}:${stepId}:owner-confirmation`).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+async function resolveReferencedExportBytes(
+  resolver: ((reference: RuntimeExportBytesReference, expected: {
+    contentDigest: string;
+    contentSizeBytes: number;
+    mediaType: string;
+    filename: string;
+  }) => Promise<Buffer>) | undefined,
+  reference: RuntimeExportBytesReference,
+  expected: {
+    contentDigest: string;
+    contentSizeBytes: number;
+    mediaType: string;
+    filename: string;
+  },
+): Promise<string> {
+  if (!resolver) {
+    throw new AppPlatformError("incompatible_schema", "App action export bytes reference cannot be resolved by this host", 409);
+  }
+  const bytes = await resolver(reference, expected);
+  if (bytes.length !== expected.contentSizeBytes) {
+    throw new AppPlatformError("validation_failed", "App action export bytes size did not match the plan", 409);
+  }
+  const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  if (digest !== expected.contentDigest) {
+    throw new AppPlatformError("validation_failed", "App action export bytes digest did not match the plan", 409);
+  }
+  return bytes.toString("base64");
 }

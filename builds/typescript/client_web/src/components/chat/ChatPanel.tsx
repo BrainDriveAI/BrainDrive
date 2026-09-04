@@ -66,7 +66,6 @@ type ChatPanelProps = {
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
   onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
-  localResponseForMessage?: (message: string) => string | null;
   statusNotice?: { tone: "info" | "success" | "error"; message: string } | null;
   queuedMessage?: { id: string; content: string } | null;
 };
@@ -95,7 +94,6 @@ export default function ChatPanel({
   onSendMessage,
   onOpenSettings,
   onStreamEvent,
-  localResponseForMessage,
   statusNotice,
   queuedMessage
 }: ChatPanelProps) {
@@ -128,7 +126,6 @@ export default function ChatPanel({
     draftKey,
     initialMessages: historyMessages,
     onStreamEvent,
-    localResponseForMessage,
   });
 
   useEffect(() => {

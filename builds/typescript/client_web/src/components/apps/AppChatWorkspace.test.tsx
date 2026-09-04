@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
-import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, resumePdfLocationAnswer } from "./AppChatWorkspace";
+import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport } from "./AppChatWorkspace";
 
 const { chatPanelProps } = vi.hoisted(() => ({
   chatPanelProps: [] as Array<{
@@ -11,7 +11,6 @@ const { chatPanelProps } = vi.hoisted(() => ({
     draftKey?: string | null;
     onConversationComplete?: (conversationId: string) => void;
     onStreamEvent?: (event: unknown) => void | Promise<void>;
-    localResponseForMessage?: (message: string) => string | null;
     queuedMessage?: { id: string; content: string } | null;
   }>,
 }));
@@ -54,7 +53,6 @@ vi.mock("@/components/chat/ChatPanel", () => ({
     messageMetadata?: Record<string, unknown>;
     onConversationComplete?: (conversationId: string) => void;
     onStreamEvent?: (event: unknown) => void | Promise<void>;
-    localResponseForMessage?: (message: string) => string | null;
     queuedMessage?: { id: string; content: string } | null;
     statusNotice?: { message: string } | null;
   }) => {
@@ -1305,11 +1303,13 @@ describe("AppChatWorkspace", () => {
     expect(serialized).not.toContain("/home/");
   });
 
-  it("answers recent PDF location questions from the completed host download notice", () => {
-    expect(resumePdfLocationAnswer("I just clicked Export PDF. Where is my PDF now?", "resume.pdf")).toBe(
-      "BrainDrive downloaded resume.pdf through your browser or desktop download flow. Check your browser's Downloads list or your computer's Downloads folder. Resume Builder is not given a filesystem path."
-    );
-    expect(resumePdfLocationAnswer("Can you export a PDF for me?", "resume.pdf")).toBeNull();
-    expect(resumePdfLocationAnswer("I just clicked Export PDF. Where is my PDF now?", null)).toBeNull();
+  it("does not pass a host-side local responder into the native chat panel", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={vi.fn()} onOpenSettings={vi.fn()} />);
+
+    await waitFor(() => expect(chatPanelProps.length).toBeGreaterThan(0));
+    expect(chatPanelProps.at(-1)).not.toHaveProperty("localResponseForMessage");
   });
 });

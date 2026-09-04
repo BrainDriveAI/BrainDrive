@@ -945,4 +945,50 @@ describe("owner lifecycle gateway routes", () => {
 
     await app.close();
   });
+
+  it("offers update from recoverable failure when the verified package digest changes at the same version", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-failed-digest-update-")); roots.push(root);
+    const routeKey = "research-consumer";
+    const appId = "ai.braindrive.research-consumer";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Research Consumer" });
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "failed-digest-update-install", approveCapabilities: true });
+    h.dependencies.repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "app", "source"), [
+      { appId, routeKey, displayName: "Research Consumer", version: "1.0.0", summary: "Changed package contents." },
+    ]);
+    for (const runtime of h.supervisor.inspect(installed.record.installation_id!)) await h.supervisor.stop(runtime, "reconcile");
+    const failed = { ...installed.record, state: "failed_recoverable" as const, generation: installed.record.generation + 1, updated_at: new Date().toISOString() };
+    await h.store.compareAndSwapLifecycle(installed.record.generation, failed);
+
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Research Consumer", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ]));
+
+    const catalog = (await app.inject({ method: "GET", url: "/apps" })).json();
+    expect(catalog.apps[0]).toMatchObject({
+      state: "failed_recoverable",
+      version: { installed: "1.0.0", available: "1.0.0" },
+    });
+    expect(catalog.apps[0].identity.package_digest).not.toBe(catalog.apps[0].availability.package_digest);
+    expect(catalog.apps[0].available_actions).toEqual(["update", "recover", "uninstall"]);
+
+    const updated = await app.inject({
+      method: "POST",
+      url: `/apps/${routeKey}/update`,
+      payload: {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "iiiiiiiiiiiiiiii",
+        expected_generation: failed.generation,
+        installation_id: failed.installation_id,
+        version: "1.0.0",
+        approve_capabilities: true,
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ state: "active", version: { installed: "1.0.0", available: "1.0.0" } });
+    expect(updated.json().identity.package_digest).toBe(catalog.apps[0].availability.package_digest);
+
+    await app.close();
+  });
 });

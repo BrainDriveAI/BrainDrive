@@ -213,6 +213,26 @@
           "minLength": 1,
           "maxLength": 2796204,
           "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        },
+        "bytes_reference": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "runtime_http"
+            },
+            "export_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9_.:@-]+$"
+            }
+          },
+          "required": [
+            "kind",
+            "export_id"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -225,8 +245,7 @@
         "media_type",
         "filename",
         "destination_intent",
-        "overwrite_confirmed",
-        "bytes_base64"
+        "overwrite_confirmed"
       ],
       "additionalProperties": false
     }

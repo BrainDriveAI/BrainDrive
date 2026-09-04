@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.15" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.17" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -303,12 +303,16 @@ const RESUME_CHAT_INITIAL_DOCUMENT_FILES = {
 
 const RESUME_CHAT_BINARY_RESOURCE_FILES = [
   {
-    packagePath: "payload/docker/fonts/Questrial-Regular.ttf",
-    fileName: "fonts/Questrial-Regular.ttf",
+    packagePath: "payload/docker/fonts/LiberationSans-Regular.ttf",
+    fileName: "fonts/LiberationSans-Regular.ttf",
   },
   {
-    packagePath: "payload/docker/fonts/Montserrat-Bold.ttf",
-    fileName: "fonts/Montserrat-Bold.ttf",
+    packagePath: "payload/docker/fonts/LiberationSans-Bold.ttf",
+    fileName: "fonts/LiberationSans-Bold.ttf",
+  },
+  {
+    packagePath: "payload/docker/fonts/LiberationSans-OFL.txt",
+    fileName: "fonts/LiberationSans-OFL.txt",
   },
 ] as const;
 
@@ -932,15 +936,42 @@ process.on("SIGTERM", stop); process.on("SIGINT", stop);
 
 function modernFixtureServer(appHtml: string, version: string): string {
   return `import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { adjudicateResumeInference, planResumeAction, prepareResumeInference } from "./inference-program.js";
 const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
 const host = "127.0.0.1";
 const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
 const appHtml = ${JSON.stringify(appHtml)};
 const send = (response, id, result) => { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id,result})); };
+const runtimeExports = new Map();
+const runtimeExportTtlMs = 120000;
+const pruneRuntimeExports = () => {
+  const cutoff = Date.now() - runtimeExportTtlMs;
+  for (const [id, entry] of runtimeExports.entries()) {
+    if (entry.created_at < cutoff) runtimeExports.delete(id);
+  }
+  while (runtimeExports.size > 16) runtimeExports.delete(runtimeExports.keys().next().value);
+};
+const createExportBytesReference = (input) => {
+  pruneRuntimeExports();
+  const exportId = randomUUID();
+  runtimeExports.set(exportId, { ...input, created_at: Date.now() });
+  return exportId;
+};
 const server = http.createServer((request, response) => {
   if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
   if (request.url === "/healthz") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({status:"ok",service:"fixture-mcp",app_id:process.env.BRAINDRIVE_APP_ID})); return; }
+  if (request.method === "GET" && request.url?.startsWith("/runtime-exports/")) {
+    pruneRuntimeExports();
+    const url = new URL(request.url, "http://runtime.local");
+    const exportId = decodeURIComponent(url.pathname.slice("/runtime-exports/".length));
+    if (!/^[a-zA-Z0-9_.:@-]+$/.test(exportId)) { response.writeHead(400).end(); return; }
+    const entry = runtimeExports.get(exportId);
+    if (!entry) { response.writeHead(404).end(); return; }
+    response.writeHead(200, {"content-type":entry.mediaType,"content-length":String(entry.bytes.length),"cache-control":"no-store","x-braindrive-content-digest":entry.contentDigest});
+    response.end(entry.bytes);
+    return;
+  }
   if (request.url !== "/mcp" || request.method !== "POST") { response.writeHead(404).end(); return; }
   let body = "";
   request.on("data", (chunk) => { body += chunk; if (body.length > 262144) request.destroy(); });
@@ -953,7 +984,7 @@ const server = http.createServer((request, response) => {
     if (message.method === "resources/read" && message.params?.uri === "ui://resume-builder/main") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
     if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}},{name:"app.actions.plan",description:"Plan an installed app-owned chat action for generic host execution",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.prepare",description:"Prepare an installed app-owned inference plan",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.adjudicate",description:"Adjudicate an installed app-owned inference candidate",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}}]}); return; }
     if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:${JSON.stringify(version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
-    if (message.method === "tools/call" && message.params?.name === "app.actions.plan") { try { const result=planResumeAction(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app action planning failed"}})); } return; }
+    if (message.method === "tools/call" && message.params?.name === "app.actions.plan") { try { const result=planResumeAction(message.params.arguments,{exportByteDelivery:"runtime_reference",createExportBytesReference}); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app action planning failed"}})); } return; }
     if (message.method === "tools/call" && message.params?.name === "app.inference.prepare") { try { const result=prepareResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference preparation failed"}})); } return; }
     if (message.method === "tools/call" && message.params?.name === "app.inference.adjudicate") { try { const result=adjudicateResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference adjudication failed"}})); } return; }
     response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));

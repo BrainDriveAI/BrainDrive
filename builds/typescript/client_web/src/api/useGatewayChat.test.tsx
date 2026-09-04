@@ -132,24 +132,28 @@ describe("useGatewayChat", () => {
     ]);
   });
 
-  it("uses a local assistant response without sending upstream when one is supplied", async () => {
-    const { result } = renderHook(() => useGatewayChat({
-      localResponseForMessage: (message) => message.includes("Export PDF")
-        ? "BrainDrive downloaded resume.pdf through your browser or desktop download flow."
-        : null,
-    }));
+  it("sends PDF location questions upstream like ordinary chat", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-1",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
 
     act(() => {
       result.current.append("I just clicked Export PDF. Where is my PDF now?");
     });
 
-    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(result.current.isLoading).toBe(false);
+    expect(sendMessageMock).toHaveBeenCalledWith(null, "I just clicked Export PDF. Where is my PDF now?", expect.any(Object));
     expect(result.current.messages).toEqual([
       { id: "message-1", role: "user", content: "I just clicked Export PDF. Where is my PDF now?" },
-      { id: "message-2", role: "assistant", content: "BrainDrive downloaded resume.pdf through your browser or desktop download flow." },
     ]);
   });
 
