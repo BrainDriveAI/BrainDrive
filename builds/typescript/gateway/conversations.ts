@@ -46,6 +46,18 @@ export class GatewayConversationService {
     return { conversationId, message };
   }
 
+  createHostConversation(content: string): { conversationId: string; message: ConversationMessage } {
+    const conversationId = crypto.randomUUID();
+    const message = this.buildHostMessage(content);
+    this.store.createConversation(conversationId, message);
+    auditLog("memory.write", {
+      action: "conversation.create.host",
+      conversation_id: conversationId,
+      message_id: message.id,
+    });
+    return { conversationId, message };
+  }
+
   appendAssistantMessage(conversationId: string, messageId: string, content: string): void {
     const message: ConversationMessage = {
       id: messageId,
@@ -59,6 +71,27 @@ export class GatewayConversationService {
       conversation_id: conversationId,
       message_id: messageId,
     });
+  }
+
+  appendHostMessage(conversationId: string, content: string): ConversationMessage {
+    const message = this.buildHostMessage(content);
+    this.store.appendMessage(conversationId, message);
+    auditLog("memory.write", {
+      action: "conversation.append.host",
+      conversation_id: conversationId,
+      message_id: message.id,
+    });
+    return message;
+  }
+
+  private buildHostMessage(content: string): ConversationMessage {
+    const message: ConversationMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: `BrainDrive host update: ${content}`,
+      timestamp: new Date().toISOString(),
+    };
+    return message;
   }
 
   appendToolMessage(

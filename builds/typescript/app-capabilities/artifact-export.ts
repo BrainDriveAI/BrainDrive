@@ -235,6 +235,11 @@ export class AppArtifactExportService {
     return this.store.getArtifactByRevision(authority, artifactRevisionId);
   }
 
+  async latestReceipt(authority: AppExportFinalizeRequest["authority"]): Promise<AppSafeExportReceiptProjection | null> {
+    const receipt = await this.store.latestReceipt(authority);
+    return receipt ? this.projectReceipt(receipt, false) : null;
+  }
+
   artifactCountForTest(authority: AppExportFinalizeRequest["authority"]): Promise<number> {
     return this.store.artifactCountForTest(authority);
   }

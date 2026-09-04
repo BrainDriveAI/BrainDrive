@@ -156,6 +156,56 @@ function resumeCreateInputSchema(): Record<string, unknown> {
   };
 }
 
+function stateReadResultSchema(): Record<string, unknown> {
+  const documentStateSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      document_id: { type: "string", minLength: 1, maxLength: 128 },
+      state: { type: "string", enum: ["current", "missing"] },
+      revision: { type: ["number", "null"] },
+      revision_id: { type: ["string", "null"] },
+    },
+    required: ["document_id", "state", "revision", "revision_id"],
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      state: { type: "string", enum: ["current"] },
+      profile: documentStateSchema,
+      resume: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ...documentStateSchema.properties,
+          status: { type: "string", enum: ["missing", "draft", "proposed", "approved"] },
+          definition_revision_id: { type: ["string", "null"] },
+        },
+        required: ["document_id", "state", "revision", "revision_id", "status", "definition_revision_id"],
+      },
+      last_export_receipt: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        properties: {
+          projection_version: { type: "number", enum: [1] },
+          status: { type: "string", enum: ["completed"] },
+          receipt_revision_id: { type: "string", format: "uuid" },
+          artifact_revision_id: { type: "string", format: "uuid" },
+          content_digest: { type: "string", minLength: 71, maxLength: 71 },
+          media_type: { type: "string", enum: ["application/pdf", "text/plain"] },
+          outcome: { type: "string", enum: ["completed", "cancelled", "failed"] },
+          safe_destination_label: { type: "string", minLength: 1, maxLength: 256 },
+          replayed: { type: "boolean" },
+        },
+        required: ["projection_version", "status", "receipt_revision_id", "artifact_revision_id", "content_digest", "media_type", "outcome", "safe_destination_label", "replayed"],
+      },
+    },
+    required: ["result_version", "state", "profile", "resume", "last_export_receipt"],
+  };
+}
+
 function acceptedActionJsonSchema(): Record<string, unknown> {
   return {
     type: "object",
@@ -538,6 +588,135 @@ describe("app-chat workspace session authority", () => {
       outcome: "completed",
     });
     expect(legacyExportBroker.finalize).not.toHaveBeenCalled();
+  });
+
+  it("returns current Profile, Resume, and export receipt state for no-arg resume.state.read", async () => {
+    const definitionRevisionId = randomUUID();
+    const definition = {
+      record_type: "resume_definition",
+      definition_kind: "general",
+      status: "approved",
+      metadata: {
+        revision: 2,
+        revision_id: definitionRevisionId,
+      },
+    };
+    const router = {
+      domain: {
+        store: {
+          recoveryLifecycleEvidence: () => null,
+          list: vi.fn(async (recordType: string) => recordType === "resume_definition" ? [definition] : []),
+        },
+      },
+      execute: vi.fn(async () => ({ definition, reused: false })),
+    } as unknown as ResumeCapabilityRouter;
+    const { host } = await setup({
+      requestedCapabilities: ["resume.definitions.write", "resume.operations.read", "resume.export.request"],
+      documents: resumePlannerDocuments(),
+      actions: [
+        {
+          action_version: 1,
+          action_id: "resume.create",
+          kind: "render",
+          title: "Create Resume",
+          description: "Create the current general Resume.",
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
+          confirmation: "owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.state.read",
+          kind: "inspect",
+          title: "Read Resume State",
+          description: "Read current Resume Builder workspace state.",
+          ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", emptyObjectSchema(), stateReadResultSchema()),
+          confirmation: "none",
+          idempotency_policy: "not_applicable",
+          model_exposure: "available",
+          required_capabilities: [{ name: "resume.operations.read", version: 1 }],
+          required_inference_purposes: [],
+        },
+      ],
+      router,
+      clientFactory: resumePlannerClientFactory,
+      exportBroker: {} as never,
+    });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    await host.writeAppDocument(launch.session.session_id, "resume.profile", {
+      expected_revision: null,
+      operation_id: randomUUID(),
+      idempotency_key: `state-profile-${randomUUID()}`,
+      media_type: "text/markdown",
+      content: "# Jordan Lee\n\n## Summary\nProduct leader.",
+    });
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-state-create",
+    }, "app_action_resume_create", {
+      action_input: {},
+      operation_id: randomUUID(),
+      idempotency_key: `state-create-${randomUUID()}`,
+    })).resolves.toMatchObject({ status: "ok" });
+    const bytes = Buffer.from("%PDF-1.4\n", "latin1");
+    const prepared = await host.requestAppExport({
+      request_version: 1,
+      operation_id: randomUUID(),
+      idempotency_key: `state-export-prepare-${randomUUID()}`,
+      source: { kind: "app_document", source_id: "resume.document" },
+      content_digest: digestText(bytes.toString("latin1")),
+      content_size_bytes: bytes.length,
+      retention_class: "durable_owner_data",
+      media_type: "application/pdf",
+      filename: "resume.pdf",
+      destination_intent: "new_download",
+      overwrite_confirmed: false,
+      owner_confirmed: true,
+      bytes_base64: bytes.toString("base64"),
+    }, "owner");
+    await host.finalizeOwnerExport({
+      artifact_revision_id: prepared.artifact.artifact_revision_id,
+      artifact_digest: prepared.artifact.content_digest,
+      safe_destination_label: "resume.pdf",
+      outcome: "completed",
+    }, randomUUID());
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-state-read",
+    }, "app_action_resume_state_read", {
+      action_input: {},
+      operation_id: randomUUID(),
+      idempotency_key: `state-read-${randomUUID()}`,
+    })).resolves.toMatchObject({
+      status: "ok",
+      output: {
+        action_id: "resume.state.read",
+        result: {
+          profile: { state: "current", revision: 1 },
+          resume: {
+            state: "current",
+            revision: 1,
+            status: "approved",
+            definition_revision_id: definitionRevisionId,
+          },
+          last_export_receipt: {
+            outcome: "completed",
+            safe_destination_label: "resume.pdf",
+            artifact_revision_id: prepared.artifact.artifact_revision_id,
+          },
+        },
+      },
+    });
+    expect(vi.mocked(router.execute)).toHaveBeenCalledWith("resume.definitions.write", expect.anything(), expect.anything());
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalledWith("resume.operations.read", expect.anything(), expect.anything());
   });
 
   it("rejects malformed model metadata before prompt or action assembly", () => {

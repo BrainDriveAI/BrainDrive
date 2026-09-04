@@ -80,7 +80,8 @@ import type {
   GatewayEngineRequest,
   InstallLocation,
   Preferences,
-  RuntimeConfig
+  RuntimeConfig,
+  ToolDefinition
 } from "../contracts.js";
 import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
@@ -179,6 +180,12 @@ const skillBindingUpdateSchema = z
   .object({
     skill_ids: z.array(z.string().trim().min(1)),
     source: z.enum(["ui", "slash", "nl", "api"]).optional(),
+  })
+  .strict();
+
+const conversationHostMessageSchema = z
+  .object({
+    content: z.string().trim().min(1).max(1_000),
   })
   .strict();
 
@@ -920,7 +927,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     }
     const finalPrompt = promptWithSkills.prompt + projectContext + (appChatModelContext?.prompt_context ?? "");
     const requestToolExecutor = appChatModelContext
-      ? new ToolExecutor([...tools, ...appChatModelContext.tools])
+      ? new ToolExecutor(selectMessageToolsForRequest(tools, appChatModelContext.tools))
       : toolExecutor;
 
     const correlationId = crypto.randomUUID();
@@ -1194,6 +1201,51 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     }
 
     return detail;
+  });
+
+  app.post("/conversations/host-messages", async (request, reply) => {
+    const parsed = conversationHostMessageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/conversations/host-messages", parsed.error.issues.length);
+      return;
+    }
+
+    const { conversationId, message } = conversations.createHostConversation(parsed.data.content);
+    reply.send({
+      conversation_id: conversationId,
+      message_id: message.id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+    });
+  });
+
+  app.post("/conversations/:id/host-messages", async (request, reply) => {
+    const params = request.params as { id: string };
+    const parsed = conversationHostMessageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/conversations/:id/host-messages", parsed.error.issues.length);
+      return;
+    }
+    if (!conversations.hasConversation(params.id)) {
+      auditLog("contract.error", {
+        route: "/conversations/:id/host-messages",
+        status: 404,
+        reason: "conversation_not_found",
+        conversation_id: params.id,
+      });
+      reply.code(404).send({ error: "Conversation not found" });
+      return;
+    }
+
+    const message = conversations.appendHostMessage(params.id, parsed.data.content);
+    reply.send({
+      conversation_id: params.id,
+      message_id: message.id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+    });
   });
 
   app.get("/conversations/:id/skills", async (request, reply) => {
@@ -4505,6 +4557,13 @@ export function createBrainDriveMemorySafetyGuard(
   void projectId;
   void conversation;
   return () => null;
+}
+
+export function selectMessageToolsForRequest(
+  baseTools: ToolDefinition[],
+  appChatTools: ToolDefinition[] | null,
+): ToolDefinition[] {
+  return appChatTools ? appChatTools : baseTools;
 }
 
 async function resolveAppChatModelContextForMessage(
