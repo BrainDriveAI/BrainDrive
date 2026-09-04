@@ -134,7 +134,7 @@ function appChatConversationStorageKey(appKey: string, launch: AppChatWorkspaceL
 function readStoredAppChatConversationId(storageKey: string): string | null {
   if (typeof window === "undefined") return null;
   try {
-    const value = window.sessionStorage.getItem(storageKey);
+    const value = window.localStorage.getItem(storageKey) ?? window.sessionStorage.getItem(storageKey);
     return value && value.trim().length > 0 ? value : null;
   } catch {
     return null;
@@ -144,9 +144,10 @@ function readStoredAppChatConversationId(storageKey: string): string | null {
 function writeStoredAppChatConversationId(storageKey: string, conversationId: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(storageKey, conversationId);
+    window.localStorage.setItem(storageKey, conversationId);
+    window.sessionStorage.removeItem(storageKey);
   } catch {
-    // Chat persistence is best-effort; the gateway conversation remains durable.
+    // Only the opaque pointer is cached here; the gateway conversation remains durable.
   }
 }
 
@@ -172,6 +173,16 @@ export function extractPreparedAppChatExport(output: unknown): AppChatPreparedEx
   } catch {
     return null;
   }
+}
+
+export function resumePdfLocationAnswer(message: string, safeDestinationLabel: string | null): string | null {
+  if (!safeDestinationLabel) return null;
+  const normalized = message.toLowerCase();
+  const referencesPdfExport = normalized.includes("export pdf") || (normalized.includes("pdf") && normalized.includes("export"));
+  const saysClicked = /\b(click|clicked|tap|tapped|press|pressed|choose|chose|select|selected)\b/.test(normalized);
+  const asksLocation = /\b(where|find|located|saved|download|downloads|file)\b/.test(normalized);
+  if (!referencesPdfExport || !saysClicked || !asksLocation) return null;
+  return `BrainDrive downloaded ${safeDestinationLabel} through your browser or desktop download flow. Check your browser's Downloads list or your computer's Downloads folder. Resume Builder is not given a filesystem path.`;
 }
 
 export function buildAppChatMessageMetadata(launch: AppChatWorkspaceLaunch): Record<string, unknown> {
@@ -215,6 +226,7 @@ export default function AppChatWorkspace({
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [queuedChatMessage, setQueuedChatMessage] = useState<{ id: string; content: string } | null>(null);
   const [exportNotice, setExportNotice] = useState<{ tone: "info" | "success" | "error"; message: string } | null>(null);
+  const [lastCompletedExportLabel, setLastCompletedExportLabel] = useState<string | null>(null);
   const activeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const navButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const closedSessionIdsRef = useRef(new Set<string>());
@@ -397,6 +409,7 @@ export default function AppChatWorkspace({
         // The file is already saved; receipt recording must not be reported as a failed download.
       }
       setExportNotice({ tone: "success", message: `Downloaded ${safeDestinationLabel}.` });
+      setLastCompletedExportLabel(safeDestinationLabel);
       exportStatusByIdRef.current.set(exportKey, "completed");
       return "completed";
     } catch (downloadError) {
@@ -412,6 +425,7 @@ export default function AppChatWorkspace({
         tone: cancelled ? "info" : "error",
         message: cancelled ? "Export was cancelled." : "BrainDrive could not download the export.",
       });
+      setLastCompletedExportLabel(null);
       exportStatusByIdRef.current.set(exportKey, result);
       return result;
     } finally {
@@ -463,6 +477,7 @@ export default function AppChatWorkspace({
       isEmpty={activeConversationId === null}
       onConversationComplete={handleConversationComplete}
       messageMetadata={messageMetadata}
+      localResponseForMessage={(message) => resumePdfLocationAnswer(message, lastCompletedExportLabel)}
       emptyStateIntro={emptyStateIntro}
       contentOverride={isConversation ? undefined : (
         <WorkspaceDetail

@@ -72,6 +72,7 @@ type UseGatewayChatOptions = {
   initialMessages?: Message[];
   draftKey?: string | null;
   onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
+  localResponseForMessage?: (content: string) => string | null;
 };
 
 type AppendOptions = {
@@ -129,6 +130,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
   const streamEventHandlerRef = useRef(options.onStreamEvent);
+  const localResponseForMessageRef = useRef(options.localResponseForMessage);
 
   useEffect(() => {
     projectIdRef.current = externalProjectId;
@@ -137,6 +139,10 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   useEffect(() => {
     streamEventHandlerRef.current = options.onStreamEvent;
   }, [options.onStreamEvent]);
+
+  useEffect(() => {
+    localResponseForMessageRef.current = options.localResponseForMessage;
+  }, [options.localResponseForMessage]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -311,6 +317,35 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     }
 
     const echoUserMessage = options?.echoUserMessage ?? true;
+    const localResponse = localResponseForMessageRef.current?.(trimmed) ?? null;
+    if (localResponse !== null) {
+      const userMessage: Message = {
+        id: nextMessageId(),
+        role: "user",
+        content: trimmed,
+      };
+      const assistantMessage: Message = {
+        id: nextMessageId(),
+        role: "assistant",
+        content: localResponse,
+      };
+
+      requestTokenRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      backgroundStreams.delete(cacheKeyRef.current);
+
+      setError(null);
+      setErrorCode(null);
+      setIsLoading(false);
+      setToolStatus(null);
+      setPendingApprovals([]);
+      setActivity([]);
+      setContextWindowWarning(null);
+      setMessages((current) => echoUserMessage ? [...current, userMessage, assistantMessage] : [...current, assistantMessage]);
+      return;
+    }
+
     const slashCommand = parseSlashSkillCommand(trimmed);
     if (slashCommand) {
       const userMessage: Message = {
@@ -447,6 +482,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       }
 
       const pendingToolCalls = new Map<string, string>();
+      let shouldSeparateNextAssistantDelta = false;
 
       try {
         for await (const event of sendMessage(conversationIdRef.current, trimmed, {
@@ -485,48 +521,32 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
           switch (event.type) {
             case "text-delta":
+              {
+                const separateAssistantDelta = shouldSeparateNextAssistantDelta;
+                shouldSeparateNextAssistantDelta = false;
               if (isActive()) {
                 setToolStatus(null);
                 setMessages((current) => {
-                  const assistantIndex = current.findIndex(
-                    (message) => message.id === assistantMessageId
-                  );
-
-                  if (assistantIndex === -1) {
-                    return [
-                      ...current,
-                      {
-                        id: assistantMessageId,
-                        role: "assistant",
-                        content: event.delta
-                      }
-                    ];
-                  }
-
-                  return current.map((message) =>
-                    message.id === assistantMessageId
-                      ? { ...message, content: `${message.content}${event.delta}` }
-                      : message
+                  return appendAssistantDelta(
+                    current,
+                    assistantMessageId,
+                    event.delta,
+                    separateAssistantDelta
                   );
                 });
               } else {
                 updateBackground((bg) => {
-                  const existing = bg.messages.find((m) => m.id === assistantMessageId);
-                  if (!existing) {
-                    return {
-                      toolStatus: null,
-                      messages: [...bg.messages, { id: assistantMessageId, role: "assistant" as const, content: event.delta }]
-                    };
-                  }
                   return {
                     toolStatus: null,
-                    messages: bg.messages.map((m) =>
-                      m.id === assistantMessageId
-                        ? { ...m, content: `${m.content}${event.delta}` }
-                        : m
+                    messages: appendAssistantDelta(
+                      bg.messages,
+                      assistantMessageId,
+                      event.delta,
+                      separateAssistantDelta
                     )
                   };
                 });
+              }
               }
               break;
             case "done":
@@ -563,6 +583,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               return;
             case "tool-call":
               pendingToolCalls.set(event.id, event.name);
+              shouldSeparateNextAssistantDelta = true;
               if (isActive()) {
                 setToolStatus(event.name ?? null);
               } else {
@@ -574,6 +595,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               });
               break;
             case "tool-result":
+              shouldSeparateNextAssistantDelta = true;
               recordActivity({
                 type: "tool-result",
                 message: `${humanizeToolName(pendingToolCalls.get(event.id) ?? event.id)}: ${event.status}`,
@@ -581,6 +603,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               });
               break;
             case "approval-request":
+              shouldSeparateNextAssistantDelta = true;
               addPendingApproval({
                 requestId: event.request_id,
                 toolName: event.tool_name,
@@ -617,6 +640,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               }
               break;
             case "approval-result":
+              shouldSeparateNextAssistantDelta = true;
               removePendingApproval(event.request_id);
               recordActivity({
                 type: "approval-result",
@@ -675,6 +699,44 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     stop,
     startNewConversation
   };
+}
+
+function appendAssistantDelta(
+  current: Message[],
+  assistantMessageId: string,
+  delta: string,
+  separateFromPrevious: boolean
+): Message[] {
+  const assistantIndex = current.findIndex((message) => message.id === assistantMessageId);
+
+  if (assistantIndex === -1) {
+    return [
+      ...current,
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: delta,
+      },
+    ];
+  }
+
+  return current.map((message) =>
+    message.id === assistantMessageId
+      ? { ...message, content: `${message.content}${formatAssistantDelta(message.content, delta, separateFromPrevious)}` }
+      : message
+  );
+}
+
+function formatAssistantDelta(currentContent: string, delta: string, separateFromPrevious: boolean): string {
+  if (!separateFromPrevious || currentContent.length === 0 || delta.length === 0) {
+    return delta;
+  }
+
+  if (/\s$/.test(currentContent) || /^\s/.test(delta) || /^[,.;:!?)]/.test(delta)) {
+    return delta;
+  }
+
+  return ` ${delta}`;
 }
 
 function appendActivity(current: ActivityEvent[], next: ActivityEvent): ActivityEvent[] {

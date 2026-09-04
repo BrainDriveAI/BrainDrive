@@ -6,6 +6,7 @@ import type { PromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { ApprovalStore } from "./approval-store.js";
 import { runAgentLoop } from "./loop.js";
 import { ToolExecutor } from "./tool-executor.js";
+import { ToolExecutionFailure } from "../tool-error.js";
 
 const ownerAuth: AuthContext = {
   actorId: "owner",
@@ -453,6 +454,81 @@ describe("runAgentLoop", () => {
       },
     ]);
     expect(calls).toBe(2);
+  });
+
+  it("returns a plain-language fallback after repeated invalid tool input", async () => {
+    let calls = 0;
+    const adapter: ModelAdapter = {
+      async complete() {
+        calls += 1;
+        return {
+          assistantText: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: `call-${calls}`,
+              name: "profile_update",
+              input: { malformed: calls },
+            },
+          ],
+        };
+      },
+    };
+    const executor = new ToolExecutor([
+      {
+        name: "profile_update",
+        description: "Update profile",
+        requiresApproval: false,
+        readOnly: false,
+        inputSchema: { type: "object" },
+        execute: async () => {
+          throw new ToolExecutionFailure("invalid_input", "Profile update input failed schema validation", true);
+        },
+      },
+    ]);
+
+    const events = await collectEvents(adapter, { executor });
+
+    expect(calls).toBe(3);
+    expect(events.filter((event) => event.type === "tool-result")).toHaveLength(3);
+    expect(events.at(-2)).toEqual({
+      type: "text-delta",
+      delta: "I couldn't complete that action because the model kept sending invalid tool input. Please try again, or rephrase the request if it keeps happening.",
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      finish_reason: "tool_input_invalid",
+    });
+  });
+
+  it("passes the request abort signal into model calls", async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const adapter: ModelAdapter = {
+      async complete(_nextRequest, _tools, options) {
+        observedSignal = options?.signal;
+        return {
+          assistantText: "Observed signal.",
+          finishReason: "completed",
+          toolCalls: [],
+        };
+      },
+    };
+
+    const events: StreamEvent[] = [];
+    for await (const event of runAgentLoop(
+      adapter,
+      new ToolExecutor([]),
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      { memoryRoot: "/tmp/brain", signal: controller.signal }
+    )) {
+      events.push(event);
+    }
+
+    expect(observedSignal).toBe(controller.signal);
+    expect(events.at(-1)).toMatchObject({ type: "done" });
   });
 
   it("records every model request and response during a tool loop", async () => {

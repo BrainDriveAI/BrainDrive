@@ -149,23 +149,10 @@ function resumeCreateInputSchema(): Record<string, unknown> {
     type: "object",
     additionalProperties: false,
     properties: {
-      title: { type: "string", minLength: 1, maxLength: 160 },
-      resume_markdown: { type: "string", minLength: 1, maxLength: 65536 },
-      sections: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            section_id: { type: "string", minLength: 1, maxLength: 64 },
-            statements: { type: "array", items: { type: "string", minLength: 1, maxLength: 2048 }, maxItems: 24 },
-          },
-          required: ["section_id", "statements"],
-        },
-        maxItems: 16,
-      },
+      locale: { type: "string", minLength: 2, maxLength: 35 },
+      page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
     },
-    required: ["title"],
+    required: [],
   };
 }
 
@@ -1661,21 +1648,8 @@ describe("app-chat workspace session authority", () => {
       completed_topics: ["direction", "experience"],
       current_topic: null,
     };
-    const createInput = {
-      title: "Maya Torres - Director of Product Operations",
-      resume_markdown: [
-        "# Maya Torres - Director of Product Operations",
-        "",
-        "## Summary",
-        "Product operations leader for scaling SaaS teams.",
-        "",
-        "## Experience",
-        "- Reduced launch slips by 38% across six product squads.",
-      ].join("\n"),
-    };
-
     expect(model.prompt_context).toContain("profile_markdown");
-    expect(model.prompt_context).toContain("resume_markdown");
+    expect(model.prompt_context).not.toContain("resume_markdown");
 
     await expect(executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
@@ -1700,7 +1674,7 @@ describe("app-chat workspace session authority", () => {
       auth: ownerAuth,
       correlationId: "rbjc-dispatch",
     }, "app_action_resume_create", {
-      action_input: createInput,
+      action_input: {},
       operation_id: createOperationId,
       idempotency_key: `rbjc-dispatch-${createOperationId}`,
     })).resolves.toMatchObject({ status: "ok" });
@@ -1725,7 +1699,7 @@ describe("app-chat workspace session authority", () => {
         status: "proposed",
         template_id: "resume.single-column",
         statements: expect.arrayContaining([
-          expect.objectContaining({ section_id: "experience", display_role: "bullet", text: "Reduced launch slips by 38% across six product squads." }),
+          expect.objectContaining({ section_id: "summary", display_role: "line", text: "Maya Torres profile" }),
         ]),
       }),
       expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),

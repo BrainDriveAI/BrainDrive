@@ -140,6 +140,39 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     });
   });
 
+  it("passes the chat abort signal to streaming provider fetch", async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        observedSignal = (init?.signal as AbortSignal | undefined) ?? null;
+        return new Response(
+          new ReadableStream({
+            start(streamController) {
+              const encoder = new TextEncoder();
+              streamController.enqueue(encoder.encode("data: [DONE]\n\n"));
+              streamController.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+
+    for await (const _chunk of adapter.completeStream!(request, tools, { signal: controller.signal })) {
+      // Drain stream.
+    }
+
+    expect(observedSignal).toBe(controller.signal);
+  });
+
   it("uses a dedicated no-tools structured body and keeps credentials out of it", async () => {
     let sentBody: Record<string, unknown> | null = null;
     let authorization = "";

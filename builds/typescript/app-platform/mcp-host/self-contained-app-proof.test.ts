@@ -177,17 +177,19 @@ describe("SCAF-007 self-contained installed app proof", () => {
         current_topic: null,
       };
       const createOperationId = randomUUID();
-      const resumeActionInput = {
-        title: "Maya Torres - Director of Product Operations",
-        resume_markdown: [
-          "# Maya Torres - Director of Product Operations",
-          "",
-          "## Experience",
-          "- Reduced launch slips by 38% across six product squads.",
-        ].join("\n"),
-        locale: "en-US",
-        page_intent: "one_page",
-      };
+      const resumeCreateTool = model.tools.find((tool) => tool.name === "app_action_resume_create");
+      expect(resumeCreateTool?.inputSchema).toMatchObject({
+        properties: {
+          action_input: {
+            required: [],
+            properties: {
+              locale: { type: "string" },
+              page_intent: { type: "string" },
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(resumeCreateTool?.inputSchema)).not.toContain("resume_markdown");
 
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_read", {
         action_input: {},
@@ -216,7 +218,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         idempotency_key: `scaf-007-profile-action-${profileOperationId}`,
       })).resolves.toMatchObject({ status: "ok" });
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
-        action_input: resumeActionInput,
+        action_input: {},
         operation_id: createOperationId,
         idempotency_key: `scaf-007-resume-create-${createOperationId}`,
       })).resolves.toMatchObject({
@@ -252,17 +254,17 @@ describe("SCAF-007 self-contained installed app proof", () => {
         expect.objectContaining({
           definition_kind: "general",
           status: "proposed",
-          title: "Maya Torres - Director of Product Operations",
+          title: "Maya Torres",
           statements: expect.arrayContaining([
             expect.objectContaining({
-              section_id: "experience",
+              section_id: "summary",
               kind: "presentation",
-              display_role: "bullet",
-              text: "Reduced launch slips by 38% across six product squads.",
+              display_role: "line",
+              text: "Product operations leader with launch and process improvement experience.",
               supporting_confirmed_fact_revision_ids: [],
             }),
           ]),
-          section_order: ["experience"],
+          section_order: ["summary"],
           presentation_preferences: {},
           locale: "en-US",
           page_intent: "one_page",

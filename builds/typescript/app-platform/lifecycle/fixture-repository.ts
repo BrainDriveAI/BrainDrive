@@ -301,6 +301,17 @@ const RESUME_CHAT_INITIAL_DOCUMENT_FILES = {
   },
 } as const;
 
+const RESUME_CHAT_BINARY_RESOURCE_FILES = [
+  {
+    packagePath: "payload/docker/fonts/Questrial-Regular.ttf",
+    fileName: "fonts/Questrial-Regular.ttf",
+  },
+  {
+    packagePath: "payload/docker/fonts/Montserrat-Bold.ttf",
+    fileName: "fonts/Montserrat-Bold.ttf",
+  },
+] as const;
+
 function loadResumeBuilderResource(fileName: string): Buffer {
   const candidates = [
     path.resolve(process.cwd(), "../resume_builder/resources", fileName),
@@ -310,6 +321,17 @@ function loadResumeBuilderResource(fileName: string): Buffer {
   const resourcePath = candidates.find((candidate) => existsSync(candidate));
   if (!resourcePath) throw new Error(`Resume Builder package resource is missing: ${fileName}`);
   return Buffer.from(readFileSync(resourcePath, "utf8"), "utf8");
+}
+
+function loadResumeBuilderBinaryResource(fileName: string): Buffer {
+  const candidates = [
+    path.resolve(process.cwd(), "../resume_builder/resources", fileName),
+    fileURLToPath(new URL(`../../../resume_builder/resources/${fileName}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../../resume_builder/resources/${fileName}`, import.meta.url)),
+  ];
+  const resourcePath = candidates.find((candidate) => existsSync(candidate));
+  if (!resourcePath) throw new Error(`Resume Builder package resource is missing: ${fileName}`);
+  return readFileSync(resourcePath);
 }
 
 function emptyActionSchema(): Record<string, unknown> {
@@ -490,27 +512,10 @@ function resumeCreateInputSchema(): Record<string, unknown> {
     type: "object",
     additionalProperties: false,
     properties: {
-      title: { type: "string", minLength: 1, maxLength: 256 },
-      resume_markdown: { type: "string", minLength: 1, maxLength: 262144 },
-      sections: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            section_id: { type: "string", minLength: 1, maxLength: 128 },
-            title: { type: "string", minLength: 1, maxLength: 128 },
-            statements: { type: "array", items: { type: "string", minLength: 1, maxLength: 8192 }, minItems: 1, maxItems: 64 },
-          },
-          required: ["statements"],
-        },
-        minItems: 1,
-        maxItems: 64,
-      },
       locale: { type: "string", minLength: 2, maxLength: 35 },
       page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
     },
-    required: ["resume_markdown"],
+    required: [],
   };
 }
 
@@ -1124,6 +1129,7 @@ async function loadOrCreateFixtureSource(
     ? new Map([
       ...RESUME_CHAT_RESOURCE_FILES.map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]),
       ...Object.values(RESUME_CHAT_INITIAL_DOCUMENT_FILES).map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]),
+      ...RESUME_CHAT_BINARY_RESOURCE_FILES.map((resource) => [resource.packagePath, loadResumeBuilderBinaryResource(resource.fileName)] as [string, Buffer]),
     ])
     : null;
   const publishedAt = new Date().toISOString();
