@@ -571,7 +571,7 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
       error_code: availabilityError?.code ?? (record.state === "quarantined" ? "package_revoked" : null),
       safe_message: availabilityError ? unavailablePackageMessage(availabilityError.code) : record.state === "quarantined" ? unavailablePackageMessage("package_revoked") : null,
     },
-    available_actions: lifecycleActions(record.state, descriptor.packageVersion, availableVersion, packageUsable),
+    available_actions: lifecycleActions(record.state, descriptor.packageVersion, availableVersion, packageUsable, record.active_package_digest, availablePackage?.packageDigest ?? null),
     updated_at: record.updated_at,
   };
 }
@@ -611,11 +611,12 @@ function retentionProjection(manifest: RuntimePackageManifest | undefined): {
   };
 }
 
-function lifecycleActions(state: string, installed: string | null, available: string | null, packageUsable: boolean): string[] {
+function lifecycleActions(state: string, installed: string | null, available: string | null, packageUsable: boolean, installedDigest: string | null, availableDigest: string | null): string[] {
+  const packageChanged = Boolean(available && (installed !== available || (installedDigest && availableDigest && installedDigest !== availableDigest)));
   if (state === "not_installed") return packageUsable ? ["install"] : [];
   if (state === "failed_recoverable") {
     return [
-      ...(packageUsable && available && installed !== available ? ["update"] : []),
+      ...(packageUsable && packageChanged ? ["update"] : []),
       ...(packageUsable ? ["recover"] : []),
       "uninstall",
     ];
@@ -623,7 +624,7 @@ function lifecycleActions(state: string, installed: string | null, available: st
   const actions = state === "active" ? [...(packageUsable ? ["launch"] : []), "disable", "uninstall"]
     : state === "disabled" ? [...(packageUsable ? ["enable"] : []), "uninstall"]
     : state === "quarantined" ? ["uninstall"] : [];
-  if (packageUsable && available && ["active", "disabled"].includes(state) && installed !== available) actions.push("update");
+  if (packageUsable && ["active", "disabled"].includes(state) && packageChanged) actions.push("update");
   return actions;
 }
 

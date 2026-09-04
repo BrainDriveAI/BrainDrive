@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { inflateSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
@@ -26,6 +27,40 @@ import {
   resumeCreateInputSchema,
   type DurableWorkflowSnapshot,
 } from "../src/index.js";
+
+const MCP_AUTHORITY_ENVELOPE_BYTES = 262_144;
+
+function inflatedPdfText(pdfBytes: Buffer): string {
+  const source = pdfBytes.toString("latin1");
+  const streams: string[] = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const streamStart = source.indexOf("stream\n", cursor);
+    if (streamStart === -1) break;
+    const dataStart = streamStart + "stream\n".length;
+    const dataEnd = source.indexOf("\nendstream", dataStart);
+    if (dataEnd === -1) break;
+    const objectStart = source.lastIndexOf("<<", streamStart);
+    const dictionary = objectStart >= 0 ? source.slice(objectStart, streamStart) : "";
+    if (dictionary.includes("/Filter /FlateDecode")) {
+      const inflated = inflateSync(pdfBytes.subarray(dataStart, dataEnd)).toString("utf8");
+      if (inflated.includes(" Tj")) {
+        streams.push(inflated);
+      }
+    }
+    cursor = dataEnd + "\nendstream".length;
+  }
+  return streams.join("\n");
+}
+
+function decodedPdfTextRuns(pdfBytes: Buffer): string {
+  const inflated = inflatedPdfText(pdfBytes);
+  const runs: string[] = [];
+  for (const match of inflated.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+    runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
+  }
+  return runs.join("\n");
+}
 
 function snapshot(overrides: Partial<DurableWorkflowSnapshot> = {}): DurableWorkflowSnapshot {
   return {
@@ -565,6 +600,55 @@ describe("Resume Builder chat workspace contract", () => {
     expect(Buffer.from(String(plan.steps[0].bytes_base64), "base64").subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
   });
 
+  it("can plan PDF export with a runtime bytes reference instead of inline PDF bytes", () => {
+    const operationId = crypto.randomUUID();
+    let storedBytes: Buffer | null = null;
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", safe_filename: "maya-torres", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.",
+      }],
+    }, {
+      exportByteDelivery: "runtime_reference",
+      createExportBytesReference: ({ bytes, contentDigest, contentSizeBytes }) => {
+        storedBytes = bytes;
+        expect(contentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+        expect(contentSizeBytes).toBe(bytes.length);
+        return "47efb901-eab8-49d1-a185-3f6e8a5f4056";
+      },
+    });
+
+    expect(plan.steps[0]).toMatchObject({
+      step_id: "prepare-pdf-export",
+      type: "export.prepare",
+      content_size_bytes: storedBytes?.length,
+      bytes_reference: {
+        kind: "runtime_http",
+        export_id: "47efb901-eab8-49d1-a185-3f6e8a5f4056",
+      },
+    });
+    expect(plan.steps[0]).not.toHaveProperty("bytes_base64");
+    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
+    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(8_192);
+    expect(storedBytes?.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
+  });
+
   it("renders PDF export with the same resume preview markdown semantics", () => {
     const operationId = crypto.randomUUID();
     const plan = planResumeAction({
@@ -592,22 +676,39 @@ describe("Resume Builder chat workspace contract", () => {
           "Columbus, Ohio | maya.hart@example.test | 614-555-0192",
           "",
           "## Professional Summary",
-          "Customer experience operations manager leading support and success teams.",
+          "Customer experience operations manager leading support and success teams across six product squads, with a track record of reducing launch slips and improving retention.",
           "",
           "## Experience",
-          "**Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
           "- Reduced first response time from 11 hours to 2.5 hours",
+          "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
+          "",
+          "## Education",
+          "B.A. Communications, Ohio State University 2014",
         ].join("\n"),
       }],
     });
 
     const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
     const pdf = pdfBytes.toString("latin1");
+    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
+    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(MCP_AUTHORITY_ENVELOPE_BYTES);
     expect(plan.steps[0].content_size_bytes).toBe(pdfBytes.length);
     expect(pdfBytes.length).toBeLessThan(1_048_576);
     expect(pdf).toContain("/Filter /FlateDecode");
     expect(pdf).toContain("/FontFile2");
-    expect(pdf).toContain("/BaseFont /Montserrat-Bold");
+    expect(pdf).toContain("/BaseFont /LiberationSans-Regular");
+    expect(pdf).toContain("/BaseFont /LiberationSans-Bold");
+    expect(pdf).toContain("/W [");
+    expect(pdf).toContain("77 [833]");
+    expect(pdf).toContain("87 [944]");
+    expect(pdf).toContain("105 [222]");
+    expect(pdf).toContain("108 [222]");
+    expect(pdf).toContain("8226 [350]");
+    expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
+    const decoded = decodedPdfTextRuns(pdfBytes);
+    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");
     expect(pdf).not.toContain("/Subtype /Type1");

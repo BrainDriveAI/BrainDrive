@@ -1,3 +1,5 @@
+import { inflateSync } from "node:zlib";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,6 +12,40 @@ import {
   prepareResumeGeneralDraft,
 } from "../resources/inference-program.js";
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
+
+const MCP_AUTHORITY_ENVELOPE_BYTES = 262_144;
+
+function inflatedPdfText(pdfBytes: Buffer): string {
+  const source = pdfBytes.toString("latin1");
+  const streams: string[] = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const streamStart = source.indexOf("stream\n", cursor);
+    if (streamStart === -1) break;
+    const dataStart = streamStart + "stream\n".length;
+    const dataEnd = source.indexOf("\nendstream", dataStart);
+    if (dataEnd === -1) break;
+    const objectStart = source.lastIndexOf("<<", streamStart);
+    const dictionary = objectStart >= 0 ? source.slice(objectStart, streamStart) : "";
+    if (dictionary.includes("/Filter /FlateDecode")) {
+      const inflated = inflateSync(pdfBytes.subarray(dataStart, dataEnd)).toString("utf8");
+      if (inflated.includes(" Tj")) {
+        streams.push(inflated);
+      }
+    }
+    cursor = dataEnd + "\nendstream".length;
+  }
+  return streams.join("\n");
+}
+
+function decodedPdfTextRuns(pdfBytes: Buffer): string {
+  const inflated = inflatedPdfText(pdfBytes);
+  const runs: string[] = [];
+  for (const match of inflated.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+    runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
+  }
+  return runs.join("\n");
+}
 
 const jobId = "10000000-0000-4000-8000-000000000001";
 const evidenceId = "10000000-0000-4000-8000-000000000002";
@@ -238,12 +274,16 @@ describe("Resume Builder-owned General draft inference program", () => {
           "",
           "## Professional Summary",
           "",
-          "Customer experience operations manager leading support and success teams.",
+          "Customer experience operations manager leading support and success teams across six product squads, with a track record of reducing launch slips and improving retention.",
           "",
           "## Experience",
           "",
-          "**Customer Experience Operations Manager** | Northstar Cloud | Columbus, OH | January 2022 - Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
           "- Leads customer experience operations for an 18-person support and success organization using Zendesk, Looker, Jira, Confluence, and Google Sheets",
+          "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
+          "",
+          "## Education",
+          "B.A. Communications, Ohio State University 2014",
         ].join("\n"),
       }],
     });
@@ -251,16 +291,74 @@ describe("Resume Builder-owned General draft inference program", () => {
     const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string; content_size_bytes?: number } | undefined;
     const pdfBytes = Buffer.from(exportStep?.bytes_base64 ?? "", "base64");
     const pdf = pdfBytes.toString("latin1");
+    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
+    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(MCP_AUTHORITY_ENVELOPE_BYTES);
     expect(exportStep?.content_size_bytes).toBe(pdfBytes.length);
     expect(pdfBytes.length).toBeLessThan(1_048_576);
     expect(pdf).toContain("/Filter /FlateDecode");
     expect(pdf).toContain("/FontFile2");
-    expect(pdf).toContain("/Montserrat-Bold");
+    expect(pdf).toContain("/LiberationSans-Regular");
+    expect(pdf).toContain("/LiberationSans-Bold");
+    expect(pdf).toContain("/W [");
+    expect(pdf).toContain("77 [833]");
+    expect(pdf).toContain("87 [944]");
+    expect(pdf).toContain("105 [222]");
+    expect(pdf).toContain("108 [222]");
+    expect(pdf).toContain("8226 [350]");
+    expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
+    const decoded = decodedPdfTextRuns(pdfBytes);
+    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");
     expect(pdf).not.toContain("/Subtype /Type1");
     expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("runtime PDF export can return a runtime bytes reference", () => {
+    const operationId = crypto.randomUUID();
+    let storedBytes: Buffer | null = null;
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Maya-Hart-Resume.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: "# Maya Hart\n\n## Experience\n- Built a 14-person support organization; William Wilmington, MMWW iiill.",
+      }],
+    }, {
+      exportByteDelivery: "runtime_reference",
+      createExportBytesReference: ({ bytes, contentDigest, contentSizeBytes }: any) => {
+        storedBytes = bytes;
+        expect(contentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+        expect(contentSizeBytes).toBe(bytes.length);
+        return "47efb901-eab8-49d1-a185-3f6e8a5f4056";
+      },
+    });
+
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string; bytes_reference?: unknown; content_size_bytes?: number } | undefined;
+    expect(exportStep).toMatchObject({
+      bytes_reference: {
+        kind: "runtime_http",
+        export_id: "47efb901-eab8-49d1-a185-3f6e8a5f4056",
+      },
+      content_size_bytes: storedBytes?.length,
+    });
+    expect(exportStep).not.toHaveProperty("bytes_base64");
+    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
+    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(8_192);
+    expect(storedBytes?.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
   });
 
   it("runtime PDF export blocks the empty Resume placeholder", () => {

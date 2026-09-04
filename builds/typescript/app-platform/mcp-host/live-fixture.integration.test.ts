@@ -368,6 +368,72 @@ describe("live signed modern MCP Apps fixture", () => {
     }
   });
 
+  it("executes Resume PDF export through a runtime bytes reference", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-export-reference-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    try {
+      await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-export-reference-install", approveCapabilities: true });
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, {
+        capabilityRouter: {
+          domain: { store: { recoveryLifecycleEvidence: () => null } },
+          execute: vi.fn(async () => ({ status: "ok" })),
+        } as any,
+      }));
+      const launch = await host.launchChatWorkspace();
+      await host.readAppDocument(launch.session.session_id, "resume.profile");
+      await host.writeAppDocument(launch.session.session_id, "resume.profile", {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-export-reference-profile-write",
+        expected_revision: 1,
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya.hart@example.test | 614-555-0192",
+          "",
+          "## Experience",
+          "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
+          "- Managed $2.4M annual tooling budget with a 12% underspend.",
+        ].join("\n"),
+      });
+      await host.executeAppChatAction(launch.session.session_id, "resume.create", {
+        action_input: {},
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-export-reference-create-resume",
+        owner_confirmed: true,
+      }, "owner");
+
+      const exported = await host.executeAppChatAction(launch.session.session_id, "resume.export.pdf.request", {
+        action_input: { format: "pdf", safe_filename: "maya-hart", destination_intent: "new_download" },
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-export-reference-export-pdf",
+        owner_confirmed: true,
+      }, "owner");
+      const result = exported.result as {
+        status: string;
+        filename: string;
+        media_type: string;
+        bytes_base64: string;
+        artifact: { content_size_bytes: number; content_digest: string; media_type: string };
+      };
+      const bytes = Buffer.from(result.bytes_base64, "base64");
+
+      expect(result).toMatchObject({
+        status: "prepared",
+        filename: "maya-hart.pdf",
+        media_type: "application/pdf",
+        artifact: {
+          content_size_bytes: bytes.length,
+          media_type: "application/pdf",
+        },
+      });
+      expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
+      expect(result.artifact.content_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(JSON.stringify(exported)).not.toContain("bytes_reference");
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  });
+
   it("executes the Resume-owned General program inside the signed app process while hiding its private tools", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-program-")); roots.push(root);
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });

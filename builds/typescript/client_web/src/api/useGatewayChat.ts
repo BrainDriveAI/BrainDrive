@@ -72,7 +72,6 @@ type UseGatewayChatOptions = {
   initialMessages?: Message[];
   draftKey?: string | null;
   onStreamEvent?: (event: ChatEvent) => void | Promise<void>;
-  localResponseForMessage?: (content: string) => string | null;
 };
 
 type AppendOptions = {
@@ -130,7 +129,6 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
   const streamEventHandlerRef = useRef(options.onStreamEvent);
-  const localResponseForMessageRef = useRef(options.localResponseForMessage);
 
   useEffect(() => {
     projectIdRef.current = externalProjectId;
@@ -139,10 +137,6 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   useEffect(() => {
     streamEventHandlerRef.current = options.onStreamEvent;
   }, [options.onStreamEvent]);
-
-  useEffect(() => {
-    localResponseForMessageRef.current = options.localResponseForMessage;
-  }, [options.localResponseForMessage]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -317,35 +311,6 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     }
 
     const echoUserMessage = options?.echoUserMessage ?? true;
-    const localResponse = localResponseForMessageRef.current?.(trimmed) ?? null;
-    if (localResponse !== null) {
-      const userMessage: Message = {
-        id: nextMessageId(),
-        role: "user",
-        content: trimmed,
-      };
-      const assistantMessage: Message = {
-        id: nextMessageId(),
-        role: "assistant",
-        content: localResponse,
-      };
-
-      requestTokenRef.current += 1;
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
-      backgroundStreams.delete(cacheKeyRef.current);
-
-      setError(null);
-      setErrorCode(null);
-      setIsLoading(false);
-      setToolStatus(null);
-      setPendingApprovals([]);
-      setActivity([]);
-      setContextWindowWarning(null);
-      setMessages((current) => echoUserMessage ? [...current, userMessage, assistantMessage] : [...current, assistantMessage]);
-      return;
-    }
-
     const slashCommand = parseSlashSkillCommand(trimmed);
     if (slashCommand) {
       const userMessage: Message = {

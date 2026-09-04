@@ -51,6 +51,13 @@ const ActionPlanDocumentReadStepSchema = z
   })
   .strict();
 
+export const RuntimeExportBytesReferenceSchema = z
+  .object({
+    kind: z.literal("runtime_http"),
+    export_id: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_.:@-]+$/),
+  })
+  .strict();
+
 const ActionPlanExportPrepareStepSchema = z
   .object({
     step_id: StepIdSchema,
@@ -68,9 +75,21 @@ const ActionPlanExportPrepareStepSchema = z
     filename: z.string().min(1).max(256).regex(/^[^/\\\u0000-\u001f\u007f]+$/),
     destination_intent: AppExportDestinationIntentSchema,
     overwrite_confirmed: z.boolean(),
-    bytes_base64: z.string().min(1).max(2_796_204).regex(/^[A-Za-z0-9+/]*={0,2}$/),
+    bytes_base64: z.string().min(1).max(2_796_204).regex(/^[A-Za-z0-9+/]*={0,2}$/).optional(),
+    bytes_reference: RuntimeExportBytesReferenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const hasInlineBytes = typeof value.bytes_base64 === "string";
+    const hasReference = Boolean(value.bytes_reference);
+    if (hasInlineBytes === hasReference) {
+      context.addIssue({
+        code: "custom",
+        path: ["bytes_base64"],
+        message: "export.prepare must include exactly one bytes source",
+      });
+    }
+  });
 
 export const AppActionPlanStepSchema = z.discriminatedUnion("type", [
   ActionPlanCapabilityStepSchema,
@@ -137,3 +156,4 @@ export const AppActionExecutionPlanSchema = z
 export type AppActionPlanRequest = z.infer<typeof AppActionPlanRequestSchema>;
 export type AppActionExecutionPlan = z.infer<typeof AppActionExecutionPlanSchema>;
 export type AppActionPlanStep = z.infer<typeof AppActionPlanStepSchema>;
+export type RuntimeExportBytesReference = z.infer<typeof RuntimeExportBytesReferenceSchema>;
