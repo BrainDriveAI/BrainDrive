@@ -1498,6 +1498,9 @@ export class ResumeAppHostAdapter {
     if (action.idempotency_policy === "required" && request.idempotencyKey.length < 16) {
       throw new AppPlatformError("invalid_input", "App action requires a stable idempotency key", 400);
     }
+    if (action.action_id === "resume.state.read" && isEmptyRecordInput(request.actionInput)) {
+      return this.readCurrentResumeChatState(session, descriptor.grant!);
+    }
     for (const capability of action.required_capabilities) {
       this.rememberChatAction(session.sessionId, session.installationId, capability.name, request.idempotencyKey);
     }
@@ -1556,6 +1559,50 @@ export class ResumeAppHostAdapter {
         this.forgetChatAction(session.sessionId, capability.name, request.idempotencyKey);
       }
     }
+  }
+
+  private async readCurrentResumeChatState(
+    session: AppChatSessionRecord,
+    grant: CapabilityGrant,
+  ): Promise<unknown> {
+    const storageAuthority = this.storageAuthority(session, grant);
+    const artifactAuthority = this.artifactAuthority(grant, session.installationId, session.packageDigest, session.lifecycleGeneration);
+    await this.documentStorage.initialize();
+    await this.documentStorage.bindActiveAuthority(storageAuthority);
+    const [profile, resume, receipt] = await Promise.all([
+      this.documentStorage.readDocument(storageAuthority, "resume.profile"),
+      this.documentStorage.readDocument(storageAuthority, "resume.document"),
+      this.artifactExports.latestReceipt(artifactAuthority),
+    ]);
+    const definitions = this.capabilityRouter
+      ? await this.capabilityRouter.domain.store.list("resume_definition", grant.record_scopes)
+      : [];
+    let currentGeneralDefinition: ResumeDefinitionProjectionRecord | null = null;
+    for (const definition of definitions) {
+      if (!isResumeDefinitionRecord(definition) || definition.definition_kind !== "general") continue;
+      if (!currentGeneralDefinition || compareResumeDefinitionPriority(definition, currentGeneralDefinition) < 0) {
+        currentGeneralDefinition = definition;
+      }
+    }
+    return {
+      result_version: 1,
+      state: "current",
+      profile: {
+        document_id: "resume.profile",
+        state: profile ? "current" : "missing",
+        revision: profile?.revision ?? null,
+        revision_id: profile?.revision_id ?? null,
+      },
+      resume: {
+        document_id: "resume.document",
+        state: resume ? "current" : "missing",
+        revision: resume?.revision ?? null,
+        revision_id: resume?.revision_id ?? null,
+        status: currentGeneralDefinition?.status ?? (resume ? "draft" : "missing"),
+        definition_revision_id: currentGeneralDefinition?.metadata.revision_id ?? null,
+      },
+      last_export_receipt: receipt,
+    };
   }
 
   private async planChatWorkspaceActionWithRuntime(
@@ -2027,6 +2074,37 @@ function appDocumentPromptText(content: unknown): string {
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isEmptyRecordInput(value: unknown): boolean {
+  return isRecordValue(value) && Object.keys(value).length === 0;
+}
+
+type ResumeDefinitionProjectionRecord = {
+  definition_kind: "general" | "targeted";
+  status: "draft" | "proposed" | "approved";
+  metadata: { revision: number; revision_id: string };
+};
+
+function isResumeDefinitionRecord(value: unknown): value is ResumeDefinitionProjectionRecord {
+  return isRecordValue(value)
+    && value.record_type === "resume_definition"
+    && (value.definition_kind === "general" || value.definition_kind === "targeted")
+    && (value.status === "draft" || value.status === "proposed" || value.status === "approved")
+    && isRecordValue(value.metadata)
+    && typeof value.metadata.revision === "number"
+    && typeof value.metadata.revision_id === "string";
+}
+
+function compareResumeDefinitionPriority(left: ResumeDefinitionProjectionRecord, right: ResumeDefinitionProjectionRecord): number {
+  const leftPriority = resumeDefinitionStatusPriority(left.status);
+  const rightPriority = resumeDefinitionStatusPriority(right.status);
+  if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+  return right.metadata.revision - left.metadata.revision;
+}
+
+function resumeDefinitionStatusPriority(status: ResumeDefinitionProjectionRecord["status"]): number {
+  return status === "approved" ? 3 : status === "proposed" ? 2 : 1;
 }
 
 function resumeOwnerConfirmationProjection(capability: AppDataCapability, input: unknown): { title: string; actionLabel: string } | null {

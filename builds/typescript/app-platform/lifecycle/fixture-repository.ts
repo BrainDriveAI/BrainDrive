@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.18" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.19" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -574,7 +574,57 @@ function stateReadInputSchema(): Record<string, unknown> {
     properties: {
       queried_operation_id: { type: "string", format: "uuid" },
     },
-    required: ["queried_operation_id"],
+    required: [],
+  };
+}
+
+function stateReadResultSchema(): Record<string, unknown> {
+  const documentStateSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      document_id: { type: "string", minLength: 1, maxLength: 128 },
+      state: { type: "string", enum: ["current", "missing"] },
+      revision: { type: ["number", "null"] },
+      revision_id: { type: ["string", "null"] },
+    },
+    required: ["document_id", "state", "revision", "revision_id"],
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      state: { type: "string", enum: ["current"] },
+      profile: documentStateSchema,
+      resume: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          ...documentStateSchema.properties,
+          status: { type: "string", enum: ["missing", "draft", "proposed", "approved"] },
+          definition_revision_id: { type: ["string", "null"] },
+        },
+        required: ["document_id", "state", "revision", "revision_id", "status", "definition_revision_id"],
+      },
+      last_export_receipt: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        properties: {
+          projection_version: { type: "number", enum: [1] },
+          status: { type: "string", enum: ["completed"] },
+          receipt_revision_id: { type: "string", format: "uuid" },
+          artifact_revision_id: { type: "string", format: "uuid" },
+          content_digest: { type: "string", minLength: 71, maxLength: 71 },
+          media_type: { type: "string", enum: ["application/pdf", "text/plain"] },
+          outcome: { type: "string", enum: ["completed", "cancelled", "failed"] },
+          safe_destination_label: { type: "string", minLength: 1, maxLength: 256 },
+          replayed: { type: "boolean" },
+        },
+        required: ["projection_version", "status", "receipt_revision_id", "artifact_revision_id", "content_digest", "media_type", "outcome", "safe_destination_label", "replayed"],
+      },
+    },
+    required: ["result_version", "state", "profile", "resume", "last_export_receipt"],
   };
 }
 
@@ -875,7 +925,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "inspect",
           title: "Read Resume Operation State",
           description: "Read Resume Builder operation state for recovery and convergence checks.",
-          ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", stateReadInputSchema()),
+          ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", stateReadInputSchema(), stateReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
           model_exposure: "available",

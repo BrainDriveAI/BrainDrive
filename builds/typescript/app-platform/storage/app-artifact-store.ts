@@ -184,6 +184,27 @@ export class AppArtifactStore {
     return AppSafeExportReceiptProjectionSchema.parse(record.value);
   }
 
+  async latestReceipt(authority: AppDocumentStorageAuthority): Promise<AppExportReceiptRecord | null> {
+    const parsedAuthority = AppDocumentStorageAuthoritySchema.parse(authority);
+    const root = this.receiptsRoot(parsedAuthority);
+    let names: string[];
+    try {
+      names = (await readdir(root)).filter((name) => name.endsWith(".json")).sort();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    let latest: AppExportReceiptRecord | null = null;
+    for (const name of names) {
+      const record = AppExportReceiptRecordSchema.parse(JSON.parse(await readFile(path.join(root, name), "utf8")));
+      if (!receiptMatchesAuthority(record, parsedAuthority)) continue;
+      if (!latest || record.exported_at.localeCompare(latest.exported_at) > 0) {
+        latest = record;
+      }
+    }
+    return latest;
+  }
+
   async listArtifactAudits(authority: AppDocumentStorageAuthority): Promise<Array<Record<string, unknown>>> {
     const parsedAuthority = AppDocumentStorageAuthoritySchema.parse(authority);
     const root = this.artifactsRoot(parsedAuthority);
@@ -352,7 +373,13 @@ function assertArtifactAuthority(record: AppArtifactRecord, authority: AppDocume
 }
 
 function assertReceiptAuthority(record: AppExportReceiptRecord, authority: AppDocumentStorageAuthority): void {
-  if (
+  if (!receiptMatchesAuthority(record, authority)) {
+    throw new AppPlatformError("denied", "App export receipt authority does not match the active storage binding", 403);
+  }
+}
+
+function receiptMatchesAuthority(record: AppExportReceiptRecord, authority: AppDocumentStorageAuthority): boolean {
+  return (
     record.owner_id !== authority.owner_id ||
     record.actor_id !== authority.actor_id ||
     record.app_id !== authority.app_id ||
@@ -363,9 +390,7 @@ function assertReceiptAuthority(record: AppExportReceiptRecord, authority: AppDo
     record.grant_id !== authority.grant_id ||
     record.grant_revision !== authority.grant_revision ||
     record.revocation_generation !== authority.revocation_generation
-  ) {
-    throw new AppPlatformError("denied", "App export receipt authority does not match the active storage binding", 403);
-  }
+  ) === false;
 }
 
 function hashSegment(value: string): string {

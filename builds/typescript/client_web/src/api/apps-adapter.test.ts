@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, AppDocumentError, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability, finalizeResumeBuilderExport, getApp, getAppCatalog, hasInternetSearchDependency, isInternetSearchOperationId, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, AppDocumentError, appendConversationHostMessage, callAppCapability, callInternetSearchCapability, closeAppSession, discoverInternetSearchCapability, finalizeResumeBuilderExport, getApp, getAppCatalog, hasInternetSearchDependency, isInternetSearchOperationId, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceDocument, readAppChatWorkspaceResource, readAppChatWorkspaceSession, runRetainedAppDataAction, sendAppAppsBridgeMessage, sendAppBridgeMessage, writeAppChatWorkspaceDocument, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -206,6 +206,52 @@ describe("Apps gateway adapter", () => {
     expect(writeBody.idempotency_key).toBe(writeBody.operation_id);
     expect(JSON.stringify(writeBody)).not.toContain("grant");
     expect(JSON.stringify(writeBody)).not.toContain("package_digest");
+  });
+
+  it("appends durable conversation host messages through the gateway conversation route", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      conversation_id: "conversation-resume-builder",
+      message_id: "00000000-0000-4000-8000-000000000901",
+      role: "assistant",
+      content: "BrainDrive host update: Owner pressed Create resume. Your Resume revision 2 created.",
+      timestamp: "2026-08-26T12:00:00.000Z",
+    }), { status: 200 }));
+
+    await expect(appendConversationHostMessage(
+      "conversation-resume-builder",
+      "Owner pressed Create resume. Your Resume revision 2 created.",
+    )).resolves.toMatchObject({
+      conversation_id: "conversation-resume-builder",
+      role: "assistant",
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/conversations/conversation-resume-builder/host-messages");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+      content: "Owner pressed Create resume. Your Resume revision 2 created.",
+    });
+  });
+
+  it("creates a durable host-message conversation when no conversation id exists yet", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      conversation_id: "conversation-resume-builder",
+      message_id: "00000000-0000-4000-8000-000000000902",
+      role: "assistant",
+      content: "BrainDrive host update: Owner pressed Export PDF. Downloaded resume.pdf through the browser.",
+      timestamp: "2026-08-26T12:00:00.000Z",
+    }), { status: 200 }));
+
+    await expect(appendConversationHostMessage(
+      null,
+      "Owner pressed Export PDF. Downloaded resume.pdf through the browser.",
+    )).resolves.toMatchObject({
+      conversation_id: "conversation-resume-builder",
+      role: "assistant",
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/conversations/host-messages");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+      content: "Owner pressed Export PDF. Downloaded resume.pdf through the browser.",
+    });
   });
 
   it("projects stale app document writes as typed safe errors", async () => {

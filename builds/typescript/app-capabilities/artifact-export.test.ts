@@ -293,6 +293,55 @@ describe("SCAF-005 app artifact export service", () => {
       .rejects.toMatchObject({ code: "idempotency_conflict" });
   });
 
+  it("returns the latest receipt for the active authority after package updates", async () => {
+    let now = new Date("2026-08-27T12:00:00.000Z");
+    const { service } = await temporaryService(() => now);
+    const oldAuthority = authorityWith({
+      package_digest: `sha256:${"9".repeat(64)}`,
+      lifecycle_generation: authority.lifecycle_generation - 1,
+      grant_id: "31000000-0000-4000-8000-000000000099",
+      grant_revision: authority.grant_revision - 1,
+    });
+    const oldPrepared = await service.prepareExport(exportInput({
+      authority: oldAuthority,
+      operation_id: "31000000-0000-4000-8000-000000000021",
+      idempotency_key: "generic-export-old-authority",
+    }));
+    await service.finalizeExport({
+      request_version: 1,
+      authority: oldAuthority,
+      operation_id: "31000000-0000-4000-8000-000000000022",
+      idempotency_key: "generic-finalize-old-authority",
+      artifact_revision_id: oldPrepared.artifact.artifact_revision_id,
+      content_digest: oldPrepared.artifact.content_digest,
+      media_type: oldPrepared.artifact.media_type,
+      safe_destination_label: "old-resume.pdf",
+      outcome: "completed",
+    });
+
+    now = new Date("2026-08-27T12:01:00.000Z");
+    const prepared = await service.prepareExport(exportInput({
+      operation_id: "31000000-0000-4000-8000-000000000023",
+      idempotency_key: "generic-export-current-authority",
+    }));
+    const receipt = await service.finalizeExport({
+      request_version: 1,
+      authority,
+      operation_id: "31000000-0000-4000-8000-000000000024",
+      idempotency_key: "generic-finalize-current-authority",
+      artifact_revision_id: prepared.artifact.artifact_revision_id,
+      content_digest: prepared.artifact.content_digest,
+      media_type: prepared.artifact.media_type,
+      safe_destination_label: "current-resume.pdf",
+      outcome: "completed",
+    });
+
+    await expect(service.latestReceipt(authority)).resolves.toMatchObject({
+      receipt_revision_id: receipt.receipt_revision_id,
+      safe_destination_label: "current-resume.pdf",
+    });
+  });
+
   it("keeps artifact records scoped by owner, app, and installation after restart", async () => {
     const { root, service } = await temporaryService();
     const prepared = await service.prepareExport(exportInput({

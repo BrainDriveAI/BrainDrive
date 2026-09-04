@@ -854,6 +854,23 @@ export function executeAppChatWorkspaceAction(appKey: string, sessionId: string,
   });
 }
 
+export function appendConversationHostMessage(conversationId: string | null, content: string): Promise<{
+  conversation_id: string;
+  message_id: string;
+  role: "assistant";
+  content: string;
+  timestamp: string;
+}> {
+  const path = conversationId
+    ? `/conversations/${encodeURIComponent(conversationId)}/host-messages`
+    : "/conversations/host-messages";
+  return requestJson(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+}
+
 async function requestDocumentJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {

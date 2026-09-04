@@ -3,6 +3,7 @@ import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Pencil, Ref
 
 import { getSession } from "@/api/auth-adapter";
 import {
+  appendConversationHostMessage,
   closeAppSession,
   executeAppChatWorkspaceAction,
   finalizeAppExport,
@@ -19,6 +20,7 @@ import {
   type AppWorkspaceDocumentHeaderAction,
   type AppWorkspaceDocumentDescriptor,
 } from "@/api/apps-adapter";
+import { isTauriRuntime } from "@/api/runtime-api-base";
 import type { ChatEvent } from "@/api/types";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { MobileSidebarDrawer, MobileSidebarHeader } from "@/components/layout/MobileSidebarShell";
@@ -223,10 +225,17 @@ export default function AppChatWorkspace({
   const exportStatusByIdRef = useRef(new Map<string, AppChatExportHandlingResult>());
   const inFlightExportIdsRef = useRef(new Set<string>());
   const launchRef = useRef(launch);
+  const activeConversationIdRef = useRef(activeConversationId);
+  const pendingHostMessagesRef = useRef<string[]>([]);
+  const hostMessageQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     launchRef.current = launch;
   }, [launch]);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   const activeItem = items.find((item) => item.key === activeItemKey) ?? items[0] ?? {
     key: "document:conversation",
@@ -361,6 +370,18 @@ export default function AppChatWorkspace({
     });
   }
 
+  const appendDurableHostMessage = useCallback((content: string) => {
+    hostMessageQueueRef.current = hostMessageQueueRef.current.then(async () => {
+      const response = await appendConversationHostMessage(activeConversationIdRef.current, content);
+      if (!activeConversationIdRef.current) {
+        activeConversationIdRef.current = response.conversation_id;
+        setActiveConversationId(response.conversation_id);
+        writeStoredAppChatConversationId(conversationStorageKey, response.conversation_id);
+      }
+    }).catch(() => undefined);
+    void hostMessageQueueRef.current;
+  }, [conversationStorageKey]);
+
   const handlePreparedAppChatExport = useCallback(async (output: unknown): Promise<AppChatExportHandlingResult> => {
     const prepared = extractPreparedAppChatExport(output);
     if (!prepared) return "ignored";
@@ -426,8 +447,13 @@ export default function AppChatWorkspace({
   }, [handlePreparedAppChatExport]);
 
   const handleConversationComplete = useCallback((conversationId: string) => {
+    activeConversationIdRef.current = conversationId;
     setActiveConversationId(conversationId);
     writeStoredAppChatConversationId(conversationStorageKey, conversationId);
+    const pending = pendingHostMessagesRef.current.splice(0);
+    for (const content of pending) {
+      void appendConversationHostMessage(conversationId, content).catch(() => undefined);
+    }
   }, [conversationStorageKey]);
 
   function selectWorkspaceItem(key: string) {
@@ -480,6 +506,7 @@ export default function AppChatWorkspace({
           onQueueChatPrompt={queueWorkspaceChatPrompt}
           onClearExportNotice={() => setExportNotice(null)}
           onDirectActionResult={handlePreparedAppChatExport}
+          onDirectActionComplete={appendDurableHostMessage}
         />
       )}
       queuedMessage={queuedChatMessage}
@@ -831,6 +858,7 @@ function WorkspaceDetail({
   onQueueChatPrompt,
   onClearExportNotice,
   onDirectActionResult,
+  onDirectActionComplete,
 }: {
   appKey: string;
   appName: string;
@@ -845,6 +873,7 @@ function WorkspaceDetail({
   onQueueChatPrompt: (prompt: string) => void;
   onClearExportNotice: () => void;
   onDirectActionResult: (result: unknown) => Promise<AppChatExportHandlingResult>;
+  onDirectActionComplete: (message: string) => void;
 }) {
   const title = item.kind === "document" ? item.document.title : item.resource.title;
   const description = item.kind === "document" ? item.document.description : item.resource.description;
@@ -1055,10 +1084,12 @@ function WorkspaceDetail({
       const exportResult = await onDirectActionResult(result);
       if (isExportAction && exportResult === "ignored") throw new Error("export_result_missing");
       if (exportResult === "cancelled") {
+        onDirectActionComplete(buildDirectActionHostMessage(action, result, exportResult));
         setDocumentNotice(null);
         return;
       }
       if (exportResult === "failed") throw new Error("export_download_failed");
+      onDirectActionComplete(buildDirectActionHostMessage(action, result, exportResult));
       setDocumentNotice(`${action.label} completed.`);
     } catch (error) {
       setDocumentNotice(null);
@@ -1387,6 +1418,46 @@ function renderInlineMarkdownText(text: string): ReactNode[] {
 function draftFromRecord(record: AppDocumentRecord | null): string {
   if (!record) return "";
   return typeof record.content === "string" ? record.content : JSON.stringify(record.content, null, 2);
+}
+
+function buildDirectActionHostMessage(
+  action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>,
+  result: unknown,
+  exportResult: AppChatExportHandlingResult,
+): string {
+  if (action.action_id === "resume.create") {
+    const revision = extractCreatedResumeRevision(result);
+    return `Owner pressed Create resume. Your Resume${revision ? ` revision ${revision}` : ""} created.`;
+  }
+  if (action.action_id === "resume.export.pdf.request") {
+    const label = extractExportDestinationLabel(result) ?? "resume.pdf";
+    if (exportResult === "cancelled") return "Owner pressed Export PDF. The export was cancelled.";
+    return isTauriRuntime()
+      ? `Owner pressed Export PDF. Saved ${label}.`
+      : `Owner pressed Export PDF. Downloaded ${label} through the browser.`;
+  }
+  return `Owner pressed ${action.label}. ${action.label} completed.`;
+}
+
+function extractCreatedResumeRevision(result: unknown): number | null {
+  if (!isRecord(result)) return null;
+  const actionResult = isRecord(result.result) ? result.result : null;
+  const recordResult = isRecord(actionResult?.record) ? actionResult.record : null;
+  const record = recordResult && isRecord(recordResult.record)
+    ? recordResult.record
+    : recordResult ?? (isRecord(actionResult?.definition) ? actionResult.definition : null);
+  const revision = isRecord(record?.metadata) ? record.metadata.revision : record?.revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision > 0 ? revision : null;
+}
+
+function extractExportDestinationLabel(result: unknown): string | null {
+  if (!isRecord(result)) return null;
+  const actionResult = isRecord(result.result) ? result.result : null;
+  const safeDestinationLabel = actionResult?.safe_destination_label;
+  const filename = actionResult?.filename;
+  if (typeof safeDestinationLabel === "string" && safeDestinationLabel.trim()) return safeDestinationLabel.trim();
+  if (typeof filename === "string" && filename.trim()) return filename.trim();
+  return null;
 }
 
 function contentFromDraft(draft: string, mediaType: AppDocumentRecord["media_type"]): unknown {
