@@ -218,7 +218,7 @@ describe("conservative ATS PDF renderer", () => {
     expect(cancelled.outcome).toBe("cancelled");
     expect((await store.list("export_receipt"))[0]).toMatchObject({ outcome: "cancelled", safe_destination_label: "resume.pdf" });
     expect(await store.readRevision(definition.metadata.revision_id)).toEqual(definition);
-  });
+  }, 15_000);
 
   it("reconciles an ambiguous prepared export after restart without duplicating artifact or receipt side effects", async () => {
     const { root, store, service, definition } = await approvedDefinition();

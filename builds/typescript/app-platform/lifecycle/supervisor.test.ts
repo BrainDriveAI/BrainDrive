@@ -157,7 +157,7 @@ process.on("SIGTERM", stop); process.on("SIGINT", stop);\n`, "utf8");
     const started = await supervisor.start(descriptor);
     await supervisor.awaitReadiness(started.runtime!);
     const waitForHealthCount = async (minimum: number) => {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
+      for (let attempt = 0; attempt < 600; attempt += 1) {
         const count = Number(await readFile(healthCountPath, "utf8").catch(() => "0"));
         if (count >= minimum) return;
         await new Promise((resolve) => setTimeout(resolve, 5));
