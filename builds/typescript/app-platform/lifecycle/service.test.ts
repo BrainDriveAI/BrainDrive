@@ -114,6 +114,24 @@ describe("trusted lifecycle service", () => {
     expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
   });
 
+  it("rejects a same-version update even when the verified candidate digest changes", async () => {
+    const h = await harness();
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    const original = h.dependencies.verifier.verifyAndExtract.bind(h.dependencies.verifier);
+    h.dependencies.verifier.verifyAndExtract = async (...args) => {
+      const verified = await original(...args);
+      return { ...verified, manifest: { ...verified.manifest, package_version: "1.0.0" } };
+    };
+
+    await expect(h.service.update({ version: "2.0.0", idempotencyKey: "same-version-update-001", approveCapabilities: true }))
+      .rejects.toMatchObject({ code: "conflict", message: "Update version must be newer than the active version" });
+
+    const status = await h.service.status();
+    expect(status.active_package_digest).toBe(installed.record.active_package_digest);
+    expect(status.last_known_good_package_digest).toBeNull();
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
+  });
+
   it("updates a recoverable failed app to a newer verified package and returns it to active", async () => {
     const h = await harness();
     const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });

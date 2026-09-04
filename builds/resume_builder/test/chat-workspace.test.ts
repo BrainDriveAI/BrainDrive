@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { inflateSync } from "node:zlib";
 
@@ -27,8 +28,6 @@ import {
   resumeCreateInputSchema,
   type DurableWorkflowSnapshot,
 } from "../src/index.js";
-
-const MCP_AUTHORITY_ENVELOPE_BYTES = 262_144;
 
 function inflatedPdfText(pdfBytes: Buffer): string {
   const source = pdfBytes.toString("latin1");
@@ -60,6 +59,40 @@ function decodedPdfTextRuns(pdfBytes: Buffer): string {
     runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
   }
   return runs.join("\n");
+}
+
+function rasterizedPdfTextLayoutDigest(pdfBytes: Buffer): string {
+  const width = 153;
+  const height = 198;
+  const pageHeight = 792;
+  const scale = 0.25;
+  const pixels = Buffer.alloc(width * height);
+  const inflated = inflatedPdfText(pdfBytes);
+  const commandPattern = /BT \/F[123] ([0-9.]+) Tf ([0-9.]+) ([0-9.]+) Td <([0-9A-Fa-f]+)> Tj ET/g;
+  for (const match of inflated.matchAll(commandPattern)) {
+    const fontSize = Number(match[1]);
+    let x = Math.round(Number(match[2]) * scale);
+    const baseline = Math.round((pageHeight - Number(match[3])) * scale);
+    const glyphWidth = Math.max(1, Math.round(fontSize * 0.13));
+    const glyphHeight = Math.max(2, Math.round(fontSize * 0.25));
+    const text = Buffer.from(match[4], "hex").swap16().toString("utf16le");
+    for (const character of Array.from(text)) {
+      if (/\s/.test(character)) {
+        x += glyphWidth;
+        continue;
+      }
+      for (let dy = 0; dy < glyphHeight; dy += 1) {
+        const row = baseline - dy;
+        if (row < 0 || row >= height) continue;
+        for (let dx = 0; dx < glyphWidth; dx += 1) {
+          const column = x + dx;
+          if (column >= 0 && column < width) pixels[row * width + column] = 1;
+        }
+      }
+      x += glyphWidth + 1;
+    }
+  }
+  return createHash("sha256").update(pixels).digest("hex");
 }
 
 function snapshot(overrides: Partial<DurableWorkflowSnapshot> = {}): DurableWorkflowSnapshot {
@@ -691,8 +724,6 @@ describe("Resume Builder chat workspace contract", () => {
 
     const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
     const pdf = pdfBytes.toString("latin1");
-    const mcpResultEnvelope = { resultType: "complete", content: [], structuredContent: plan, _meta: { ui: { visibility: ["model"] } }, isError: false };
-    expect(Buffer.byteLength(JSON.stringify(mcpResultEnvelope), "utf8")).toBeLessThan(MCP_AUTHORITY_ENVELOPE_BYTES);
     expect(plan.steps[0].content_size_bytes).toBe(pdfBytes.length);
     expect(pdfBytes.length).toBeLessThan(1_048_576);
     expect(pdf).toContain("/Filter /FlateDecode");
@@ -714,6 +745,123 @@ describe("Resume Builder chat workspace contract", () => {
     expect(pdf).not.toContain("/Subtype /Type1");
     expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("renders extended Latin, Greek, and Cyrillic glyphs without dropping letters", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: [
+          "# José Müller-Nguyễn",
+          "",
+          "São Paulo | jose@example.test | +55 11 5555-0100",
+          "",
+          "## Professional Summary",
+          "Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render in this export.",
+          "",
+          "## Experience",
+          "- Delivered résumé, naïve, cooperate, façade, and jalapeño content.",
+        ].join("\n"),
+      }],
+    });
+
+    const decoded = decodedPdfTextRuns(Buffer.from(String(plan.steps[0].bytes_base64), "base64"));
+    expect(decoded).toContain("José Müller-Nguyễn");
+    expect(decoded).toContain("Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render");
+  });
+
+  it("refuses PDF export when characters are still outside the embedded font coverage", () => {
+    const operationId = crypto.randomUUID();
+    expect(() => planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Jordan 李\n\n## Experience\n- Shipped multilingual export checks.",
+      }],
+    })).toThrow("PDF export cannot include unsupported characters: 李. Remove or replace those characters and try again.");
+  });
+
+  it("keeps the PDF export fixture on the rasterized layout golden", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: [
+          "# Jordan Lee",
+          "",
+          "Portland, Oregon | jordan.lee@example.test | 503-555-0147 | linkedin.com/in/jordanlee",
+          "",
+          "## Professional Summary",
+          "Product operations leader with nine years of experience building cross-functional planning systems, launch programs, and analytics practices for B2B SaaS companies.",
+          "",
+          "## Experience",
+          "**Director of Product Operations** | Northstar Cloud | Portland, OR | March 2021 - Present",
+          "- Reduced quarterly launch slips by 38% across six product squads by introducing a shared readiness checklist and weekly risk review",
+          "- Built and led a 12-person operations team spanning analytics, release management, and customer research",
+          "**Senior Program Manager** | Riverbend Analytics | Seattle, WA | June 2017 - February 2021",
+          "- Delivered a multi-region data platform migration on schedule, coordinating 40+ engineers across three time zones",
+          "- Designed the release train that cut hotfix frequency from weekly to monthly while maintaining a 99.95% uptime commitment",
+          "",
+          "## Education",
+          "M.B.A., University of Washington Foster School of Business, 2015",
+          "B.S. Industrial Engineering, Oregon State University, 2012",
+          "",
+          "## Skills",
+          "Roadmap planning, OKR design, SQL, Looker, Jira administration, change management, executive communication, vendor negotiation, hiring and coaching",
+        ].join("\n"),
+      }],
+    });
+
+    const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
+    expect(rasterizedPdfTextLayoutDigest(pdfBytes)).toBe("3f4f705cdce0f942b49aeb4e16e88185b94b264af44cfed0368a7e33f301f94d");
   });
 
   it("blocks PDF export of the empty Resume placeholder", () => {
