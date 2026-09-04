@@ -946,7 +946,7 @@ describe("owner lifecycle gateway routes", () => {
     await app.close();
   });
 
-  it("offers update from recoverable failure when the verified package digest changes at the same version", async () => {
+  it("rejects update from recoverable failure when the verified package digest changes at the same version", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-failed-digest-update-")); roots.push(root);
     const routeKey = "research-consumer";
     const appId = "ai.braindrive.research-consumer";
@@ -985,9 +985,14 @@ describe("owner lifecycle gateway routes", () => {
         approve_capabilities: true,
       },
     });
-    expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ state: "active", version: { installed: "1.0.0", available: "1.0.0" } });
-    expect(updated.json().identity.package_digest).toBe(catalog.apps[0].availability.package_digest);
+    expect(updated.statusCode).toBe(409);
+    expect(updated.json()).toMatchObject({ error: "conflict", retryable: true });
+    const afterRejectedUpdate = (await app.inject({ method: "GET", url: "/apps" })).json();
+    expect(afterRejectedUpdate.apps[0]).toMatchObject({
+      state: "failed_recoverable",
+      version: { installed: "1.0.0", available: "1.0.0" },
+    });
+    expect(afterRejectedUpdate.apps[0].identity.package_digest).toBe(catalog.apps[0].identity.package_digest);
 
     await app.close();
   });

@@ -31,6 +31,7 @@ BrainDrive does not have one universal request flow. The route, authentication m
 - The response uses `text/event-stream`. Events include `text-delta`, `tool-call`, `tool-result`, `approval-request`, `approval-result`, `error`, and `done`.
 - A tool marked `requiresApproval` waits unless preferences select `auto-approve`. The current web hook submits an approved decision when it receives `approval-request`; there is no human confirmation step on that client path. This is client behavior, not permission bypass. The gateway still requires approval authority on `POST /approvals/:requestId`.
 - Repeat-call, safety-iteration, unavailable-tool, and permission guards can return error tool results without executing the requested mutation. A project-memory guard is passed into the loop, but `createBrainDriveMemorySafetyGuard` currently returns no restriction; do not present project chat metadata as enforced tool-path isolation.
+- The loop passes the request abort signal to model adapters and returns without emitting a synthetic error if the request is already cancelled or becomes cancelled while streaming. Recoverable invalid-input tool failures are fed back to the model, but three consecutive schema/invalid-input failures end the turn with a plain-language `text-delta` and `done` event whose finish reason is `tool_input_invalid`.
 
 ### Trust boundary
 
