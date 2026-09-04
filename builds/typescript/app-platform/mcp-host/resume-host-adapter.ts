@@ -1398,6 +1398,18 @@ export class ResumeAppHostAdapter {
     input: unknown,
     context: HostCapabilityContext,
   ): Promise<unknown> {
+    if (capability === "resume.operations.read" && isEmptyRecordInput(input) && context.sessionId && context.viewId) {
+      const session = this.chatSessions.read(this.appId, context.sessionId);
+      if (
+        session.installationId !== context.installationId ||
+        session.packageDigest !== context.packageDigest ||
+        session.viewId !== context.viewId ||
+        session.lifecycleGeneration !== context.lifecycleGeneration
+      ) {
+        throw new AppPlatformError("denied", "Installed app state session binding is invalid", 403);
+      }
+      return this.readCurrentResumeChatState(session, context.grant as CapabilityGrant);
+    }
     const connectionId = context.connectionId ?? context.viewId ?? context.operationId;
     return this.executeDataCapability(capability, input, {
       authority: this.restrictedAuthorityForRegisteredCapability(capability, context, connectionId),
@@ -1497,9 +1509,6 @@ export class ResumeAppHostAdapter {
     const requestedPurposes = manifest.manifest_version === 2 ? manifest.requested_inference_purposes : [];
     if (action.idempotency_policy === "required" && request.idempotencyKey.length < 16) {
       throw new AppPlatformError("invalid_input", "App action requires a stable idempotency key", 400);
-    }
-    if (action.action_id === "resume.state.read" && isEmptyRecordInput(request.actionInput)) {
-      return this.readCurrentResumeChatState(session, descriptor.grant!);
     }
     for (const capability of action.required_capabilities) {
       this.rememberChatAction(session.sessionId, session.installationId, capability.name, request.idempotencyKey);
