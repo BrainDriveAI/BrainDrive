@@ -373,12 +373,11 @@ describe("live signed modern MCP Apps fixture", () => {
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
     try {
       await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-export-reference-install", approveCapabilities: true });
-      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, {
-        capabilityRouter: {
-          domain: { store: { recoveryLifecycleEvidence: () => null } },
-          execute: vi.fn(async () => ({ status: "ok" })),
-        } as any,
-      }));
+      const capabilityRouter = {
+        domain: { store: { recoveryLifecycleEvidence: () => null } },
+        execute: vi.fn(async () => ({ status: "ok" })),
+      } as unknown as NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>["capabilityRouter"];
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { capabilityRouter }));
       const launch = await host.launchChatWorkspace();
       await host.readAppDocument(launch.session.session_id, "resume.profile");
       await host.writeAppDocument(launch.session.session_id, "resume.profile", {

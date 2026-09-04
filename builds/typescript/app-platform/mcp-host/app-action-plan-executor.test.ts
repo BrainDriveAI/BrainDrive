@@ -8,7 +8,7 @@ function digestBytes(bytes: Buffer): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
-function executionInput(bytes: Buffer, resolverBytes = bytes) {
+function executionInput(bytes: Buffer, resolverBytes = bytes): Parameters<typeof executeAppActionPlan>[0] {
   const prepareExport = vi.fn(async (request: unknown) => ({
     result_version: 1,
     status: "prepared",
@@ -68,7 +68,7 @@ function executionInput(bytes: Buffer, resolverBytes = bytes) {
     storageAuthority: {},
     artifactAuthority: {},
     audit: vi.fn(),
-  } as any;
+  } as unknown as Parameters<typeof executeAppActionPlan>[0];
 }
 
 describe("executeAppActionPlan", () => {
