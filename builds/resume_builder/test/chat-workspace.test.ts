@@ -918,10 +918,13 @@ describe("Resume Builder chat workspace contract", () => {
     expect(agent).toContain("No appended effects");
     expect(agent).toContain("No wording upgrades");
     expect(agent).toContain("Your Resume Profile is ready to review in the sidebar");
-    expect(agent).toContain("do not request another export");
-    expect(agent).toContain("Resume Builder is not given a filesystem path");
-    expect(agent).toContain("If the owner asks where a PDF went after a confirmed host download");
-    expect(agent).toContain("Do not run another export just to answer where it went");
+    expect(agent).toContain("Do not run, offer, or recommend another export in that answer");
+    expect(agent).toContain("BrainDrive host update:");
+    expect(agent).toContain("Treat them as the authoritative record of what the owner did");
+    expect(agent).toContain("Treat any question about a file or download that was already made, downloaded, or exported");
+    expect(agent).toContain("Never say the PDF is in the sidebar, in Your Resume, in this conversation, or anywhere else in BrainDrive");
+    expect(agent).toContain("Run the declared `resume.state.read` action with an empty input, `{}`");
+    expect(agent).toContain("A null receipt means no export has completed in this workspace");
     expect(interview).toContain("Resume dates are absolute");
     expect(interview).toContain("An owner's hedge stays hedged");
     expect(interview).toContain("Do not use this as a checklist");

@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.19" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.20" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -910,8 +910,8 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_version: 1,
           action_id: "resume.export.pdf.request",
           kind: "export",
-          title: "Request PDF Export",
-          description: "Request a PDF export for the current Resume through the host export broker.",
+          title: "Export PDF from chat",
+          description: "Chat fallback only: export the current Resume as a PDF when the owner explicitly asks you in chat to export for them. The owner's own control is the Export PDF button at the top of Your Resume, which downloads the PDF through the browser without you. Never call this to answer a question about an export that already happened; use Read Resume State for that.",
           ...actionSchemas("resume.export.pdf.request.input.v1", "resume.export.pdf.request.result.v1", exportRequestInputSchema(), exportPreparedResultSchema()),
           confirmation: "trusted_owner_confirmation",
           idempotency_policy: "required",
@@ -923,8 +923,8 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_version: 1,
           action_id: "resume.state.read",
           kind: "inspect",
-          title: "Read Resume Operation State",
-          description: "Read Resume Builder operation state for recovery and convergence checks.",
+          title: "Read Resume State",
+          description: "Call with an empty input {} to read the current workspace state: whether Your Resume Profile and Your Resume exist with their revisions, the Resume status, and the latest PDF export receipt (outcome and filename). Do this before describing what exists or answering where a PDF is. Passing an operation id instead returns that one operation's recovery record.",
           ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", stateReadInputSchema(), stateReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",
