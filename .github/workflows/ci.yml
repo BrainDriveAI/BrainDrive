@@ -116,6 +116,33 @@ jobs:
       - name: Build
         run: npm run build
 
+  resume-builder:
+    name: Resume Builder
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: builds/resume_builder
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: builds/resume_builder/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   mcp-release:
     name: MCP release
     runs-on: ubuntu-latest

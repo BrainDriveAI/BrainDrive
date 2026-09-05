@@ -243,6 +243,9 @@ export type RuntimeExportBytesReferenceInput = {
 export type ResumeActionPlanOptions = {
   exportByteDelivery?: "inline" | "runtime_reference";
   createExportBytesReference?: (input: RuntimeExportBytesReferenceInput) => string;
+  faults?: {
+    beforePdfRender?: (input: { actionId: string; operationId: string; markdown: string }) => void;
+  };
 };
 
 type ChatResumeStatement = {
@@ -363,6 +366,7 @@ export function planResumeAction(request: ResumeActionPlanRequest, options: Resu
     const input = request.action_input as { safe_filename?: string; destination_intent?: "new_download" | "replace_existing"; overwrite_confirmed?: boolean };
     const markdown = currentDocumentText(request, "resume.document");
     if (!isExportableResumeMarkdown(markdown)) throw new Error("formatted_resume_required");
+    options.faults?.beforePdfRender?.({ actionId: request.action_id, operationId: request.operation_id, markdown });
     const bytes = renderResumeMarkdownPdf(markdown);
     const filename = normalizePdfFilename(input?.safe_filename);
     const contentDigest = digestBytes(bytes);

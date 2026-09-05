@@ -146,6 +146,7 @@ export type ToolDefinition = {
   requiresApproval: boolean;
   readOnly: boolean;
   inputSchema: Record<string, unknown>;
+  auditMetadata?: Record<string, unknown>;
   execute: (context: ToolContext, input: Record<string, unknown>) => Promise<unknown>;
 };
 

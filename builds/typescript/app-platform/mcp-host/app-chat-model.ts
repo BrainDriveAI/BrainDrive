@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -162,29 +162,42 @@ function createAppChatActionTools(
       description: `${descriptor.title}: ${descriptor.description}`,
       requiresApproval: descriptor.confirmation !== "none",
       readOnly: descriptor.kind === "read" || descriptor.kind === "inspect",
+      auditMetadata: {
+        source: "installed_app_action",
+        app_id: metadata.app_id,
+        installation_id: metadata.installation_id,
+        package_digest: metadata.package_digest,
+        session_id: metadata.session_id,
+        view_id: metadata.view_id,
+        session_operation_id: metadata.operation_id,
+        session_generation: metadata.session_generation,
+        presentation_id: metadata.presentation_id,
+        workspace_id: metadata.workspace_id,
+        context_grant_set_digest: metadata.context_grant_set_digest,
+        action_id: descriptor.action_id,
+        action_kind: descriptor.kind,
+        confirmation: descriptor.confirmation,
+        idempotency_policy: descriptor.idempotency_policy,
+        model_exposure: descriptor.model_exposure,
+      },
       inputSchema: {
         type: "object",
         additionalProperties: false,
         properties: {
           action_input: descriptor.input_schema.schema,
-          operation_id: { type: "string", format: "uuid", description: "Stable operation id for this app action." },
-          idempotency_key: { type: "string", minLength: 16, maxLength: 256, description: "Stable idempotency key for retryable app actions." },
         },
-        required: descriptor.idempotency_policy === "required" ? ["action_input", "operation_id", "idempotency_key"] : ["action_input"],
+        required: ["action_input"],
       },
-      execute: async (_context, rawInput): Promise<AppChatActionExecutionResult> => {
+      execute: async (context, rawInput): Promise<AppChatActionExecutionResult> => {
         try {
           const parsed = AppChatActionToolInputSchema.parse(rawInput);
-          if (descriptor.idempotency_policy === "required" && (!parsed.operation_id || !parsed.idempotency_key)) {
-            throw new ToolExecutionFailure("invalid_input", "App action requires operation_id and idempotency_key", true);
-          }
           const actionInput = parsed.action_input ?? {};
           const validationErrors = validateJsonValueAgainstActionSchema(actionInput, descriptor.input_schema.schema);
           if (validationErrors.length > 0) {
             throw new ToolExecutionFailure("invalid_input", "App action input failed schema validation", true);
           }
-          const operationId = parsed.operation_id ?? randomUUID();
-          const idempotencyKey = parsed.idempotency_key ?? `app-action-${operationId}`;
+          const operationId = parsed.operation_id ?? hostGeneratedActionOperationId(metadata, descriptor, actionInput, context.correlationId);
+          const idempotencyKey = parsed.idempotency_key ?? hostGeneratedActionIdempotencyKey(metadata, descriptor, actionInput, operationId);
           const result = await executeAction({
             metadata,
             action: descriptor,
@@ -210,6 +223,47 @@ function createAppChatActionTools(
     });
   }
   return { tools, evidence };
+}
+
+function hostGeneratedActionOperationId(
+  metadata: AppChatModelMetadata,
+  descriptor: AppActionDescriptor,
+  actionInput: unknown,
+  correlationId: string,
+): string {
+  const hex = createHash("sha256").update(canonicalJson({
+    app_id: metadata.app_id,
+    installation_id: metadata.installation_id,
+    package_digest: metadata.package_digest,
+    session_id: metadata.session_id,
+    view_id: metadata.view_id,
+    session_operation_id: metadata.operation_id,
+    session_generation: metadata.session_generation,
+    action_id: descriptor.action_id,
+    action_input: actionInput,
+    correlation_id: correlationId,
+  })).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function hostGeneratedActionIdempotencyKey(
+  metadata: AppChatModelMetadata,
+  descriptor: AppActionDescriptor,
+  actionInput: unknown,
+  operationId: string,
+): string {
+  return `app-action-${createHash("sha256").update(canonicalJson({
+    app_id: metadata.app_id,
+    installation_id: metadata.installation_id,
+    package_digest: metadata.package_digest,
+    session_id: metadata.session_id,
+    view_id: metadata.view_id,
+    session_operation_id: metadata.operation_id,
+    session_generation: metadata.session_generation,
+    action_id: descriptor.action_id,
+    action_input: actionInput,
+    operation_id: operationId,
+  })).digest("hex")}`;
 }
 
 export function validateJsonValueAgainstActionSchema(value: unknown, schema: Record<string, unknown>, path: string[] = []): string[] {
