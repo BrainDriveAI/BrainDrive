@@ -1495,6 +1495,15 @@ describe("owner MCP Apps host gateway routes", () => {
     const sessionId = crypto.randomUUID();
     expect((await app.inject({ method: "DELETE", url: `/apps/resume-builder/sessions/${sessionId}` })).statusCode).toBe(204);
     expect(host.close).toHaveBeenCalledWith(sessionId);
+
+    vi.mocked(host.close).mockImplementationOnce(() => { throw new AppPlatformError("session_expired", "expired session"); });
+    expect((await app.inject({ method: "DELETE", url: `/apps/resume-builder/sessions/${crypto.randomUUID()}` })).statusCode).toBe(204);
+
+    vi.mocked(host.close).mockImplementationOnce(() => { throw new AppPlatformError("lifecycle_failed", "private lifecycle detail", 503); });
+    const failedClose = await app.inject({ method: "DELETE", url: `/apps/resume-builder/sessions/${crypto.randomUUID()}` });
+    expect(failedClose.statusCode).toBe(503);
+    expect(failedClose.json()).toEqual({ error: "lifecycle_failed", retryable: true });
+    expect(failedClose.body).not.toContain("private lifecycle detail");
     await app.close();
   });
 

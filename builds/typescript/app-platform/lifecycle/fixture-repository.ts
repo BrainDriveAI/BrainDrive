@@ -193,7 +193,7 @@ async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys
   return { packages, authorities };
 }
 
-export const MODERN_FIXTURE_VERSION = "4.2.19" as const;
+export const MODERN_FIXTURE_VERSION = "4.2.20" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -910,8 +910,8 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_version: 1,
           action_id: "resume.export.pdf.request",
           kind: "export",
-          title: "Request PDF Export",
-          description: "Request a PDF export for the current Resume through the host export broker.",
+          title: "Export PDF from chat",
+          description: "Chat fallback for PDF export. The owner's primary control is the Export PDF button at the top of Your Resume; never call this to answer about a finished export.",
           ...actionSchemas("resume.export.pdf.request.input.v1", "resume.export.pdf.request.result.v1", exportRequestInputSchema(), exportPreparedResultSchema()),
           confirmation: "trusted_owner_confirmation",
           idempotency_policy: "required",
@@ -923,8 +923,8 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_version: 1,
           action_id: "resume.state.read",
           kind: "inspect",
-          title: "Read Resume Operation State",
-          description: "Read Resume Builder operation state for recovery and convergence checks.",
+          title: "Read Resume State",
+          description: "Read current Resume Builder Profile, Resume, and latest export receipt state; call with no arguments before answering about existing Resume or PDF state.",
           ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", stateReadInputSchema(), stateReadResultSchema()),
           confirmation: "none",
           idempotency_policy: "not_applicable",

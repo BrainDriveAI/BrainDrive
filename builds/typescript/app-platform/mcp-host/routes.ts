@@ -391,7 +391,13 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     if (!authorizeOwner(request, reply)) return;
     const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(request.params);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
-    selected.host.close(parsed.data.sessionId);
+    try {
+      selected.host.close(parsed.data.sessionId);
+    } catch (error) {
+      if (!isStaleSessionCleanupError(error)) {
+        return sendSafeError(reply, error);
+      }
+    }
     return reply.code(204).send();
   });
 
@@ -560,6 +566,14 @@ function authorizeOwner(request: FastifyRequest, reply: FastifyReply): boolean {
 function sendSafeError(reply: FastifyReply, error: unknown) {
   const failure = error instanceof AppPlatformError ? error : new AppPlatformError("lifecycle_failed", "Installed app host operation failed", 500);
   return reply.code(failure.statusCode).send({ error: failure.code, retryable: failure.statusCode >= 500 });
+}
+
+function isStaleSessionCleanupError(error: unknown): boolean {
+  return error instanceof AppPlatformError && (
+    error.code === "not_found_within_scope" ||
+    error.code === "session_closed" ||
+    error.code === "session_expired"
+  );
 }
 
 function sendDocumentError(reply: FastifyReply, error: unknown) {

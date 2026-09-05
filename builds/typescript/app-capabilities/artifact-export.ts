@@ -12,6 +12,7 @@ import {
   type AppArtifactRegistrationRequest,
   type AppExportFinalizeRequest,
   type AppExportReceiptRecord,
+  type AppExportPrepareRequest,
   type AppExportPreparedResult,
   type AppSafeExportReceiptProjection,
 } from "../app-platform/contracts/app-artifacts.js";
@@ -25,6 +26,23 @@ type ServiceOptions = {
   now?: () => Date;
   audit?: (event: string, details: Record<string, unknown>) => void;
   coordinator?: CapabilityOperationCoordinator;
+  faults?: {
+    beforePreparedExportPersist?: (context: ExportFaultContext) => void | Promise<void>;
+    beforeReceiptPersist?: (context: ExportFaultContext) => void | Promise<void>;
+  };
+};
+
+type ExportFaultContext = {
+  app_id: string;
+  installation_id: string;
+  package_digest: string;
+  grant_id: string;
+  operation_id: string;
+  idempotency_key: string;
+  content_digest: string;
+  content_size_bytes?: number;
+  media_type: string;
+  safe_destination_label: string;
 };
 
 export class AppArtifactExportService {
@@ -32,12 +50,14 @@ export class AppArtifactExportService {
   private readonly now: () => Date;
   private readonly audit: (event: string, details: Record<string, unknown>) => void;
   private readonly coordinator: CapabilityOperationCoordinator;
+  private readonly faults: NonNullable<ServiceOptions["faults"]>;
 
   constructor(options: ServiceOptions) {
     this.store = options.store;
     this.now = options.now ?? (() => new Date());
     this.audit = options.audit ?? (() => undefined);
     this.coordinator = options.coordinator ?? new CapabilityOperationCoordinator({ now: () => this.now().getTime() });
+    this.faults = options.faults ?? {};
   }
 
   async runExportOperation<T>(
@@ -166,6 +186,7 @@ export class AppArtifactExportService {
       safe_destination_label: request.filename,
       replayed: false,
     });
+    await this.faults.beforePreparedExportPersist?.(exportPrepareFaultContext(request));
     await this.store.writePreparedExport(request.authority, request.operation_id, request.idempotency_key, inputDigest, prepared);
     this.audit("app.export.prepared", {
       ...this.artifactAudit(prepared.artifact),
@@ -215,6 +236,7 @@ export class AppArtifactExportService {
       created_by: request.authority,
     });
     const projection = this.projectReceipt(receipt, false);
+    await this.faults.beforeReceiptPersist?.(exportFinalizeFaultContext(request));
     await this.store.writeReceipt(request.authority, receipt, projection, inputDigest);
     this.audit("app.export.receipt_recorded", {
       app_id: receipt.app_id,
@@ -289,6 +311,35 @@ export class AppArtifactExportService {
       replayed,
     });
   }
+}
+
+function exportPrepareFaultContext(request: AppExportPrepareRequest): ExportFaultContext {
+  return {
+    app_id: request.authority.app_id,
+    installation_id: request.authority.installation_id,
+    package_digest: request.authority.package_digest,
+    grant_id: request.authority.grant_id,
+    operation_id: request.operation_id,
+    idempotency_key: request.idempotency_key,
+    content_digest: request.content_digest,
+    content_size_bytes: request.content_size_bytes,
+    media_type: request.media_type,
+    safe_destination_label: request.filename,
+  };
+}
+
+function exportFinalizeFaultContext(request: AppExportFinalizeRequest): ExportFaultContext {
+  return {
+    app_id: request.authority.app_id,
+    installation_id: request.authority.installation_id,
+    package_digest: request.authority.package_digest,
+    grant_id: request.authority.grant_id,
+    operation_id: request.operation_id,
+    idempotency_key: request.idempotency_key,
+    content_digest: request.content_digest,
+    media_type: request.media_type,
+    safe_destination_label: request.safe_destination_label,
+  };
 }
 
 function digest(bytes: Buffer): `sha256:${string}` {

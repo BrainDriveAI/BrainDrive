@@ -600,6 +600,100 @@ describe("runAgentLoop", () => {
     expect(auditEvents.filter((entry) => entry.event === "prompt_audit.model_request").map((entry) => entry.modelCallIndex))
       .toEqual([1, 2]);
   });
+
+  it("records installed-app action audit provenance without app action content", async () => {
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    const ownerProfile = "# Resume Profile\n\nMaya Torres managed confidential payroll analytics.";
+    let calls = 0;
+    const adapter: ModelAdapter = {
+      async complete() {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            assistantText: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "call-app-1",
+                name: "app_action_resume_profile_update",
+                input: { action_input: { profile_markdown: ownerProfile } },
+              },
+            ],
+          };
+        }
+
+        return { assistantText: "Updated.", finishReason: "completed", toolCalls: [] };
+      },
+    };
+
+    const executor = new ToolExecutor([
+      {
+        name: "app_action_resume_profile_update",
+        description: "Update Resume Profile",
+        requiresApproval: false,
+        readOnly: false,
+        inputSchema: { type: "object" },
+        auditMetadata: {
+          source: "installed_app_action",
+          app_id: "com.braindrive.resume-builder",
+          installation_id: "10000000-0000-4000-8000-000000000001",
+          package_digest: `sha256:${"a".repeat(64)}`,
+          session_id: "10000000-0000-4000-8000-000000000002",
+          view_id: "10000000-0000-4000-8000-000000000003",
+          session_operation_id: "10000000-0000-4000-8000-000000000004",
+          context_grant_set_digest: `sha256:${"b".repeat(64)}`,
+          action_id: "resume.profile.update",
+        },
+        execute: async () => ({ saved_profile_markdown: ownerProfile }),
+      },
+    ]);
+
+    for await (const _event of runAgentLoop(
+      adapter,
+      executor,
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      {
+        memoryRoot: "/tmp/brain",
+        safetyIterationLimit: 3,
+        promptAudit: {
+          recorder: fakeRecorder(auditEvents),
+          adapterName: "openai-compatible",
+          providerProfile: "openrouter",
+          model: "test-model",
+        },
+      }
+    )) {
+      // Drain events.
+    }
+
+    const toolCallAudit = auditEvents.find((entry) => entry.event === "prompt_audit.tool_call")?.details;
+    const toolResultAudit = auditEvents.find((entry) => entry.event === "prompt_audit.tool_result")?.details;
+
+    expect(toolCallAudit).toMatchObject({
+      tool_call_id: "call-app-1",
+      name: "app_action_resume_profile_update",
+      input_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      owner: { actor_id: ownerAuth.actorId, actor_type: "owner", mode: ownerAuth.mode },
+      tool_provenance: expect.objectContaining({
+        source: "installed_app_action",
+        app_id: "com.braindrive.resume-builder",
+        action_id: "resume.profile.update",
+        context_grant_set_digest: `sha256:${"b".repeat(64)}`,
+      }),
+    });
+    expect(toolResultAudit).toMatchObject({
+      tool_call_id: "call-app-1",
+      name: "app_action_resume_profile_update",
+      status: "ok",
+      output_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      tool_provenance: expect.objectContaining({ action_id: "resume.profile.update" }),
+    });
+    expect(JSON.stringify([toolCallAudit, toolResultAudit])).not.toContain(ownerProfile);
+    expect(toolCallAudit).not.toHaveProperty("input");
+    expect(toolResultAudit).not.toHaveProperty("output");
+  });
 });
 
 async function collectEvents(

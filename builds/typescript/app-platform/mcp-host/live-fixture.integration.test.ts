@@ -344,7 +344,7 @@ describe("live signed modern MCP Apps fixture", () => {
         },
       });
       const resources = launch.workspace.resources as Array<{ resource_id: string; owner_editable: boolean }>;
-      const actions = launch.workspace.actions as Array<{ action_id: string }>;
+      const actions = launch.workspace.actions as Array<{ action_id: string; title: string; description: string }>;
       expect(resources.map((resource) => resource.resource_id)).toEqual([
         "agent.instructions",
         "interview.guide",
@@ -362,6 +362,14 @@ describe("live signed modern MCP Apps fixture", () => {
         "resume.export.pdf.request",
         "resume.state.read",
       ]);
+      expect(actions.find((action) => action.action_id === "resume.export.pdf.request")).toMatchObject({
+        title: "Export PDF from chat",
+        description: expect.stringContaining("never call this to answer about a finished export"),
+      });
+      expect(actions.find((action) => action.action_id === "resume.state.read")).toMatchObject({
+        title: "Read Resume State",
+        description: expect.stringContaining("latest export receipt state"),
+      });
       expect(JSON.stringify(launch)).not.toMatch(/payload\/ui\/main\.html|connection_token|private_key|\/home\/|[A-Za-z]:\\/i);
     } finally {
       await lifecycle.dependencies.supervisor.close();

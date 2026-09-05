@@ -1456,8 +1456,6 @@ describe("app-chat workspace session authority", () => {
     const launch = await host.launchChatWorkspace();
     const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
     const executor = new ToolExecutor(model.tools);
-    const operationId = randomUUID();
-    const idempotencyKey = `rbjc-004-${operationId}`;
 
     expect(model.tools.map((tool) => tool.name)).toEqual(["app_action_read_profile"]);
     expect(model.tools[0].inputSchema).toMatchObject({
@@ -1472,19 +1470,17 @@ describe("app-chat workspace session authority", () => {
           },
           required: [],
         },
-        operation_id: { type: "string", format: "uuid" },
-        idempotency_key: { type: "string", minLength: 16, maxLength: 256 },
       },
-      required: ["action_input", "operation_id", "idempotency_key"],
+      required: ["action_input"],
     });
+    expect(model.tools[0].inputSchema.properties).not.toHaveProperty("operation_id");
+    expect(model.tools[0].inputSchema.properties).not.toHaveProperty("idempotency_key");
     await expect(executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
       correlationId: "rbjc-004",
     }, "app_action_read_profile", {
       action_input: { view: "wrong" },
-      operation_id: randomUUID(),
-      idempotency_key: `rbjc-004-${randomUUID()}`,
     })).resolves.toMatchObject({
       status: "error",
       output: {
@@ -1498,35 +1494,36 @@ describe("app-chat workspace session authority", () => {
       { action_id: "read.profile", tool_name: "app_action_read_profile", model_exposure: "available", exposed: true },
       { action_id: "hidden.write", tool_name: null, model_exposure: "hidden", exposed: false },
     ]);
-    await expect(executor.execute(ownerAuth, {
+    const first = await executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
       correlationId: "rbjc-004",
     }, "app_action_read_profile", {
       action_input: {},
-      operation_id: operationId,
-      idempotency_key: idempotencyKey,
-    })).resolves.toMatchObject({
+    });
+    expect(first).toMatchObject({
       status: "ok",
       output: {
         action_id: "read.profile",
-        operation_id: operationId,
-        idempotency_key: idempotencyKey,
         result: { record: null, results: [], reused: false },
       },
     });
-    await expect(executor.execute(ownerAuth, {
+    expect((first.output as { operation_id: string }).operation_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect((first.output as { idempotency_key: string }).idempotency_key).toMatch(/^app-action-[a-f0-9]{64}$/);
+
+    const second = await executor.execute(ownerAuth, {
       memoryRoot: "/tmp/brain",
       auth: ownerAuth,
       correlationId: "rbjc-004",
     }, "app_action_read_profile", {
       action_input: {},
-      operation_id: operationId,
-      idempotency_key: idempotencyKey,
-    })).resolves.toMatchObject({
+    });
+    expect(second).toMatchObject({
       status: "ok",
       output: { result: { reused: false } },
     });
+    expect((second.output as { operation_id: string }).operation_id).toBe((first.output as { operation_id: string }).operation_id);
+    expect((second.output as { idempotency_key: string }).idempotency_key).toBe((first.output as { idempotency_key: string }).idempotency_key);
     expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(1);
   });
 
@@ -1820,7 +1817,6 @@ describe("app-chat workspace session authority", () => {
     const launch = await host.launchChatWorkspace();
     const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
     const executor = new ToolExecutor(model.tools);
-    const profileOperationId = randomUUID();
     const createOperationId = randomUUID();
     const profileInput = {
       profile_markdown: "# Resume Profile\n\nMaya Torres profile",
@@ -1844,8 +1840,6 @@ describe("app-chat workspace session authority", () => {
       correlationId: "rbjc-dispatch",
     }, "app_action_resume_profile_update", {
       action_input: profileInput,
-      operation_id: profileOperationId,
-      idempotency_key: `rbjc-dispatch-${profileOperationId}`,
     })).resolves.toMatchObject({ status: "ok" });
 
     await expect(executor.execute(ownerAuth, {

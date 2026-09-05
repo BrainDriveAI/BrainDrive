@@ -43,15 +43,22 @@ async function temporaryRoot(): Promise<string> {
   return root;
 }
 
-async function serviceAt(root: string, now?: () => Date): Promise<AppArtifactExportService> {
+async function serviceAt(
+  root: string,
+  now?: () => Date,
+  options: Pick<ConstructorParameters<typeof AppArtifactExportService>[0], "faults"> = {},
+): Promise<AppArtifactExportService> {
   const store = new AppArtifactStore(path.join(root, "memory-root"));
   await store.initialize();
-  return new AppArtifactExportService({ store, ...(now ? { now } : {}) });
+  return new AppArtifactExportService({ store, ...(now ? { now } : {}), ...options });
 }
 
-async function temporaryService(now?: () => Date): Promise<{ root: string; service: AppArtifactExportService }> {
+async function temporaryService(
+  now?: () => Date,
+  options: Pick<ConstructorParameters<typeof AppArtifactExportService>[0], "faults"> = {},
+): Promise<{ root: string; service: AppArtifactExportService }> {
   const root = await temporaryRoot();
-  return { root, service: await serviceAt(root, now) };
+  return { root, service: await serviceAt(root, now, options) };
 }
 
 function exportInput(overrides: Record<string, unknown> = {}) {
@@ -206,6 +213,63 @@ describe("SCAF-005 app artifact export service", () => {
     expect(service.cancel(authority.app_id, authority.installation_id, "generic-export-active-cancel")).toBe(true);
     release();
     await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("supports content-free injected prepare and finalize export persistence faults", async () => {
+    const prepareFault = vi.fn(() => {
+      throw new AppPlatformError("recoverable_internal_failure", "synthetic prepare persistence fault", 500);
+    });
+    const finalizeFault = vi.fn(() => {
+      throw new AppPlatformError("recoverable_internal_failure", "synthetic receipt persistence fault", 500);
+    });
+    const { root, service } = await temporaryService(undefined, {
+      faults: { beforePreparedExportPersist: prepareFault },
+    });
+
+    await expect(service.prepareExport(exportInput({
+      operation_id: "31000000-0000-4000-8000-000000000016",
+      idempotency_key: "generic-export-prepare-fault",
+    }))).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+    expect(JSON.stringify(prepareFault.mock.calls)).not.toMatch(/bytes_base64|%PDF|\/tmp\/|\/home\/|[A-Za-z]:\\/);
+    expect(prepareFault).toHaveBeenCalledWith(expect.objectContaining({
+      app_id: authority.app_id,
+      installation_id: authority.installation_id,
+      package_digest: authority.package_digest,
+      operation_id: "31000000-0000-4000-8000-000000000016",
+      content_digest: contentDigest,
+      content_size_bytes: bytes.length,
+      media_type: "application/pdf",
+      safe_destination_label: "resume.pdf",
+    }));
+    await expect(service.receiptCountForTest(authority)).resolves.toBe(0);
+
+    const restarted = await serviceAt(root, undefined, { faults: { beforeReceiptPersist: finalizeFault } });
+    const prepared = await restarted.prepareExport(exportInput({
+      operation_id: "31000000-0000-4000-8000-000000000017",
+      idempotency_key: "generic-export-before-finalize-fault",
+    }));
+    await expect(restarted.finalizeExport({
+      request_version: 1,
+      authority,
+      operation_id: "31000000-0000-4000-8000-000000000018",
+      idempotency_key: "generic-export-finalize-fault",
+      artifact_revision_id: prepared.artifact.artifact_revision_id,
+      content_digest: prepared.artifact.content_digest,
+      media_type: prepared.artifact.media_type,
+      safe_destination_label: "resume.pdf",
+      outcome: "failed",
+    })).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+    expect(JSON.stringify(finalizeFault.mock.calls)).not.toMatch(/bytes_base64|%PDF|\/tmp\/|\/home\/|[A-Za-z]:\\/);
+    expect(finalizeFault).toHaveBeenCalledWith(expect.objectContaining({
+      app_id: authority.app_id,
+      installation_id: authority.installation_id,
+      package_digest: authority.package_digest,
+      operation_id: "31000000-0000-4000-8000-000000000018",
+      content_digest: contentDigest,
+      media_type: "application/pdf",
+      safe_destination_label: "resume.pdf",
+    }));
+    await expect(restarted.receiptCountForTest(authority)).resolves.toBe(0);
   });
 
   it("finalizes a registered artifact after service and store recreation", async () => {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   ApprovalMode,
   AuthContext,
@@ -258,11 +260,12 @@ export async function* runAgentLoop(
     }
 
     for (const toolCall of completion.toolCalls) {
-      await options.promptAudit?.recorder.append("prompt_audit.tool_call", {
-        tool_call_id: toolCall.id,
-        name: toolCall.name,
-        input: toolCall.input,
-      }, modelCall);
+      const tool = toolExecutor.getTool(toolCall.name);
+      await options.promptAudit?.recorder.append(
+        "prompt_audit.tool_call",
+        promptAuditToolCallDetails(toolCall, tool, auth),
+        modelCall
+      );
       yield {
         type: "tool-call",
         id: toolCall.id,
@@ -270,7 +273,6 @@ export async function* runAgentLoop(
         input: toolCall.input,
       };
 
-      const tool = toolExecutor.getTool(toolCall.name);
       if (!tool) {
         const unavailableOutput = {
           code: "tool_unavailable",
@@ -326,11 +328,11 @@ export async function* runAgentLoop(
           status: "error",
           output: loopGuardOutput,
         };
-        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
-          tool_call_id: toolCall.id,
-          status: "error",
-          output: loopGuardOutput,
-        }, modelCall);
+        await options.promptAudit?.recorder.append(
+          "prompt_audit.tool_result",
+          promptAuditToolResultDetails(toolCall, tool, auth, "error", loopGuardOutput),
+          modelCall
+        );
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -351,11 +353,11 @@ export async function* runAgentLoop(
         });
 
         yield* toolResultEvents(guardedResult, toolCall.id);
-        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
-          tool_call_id: toolCall.id,
-          status: guardedResult.status,
-          output: guardedResult.output,
-        }, modelCall);
+        await options.promptAudit?.recorder.append(
+          "prompt_audit.tool_result",
+          promptAuditToolResultDetails(toolCall, tool, auth, guardedResult.status, guardedResult.output),
+          modelCall
+        );
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -395,11 +397,11 @@ export async function* runAgentLoop(
           status: "error",
           output: guardOutput,
         };
-        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
-          tool_call_id: toolCall.id,
-          status: "error",
-          output: guardOutput,
-        }, modelCall);
+        await options.promptAudit?.recorder.append(
+          "prompt_audit.tool_result",
+          promptAuditToolResultDetails(toolCall, tool, auth, "error", guardOutput),
+          modelCall
+        );
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -442,11 +444,11 @@ export async function* runAgentLoop(
             status: "denied",
             output: deniedOutput,
           };
-          await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
-            tool_call_id: toolCall.id,
-            status: "denied",
-            output: deniedOutput,
-          }, modelCall);
+          await options.promptAudit?.recorder.append(
+            "prompt_audit.tool_result",
+            promptAuditToolResultDetails(toolCall, tool, auth, "denied", deniedOutput),
+            modelCall
+          );
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
@@ -467,11 +469,11 @@ export async function* runAgentLoop(
       );
 
       yield* toolResultEvents(result, toolCall.id);
-      await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
-        tool_call_id: toolCall.id,
-        status: result.status,
-        output: result.output,
-      }, modelCall);
+      await options.promptAudit?.recorder.append(
+        "prompt_audit.tool_result",
+        promptAuditToolResultDetails(toolCall, tool, auth, result.status, result.output),
+        modelCall
+      );
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -613,6 +615,69 @@ function classifyError(error: unknown): StreamEvent {
 
 function stableToolInput(input: Record<string, unknown>): string {
   return JSON.stringify(sortObjectKeys(input));
+}
+
+function promptAuditToolCallDetails(
+  toolCall: { id: string; name: string; input: Record<string, unknown> },
+  tool: ToolDefinition | undefined,
+  auth: AuthContext
+): Record<string, unknown> {
+  if (usesContentFreeToolAudit(tool)) {
+    return {
+      tool_call_id: toolCall.id,
+      name: toolCall.name,
+      input_digest: digestToolPayload(toolCall.input),
+      owner: promptAuditOwner(auth),
+      tool_provenance: tool.auditMetadata,
+    };
+  }
+
+  return {
+    tool_call_id: toolCall.id,
+    name: toolCall.name,
+    input: toolCall.input,
+  };
+}
+
+function promptAuditToolResultDetails(
+  toolCall: { id: string; name: string; input: Record<string, unknown> },
+  tool: ToolDefinition,
+  auth: AuthContext,
+  status: ToolExecutionResult["status"],
+  output: unknown
+): Record<string, unknown> {
+  if (usesContentFreeToolAudit(tool)) {
+    return {
+      tool_call_id: toolCall.id,
+      name: toolCall.name,
+      status,
+      output_digest: digestToolPayload(output),
+      owner: promptAuditOwner(auth),
+      tool_provenance: tool.auditMetadata,
+    };
+  }
+
+  return {
+    tool_call_id: toolCall.id,
+    status,
+    output,
+  };
+}
+
+function usesContentFreeToolAudit(tool: ToolDefinition | undefined): tool is ToolDefinition & { auditMetadata: Record<string, unknown> } {
+  return tool?.auditMetadata?.source === "installed_app_action";
+}
+
+function promptAuditOwner(auth: AuthContext): Record<string, unknown> {
+  return {
+    actor_id: auth.actorId,
+    actor_type: auth.actorType,
+    mode: auth.mode,
+  };
+}
+
+function digestToolPayload(payload: unknown): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(JSON.stringify(sortObjectKeys(payload)) ?? "undefined").digest("hex")}`;
 }
 
 function sortObjectKeys(value: unknown): unknown {

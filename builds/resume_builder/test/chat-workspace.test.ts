@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { inflateSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   RESUME_CHAT_ACTIONS,
@@ -745,6 +745,40 @@ describe("Resume Builder chat workspace contract", () => {
     expect(pdf).not.toContain("/Subtype /Type1");
     expect(pdf).not.toContain("/WinAnsiEncoding");
     expect(pdf).not.toContain("**Customer Experience Operations Manager**");
+  });
+
+  it("supports deterministic PDF render fault injection only through planner options", () => {
+    const operationId = crypto.randomUUID();
+    const hook = vi.fn(() => { throw new Error("synthetic_render_fault"); });
+    const request = {
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: "# Maya Hart\n\n## Experience\n- Led support operations.",
+      }],
+    };
+
+    expect(() => planResumeAction(request, { faults: { beforePdfRender: hook } })).toThrow("synthetic_render_fault");
+    expect(hook).toHaveBeenCalledWith({
+      actionId: "resume.export.pdf.request",
+      operationId,
+      markdown: "# Maya Hart\n\n## Experience\n- Led support operations.",
+    });
   });
 
   it("renders extended Latin, Greek, and Cyrillic glyphs without dropping letters", () => {
