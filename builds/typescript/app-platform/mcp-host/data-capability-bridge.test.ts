@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CareerPlacementAdapter } from "../../resume-domain/career.js";
-import { ResumeRecoveryReconciliationAuditDetailsSchema } from "../contracts/audit.js";
+import { AuditEventSchema, ResumeRecoveryReconciliationAuditDetailsSchema, assertContentFreeAudit } from "../contracts/audit.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import {
   decideResumeRecoveryReconciliation,
@@ -328,6 +328,39 @@ describe("M4 capability bridge", () => {
       audit: (event, details) => hostEvents.push({ event, details }),
       clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })),
     }));
+    const chatLaunch = await host.launchChatWorkspace();
+    expect(chatLaunch.context.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        context_id: "career.resume_context",
+        kind: "career_context",
+        state: "available",
+      }),
+    ]));
+    const contextReadAudit = capabilityEvents.find(({ event, details }) =>
+      event === "app.capability.completed" &&
+      details.capability === "career.context.read" &&
+      details.resource_id === "career.resume_context"
+    );
+    expect(contextReadAudit?.details).toMatchObject({
+      owner_id: descriptor.grant!.owner_id,
+      actor_id: descriptor.grant!.actor_id,
+      app_id: "ai.braindrive.resume-builder",
+      publisher_id: "ai.braindrive",
+      installation_id: descriptor.grant!.installation_id,
+      grant_id: descriptor.grant!.grant_id,
+      grant_revision: descriptor.grant!.grant_revision,
+      target_category: "career_context",
+      target_id: null,
+      resource_id: "career.resume_context",
+      outcome: "allowed",
+      error_code: null,
+    });
+    const parsedContextReadAudit = AuditEventSchema.parse({
+      event_name: contextReadAudit!.event,
+      ...contextReadAudit!.details,
+    });
+    expect(() => assertContentFreeAudit(parsedContextReadAudit)).not.toThrow();
+    expect(JSON.stringify(contextReadAudit)).not.toContain("Product Builder at Synthetic Company");
     const launch = await host.launch();
     expect(launch.allowed_capabilities).not.toContain("career.facts.confirm");
     expect(launch.allowed_capabilities).toContain("resume.export.request");

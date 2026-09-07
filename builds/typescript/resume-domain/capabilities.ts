@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { assertContentFreeAudit, AuditEventSchema } from "../app-platform/contracts/audit.js";
+import { HostBindingIdSchema } from "../app-platform/contracts/app-registry.js";
 import { canonicalInputDigest, OpaqueIdSchema } from "../app-platform/contracts/common.js";
 import { JobEvidenceValueSchema, TailoredVariantRecordSchema } from "../app-platform/contracts/data.js";
 import { CapabilityNameSchema } from "../app-platform/contracts/package.js";
@@ -133,6 +134,7 @@ export type CapabilityExecutionContext = {
   hostOwnerConfirmed?: boolean;
   isCancelled?: () => boolean;
   idempotencyDecision?: "created" | "resumed" | "reused" | "conflict";
+  auditResourceId?: string | null;
 };
 
 export class ResumeCapabilityRouter {
@@ -542,6 +544,7 @@ export class ResumeCapabilityRouter {
     if (!binding.success || !OpaqueIdSchema.safeParse(context.correlationId).success) return;
     const source = grant ?? binding.data.context;
     const target = this.auditTarget(capability, input);
+    const resourceId = this.auditResourceId(context);
     const eventName = this.recoveryAuditEvent(capability, input, outcome, result);
     if (eventName === null) return;
     const event = AuditEventSchema.parse({
@@ -561,11 +564,13 @@ export class ResumeCapabilityRouter {
       operation_id: context.operationId,
       capability,
       capability_version: 1,
+      grant_id: binding.data.context.grant_id,
       grant_revision: binding.data.grant_revision,
       revocation_generation: binding.data.revocation_generation,
       idempotency_decision: idempotencyDecision,
       target_category: target.category,
       target_id: target.id,
+      resource_id: resourceId,
       input_revision: target.inputRevision,
       outcome,
       error_code: errorCode,
@@ -577,6 +582,11 @@ export class ResumeCapabilityRouter {
     assertContentFreeAudit(event);
     const { event_name: emittedEventName, ...details } = event;
     this.audit(emittedEventName, details);
+  }
+
+  private auditResourceId(context: CapabilityExecutionContext): string | null {
+    const parsed = HostBindingIdSchema.safeParse(context.auditResourceId);
+    return parsed.success ? parsed.data : null;
   }
 
   private resultWasReused(result: unknown): boolean {
