@@ -74,6 +74,7 @@ type DependencyResolution = Awaited<ReturnType<CapabilityDependencyResolver["res
 class RouteSidecarSupervisor implements SidecarSupervisorPort {
   readonly bindingService = { cleanup: () => undefined };
   startCount = 0;
+  stopCount = 0;
   generation = 0;
   async start(input: { packageId: string; componentId: string }) {
     this.startCount += 1;
@@ -89,6 +90,7 @@ class RouteSidecarSupervisor implements SidecarSupervisorPort {
     return this.snapshot(input.packageId, input.componentId, "starting", "unknown");
   }
   async stop(input: { packageId: string; componentId: string }) {
+    this.stopCount += 1;
     return this.snapshot(input.packageId, input.componentId, "stopped", "unknown", null);
   }
   async uninstall(input: { packageId: string; componentId: string }) {
@@ -201,6 +203,103 @@ describe("owner lifecycle gateway routes", () => {
     expect(projection.statusCode).toBe(200);
     const serialized = `${started.body}\n${projection.body}`;
     expect(serialized).not.toMatch(/https?:|127\.|localhost|0\.0\.0\.0|\bport\b|endpoint"|authorization|token|secret|pid|process_id|host_path|argv|env|payload\/|adapter|raw_/i);
+    await app.close();
+  });
+
+  it("stops a hosted provider sidecar through owner routes with stable redacted evidence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac004-provider-stop-route-")); roots.push(root);
+    const manifest = await packageComponentFixture("valid-provider-sidecar");
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    const authorityStore = new SidecarLifecycleAuthorityStore(path.join(root, "authority"));
+    const supervisor = new RouteSidecarSupervisor();
+    const fixedNow = new Date("2026-09-07T12:00:00.000Z");
+    const service = new HostSidecarLifecycleService({ packageStore, authorityStore, supervisor, clock: () => fixedNow });
+    await service.initialize();
+    const installed = await service.install({
+      authority: { kind: "host" },
+      manifest,
+      packageDigest: digest("8"),
+      componentId: "search.runtime",
+      idempotencyKey: "route-install-provider-0001",
+      operationId: "20000000-0000-4000-8000-000000000001",
+      source: { kind: "repository_fixture", label: "Synthetic provider sidecar fixture" },
+    });
+
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerSidecarLifecycleRoutes(app, service);
+
+    const started = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/search.runtime/start`,
+      payload: {
+        operation_id: "20000000-0000-4000-8000-000000000002",
+        idempotency_key: "route-start-provider-0001",
+        expected_generation: installed.record.lifecycle_generation,
+      },
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({
+      package_id: manifest.package_id,
+      component_id: "search.runtime",
+      state: "running",
+      health: "healthy",
+      runtime: { endpoint_class: "private_authority_redacted" },
+      operation: { kind: "start", status: "committed" },
+    });
+
+    const stopBody = {
+      operation_id: "20000000-0000-4000-8000-000000000003",
+      idempotency_key: "route-stop-provider-0001",
+      expected_generation: started.json().lifecycle_generation,
+    };
+    const stopped = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/search.runtime/stop`,
+      payload: stopBody,
+    });
+    expect(stopped.statusCode).toBe(200);
+    const stoppedJson = stopped.json();
+    expect(stoppedJson).toMatchObject({
+      projection_version: 1,
+      package_id: manifest.package_id,
+      component_id: "search.runtime",
+      package_digest: digest("8"),
+      state: "enabled",
+      health: "unknown",
+      runtime: null,
+      authority_revoked: true,
+    });
+    expect(stoppedJson.operation).toEqual({
+      operation_id: stopBody.operation_id,
+      kind: "stop",
+      status: "committed",
+      completed_stages: ["requested", "revoking_authority", "stopping", "completed"],
+      error_code: null,
+      started_at: "2026-09-07T12:00:00.000Z",
+      updated_at: "2026-09-07T12:00:00.000Z",
+      completed_at: "2026-09-07T12:00:00.000Z",
+    });
+    await expect(packageStore.readComponent(manifest.package_id, "search.runtime"))
+      .resolves.toMatchObject({ state: "stopped", health: "unknown" });
+    expect(supervisor.stopCount).toBe(1);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/packages/${manifest.package_id}/sidecars/search.runtime/stop`,
+      payload: stopBody,
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().operation).toEqual(stoppedJson.operation);
+    expect(supervisor.stopCount).toBe(1);
+
+    const projection = await app.inject({ method: "GET", url: `/packages/${manifest.package_id}/sidecars/search.runtime/lifecycle` });
+    expect(projection.statusCode).toBe(200);
+    expect(projection.json()).toMatchObject({ state: "enabled", health: "unknown", runtime: null, lifecycle_generation: stoppedJson.lifecycle_generation });
+    const serialized = `${started.body}\n${stopped.body}\n${replay.body}\n${projection.body}`;
+    expect(serialized).not.toMatch(/https?:|127\.|localhost|0\.0\.0\.0|\bport\b|endpoint"|authorization|token|secret|pid|process_id|host_path|argv|env|payload\/|adapter|raw_|provider-key/i);
     await app.close();
   });
 

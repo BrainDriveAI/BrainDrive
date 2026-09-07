@@ -16,6 +16,8 @@ import {
   InferenceStageSchema,
 } from "./inference.js";
 
+const AuditResourceIdSchema = z.string().min(3).max(128).regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/);
+
 export const AuditEventNameSchema = z.enum([
   "app.package.source_checked",
   "app.package.verified",
@@ -85,11 +87,13 @@ export const AuditEventSchema = z
     operation_id: OpaqueIdSchema.nullable(),
     capability: CapabilityNameSchema.nullable(),
     capability_version: z.number().int().positive().nullable().optional(),
+    grant_id: OpaqueIdSchema.nullable().optional(),
     grant_revision: z.number().int().positive().nullable().optional(),
     revocation_generation: z.number().int().nonnegative().nullable().optional(),
     idempotency_decision: z.enum(["created", "resumed", "reused", "conflict"]).nullable().optional(),
     target_category: z.string().min(1).max(128).nullable(),
     target_id: OpaqueIdSchema.nullable(),
+    resource_id: AuditResourceIdSchema.nullable().optional(),
     input_revision: z.number().int().positive().nullable(),
     outcome: z.enum(["allowed", "denied", "committed", "cancelled", "conflict", "failed", "quarantined"]),
     error_code: z.string().min(1).max(128).nullable(),

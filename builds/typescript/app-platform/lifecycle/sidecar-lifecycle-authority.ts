@@ -70,7 +70,7 @@ export const SidecarLifecycleOperationRecordSchema = z.object({
   canonical_input_digest: Sha256DigestSchema,
   package_id: PackageIdSchema.nullable(),
   component_id: z.string().min(3).max(128).nullable(),
-  kind: z.enum(["install", "enable", "start", "disable", "restart", "update", "rollback", "uninstall", "shutdown", "reconcile"]),
+  kind: z.enum(["install", "enable", "start", "stop", "disable", "restart", "update", "rollback", "uninstall", "shutdown", "reconcile"]),
   status: z.enum(["running", "committed", "failed"]),
   prior_generation: z.number().int().nonnegative().nullable(),
   result_generation: z.number().int().nonnegative().nullable(),
@@ -319,6 +319,18 @@ export class HostSidecarLifecycleService {
       const ready = await this.options.supervisor.awaitReadiness({ packageId: input.packageId, componentId: input.componentId, authority: { kind: "host" } });
       const packageRecord = await this.options.packageStore.requirePackage(input.packageId);
       const record = await this.options.authorityStore.saveAuthority(this.nextAuthority(prior, packageRecord, stateFromSnapshot(ready), healthFromSnapshot(ready), runtimeIdentity(ready), null));
+      operation = await this.complete(operation, record);
+      return { record, operation };
+    });
+  }
+
+  async stop(input: PackageActionInput): Promise<SidecarLifecycleResponse> {
+    this.assertHost(input.authority);
+    return await this.mutateExisting("stop", input, async (operation, prior) => {
+      operation = await this.revokeAndStop(operation, input, prior);
+      await this.options.packageStore.setSidecarRuntimeState(input.packageId, input.componentId, "stopped", "unknown", this.now());
+      const packageRecord = await this.options.packageStore.requirePackage(input.packageId);
+      const record = await this.options.authorityStore.saveAuthority(this.nextAuthority(prior, packageRecord, "enabled", "unknown", null, prior.last_known_good_package_digest));
       operation = await this.complete(operation, record);
       return { record, operation };
     });

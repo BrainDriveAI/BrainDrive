@@ -240,7 +240,7 @@ export function registerSidecarLifecycleRoutes(app: FastifyInstance, service: Ho
     }
   });
 
-  for (const action of ["start", "enable", "disable", "restart", "rollback", "uninstall"] as const) {
+  for (const action of ["start", "stop", "enable", "disable", "restart", "rollback", "uninstall"] as const) {
     app.post(`/packages/:packageId/sidecars/:componentId/${action}`, async (request, reply) => {
       if (!authorizeSidecarOwner(request, reply)) return;
       const params = sidecarParamsSchema.safeParse(request.params);

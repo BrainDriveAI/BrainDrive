@@ -351,7 +351,7 @@ export class ResumeAppHostAdapter {
       contextGrantSetDigest: contextGrantPlan.digest,
     }), input.resume);
     const context = await projectAppChatContext(selection.workspace, contextGrantPlan, this.capabilityRouter ? {
-      career_context: async () => this.projectCareerContextForChat(sessionPlan.viewId, descriptor.grant!, record.installation_id!),
+      career_context: async (request) => this.projectCareerContextForChat(sessionPlan.viewId, descriptor.grant!, record.installation_id!, request.context_id),
     } : {});
     const committed = this.chatSessions.commit(sessionPlan);
     this.audit("app.chat_workspace.session_opened", {
@@ -1293,7 +1293,7 @@ export class ResumeAppHostAdapter {
     };
   }
 
-  private async projectCareerContextForChat(viewId: string, grant: CapabilityGrant, installationId: string): Promise<unknown> {
+  private async projectCareerContextForChat(viewId: string, grant: CapabilityGrant, installationId: string, resourceId: string): Promise<unknown> {
     const operationId = randomUUID();
     const idempotencyKey = `app-chat-context-${operationId}`;
     const issued = await this.lifecycle.issueSession({
@@ -1318,6 +1318,7 @@ export class ResumeAppHostAdapter {
       correlationId: operationId,
       idempotencyKey,
       deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
+      auditResourceId: resourceId,
     });
   }
 
