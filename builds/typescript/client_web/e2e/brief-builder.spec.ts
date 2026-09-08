@@ -1,4 +1,4 @@
-import { expect, test, type FrameLocator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { appLaunchButton, expectAppWorkspaceReady, loginAsLocalUser } from "./helpers";
 
@@ -12,10 +12,6 @@ async function openApps(page: Page) {
   if (!await apps.isVisible()) await navigationMenu.click();
   await apps.click();
   await expect(page.getByTestId("apps-page")).toBeVisible();
-}
-
-function briefFrame(page: Page): FrameLocator {
-  return page.frameLocator('iframe[title="Brief Builder sandbox proxy"]').frameLocator('iframe[title="Brief Builder"]');
 }
 
 test.describe("Brief Builder focused owner journey", () => {
