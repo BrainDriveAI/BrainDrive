@@ -1,6 +1,6 @@
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers";
+import { appLaunchButton, expectAppWorkspaceReady, loginAsLocalUser } from "./helpers";
 
 async function openApps(page: Page) {
   const yourAgent = page.getByRole("button", { name: "Your Agent", exact: true });
@@ -31,13 +31,23 @@ test.describe("Brief Builder focused owner journey", () => {
     await expect(card.getByRole("heading", { name: "Brief Builder" })).toBeVisible();
     await expect(card).toContainText("ai.braindrive.brief-builder");
     await card.getByRole("button", { name: "Install Brief Builder" }).click();
-    await expect(card.getByRole("button", { name: "Launch", exact: true })).toBeVisible({ timeout: 20_000 });
-    await card.getByRole("button", { name: "Launch", exact: true }).click();
+    const launch = appLaunchButton(card, "Brief Builder");
+    await expect(launch).toBeVisible({ timeout: 20_000 });
+    await launch.click();
 
-    const proxy = page.locator('iframe[title="Brief Builder sandbox proxy"]');
-    const frame = briefFrame(page);
-    await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 20_000 });
-    await expect(proxy).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
+    const readiness = await expectAppWorkspaceReady(page, "Brief Builder");
+    if (readiness.kind === "chat_workspace") {
+      await expect(page.getByRole("heading", { name: "Brief Draft" })).toBeVisible({ timeout: 20_000 });
+      await page.getByRole("button", { name: "Brief Source" }).click();
+      const source = page.getByLabel("Brief Source content");
+      await expect(source).toBeVisible();
+      await source.fill("The owner launched a pilot in Dayton. The pilot enrolled twelve participants.");
+      await page.getByRole("button", { name: "Save Brief Source" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Saved Brief Source." })).toBeVisible({ timeout: 20_000 });
+      return;
+    }
+
+    const frame = readiness.frame;
     await expect(frame.getByRole("heading", { name: "Brief Builder" })).toBeVisible();
     await expect(frame.getByRole("status")).toHaveText("Ready for source text.", { timeout: 20_000 });
     await frame.getByLabel("Owner source text").fill("The owner launched a pilot in Dayton. The pilot enrolled twelve participants.");

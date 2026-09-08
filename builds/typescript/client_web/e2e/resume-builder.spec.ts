@@ -3,7 +3,13 @@ import path from "node:path";
 
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers";
+import {
+  appLaunchButton,
+  closeAppWorkspace,
+  expectAppWorkspaceReady,
+  loginAsLocalUser,
+  type WorkspaceReadiness,
+} from "./helpers";
 
 async function confirmOwnerAction(page: Page, label: RegExp) {
   const dialog = page.getByRole("dialog");
@@ -132,16 +138,19 @@ async function openCareerApps(page: Page) {
   await expect(page.getByTestId("apps-page")).toBeVisible();
 }
 
-async function installAndLaunchCareer(page: Page): Promise<FrameLocator> {
-  const install = page.getByRole("button", { name: "Install Resume Builder" });
-  const launch = page.getByRole("button", { name: "Continue from Career" });
+async function installAndLaunchCareer(page: Page): Promise<WorkspaceReadiness> {
+  const card = page.locator('[data-app-key="resume-builder"]');
+  const install = card.getByRole("button", { name: "Install Resume Builder" });
+  const launch = appLaunchButton(card, "Resume Builder");
   await expect(install.or(launch)).toBeVisible({ timeout: 15_000 });
   if (await install.isVisible()) await install.click();
   await expect(launch).toBeVisible({ timeout: 15_000 });
   await launch.click();
-  const frame = resumeBuilderFrame(page);
-  await expect(page.getByRole("button", { name: "Enter app" })).toBeVisible({ timeout: 15_000 });
-  return frame;
+  const readiness = await expectAppWorkspaceReady(page, "Resume Builder");
+  if (readiness.kind === "sandbox") {
+    await expect(page.getByRole("button", { name: "Enter app" })).toBeVisible({ timeout: 15_000 });
+  }
+  return readiness;
 }
 
 function resumeBuilderFrame(page: Page): FrameLocator {
@@ -157,8 +166,25 @@ test.describe("Resume Builder owner journey", () => {
   test("completes Career entry, owner approvals, PDF export, history, and direct reopen", async ({ page }, testInfo) => {
     test.setTimeout(240_000);
     await openCareerApps(page);
-    let frame = await installAndLaunchCareer(page);
-    const proxy = page.locator('iframe[title="Resume Builder sandbox proxy"]');
+    const launchReadiness = await installAndLaunchCareer(page);
+    if (launchReadiness.kind === "chat_workspace") {
+      await expect(page.getByRole("button", { name: "Your Resume Profile" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Your Resume", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Your Resume Profile" }).click();
+      await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
+      await closeAppWorkspace(page, launchReadiness);
+      const reopenedCard = page.getByRole("article").filter({ hasText: "Resume Builder" });
+      await appLaunchButton(reopenedCard, "Resume Builder").click();
+      await expectAppWorkspaceReady(page, "Resume Builder");
+      await page.getByRole("button", { name: "Your Resume Profile" }).click();
+      await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
+      await page.getByRole("button", { name: "Your Resume", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "resume.md" })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText("Turn your source into a concise")).toHaveCount(0);
+      return;
+    }
+    let frame = launchReadiness.frame;
+    const proxy = launchReadiness.proxy;
     await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
     await expect(proxy).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     await expect(proxy).not.toHaveAttribute("srcdoc", /.+/);
@@ -568,7 +594,20 @@ test.describe("Resume Builder responsive job interview", () => {
     test.setTimeout(150_000);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openCareerApps(page);
-    const frame = await installAndLaunchCareer(page);
+    const launchReadiness = await installAndLaunchCareer(page);
+    if (launchReadiness.kind === "chat_workspace") {
+      await expect(page.getByTestId("app-chat-workspace")).toBeVisible();
+      expect(await page.getByTestId("app-chat-workspace").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+      await page.getByRole("button", { name: "Open workspace navigation menu" }).click();
+      const drawer = page.getByRole("dialog", { name: "Resume Builder workspace navigation" });
+      await expect(drawer).toBeVisible();
+      await drawer.getByRole("button", { name: "Your Resume Profile" }).click();
+      await expect(drawer).toBeHidden();
+      await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
+      expect(await page.getByTestId("app-chat-workspace").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+      return;
+    }
+    const frame = launchReadiness.frame;
     await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "Enter app" }).click();
     await expect(frame.getByRole("heading", { name: "Resume Builder", exact: true })).toBeVisible({ timeout: 20_000 });
