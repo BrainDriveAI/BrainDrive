@@ -13,7 +13,7 @@ const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
   general_resume_draft: [
     "Draft a professional, readable general resume definition using only confirmed facts and the exact persisted strategy in the snapshot.",
     "Use reverse chronological organization when dates support it.",
-    "Use only standard section IDs when applicable: contact, summary, experience, education, certifications, skills, projects, leadership, volunteer, links.",
+    "Use only standard section IDs when applicable: contact, summary, experience, projects, education, credentials, skills, leadership, volunteer, links.",
     "Use the confirmed owner name as the title when available; otherwise use Resume.",
     "Follow the strategy summary decision. Include a concise professional summary only when it chose supported positioning; otherwise omit it. Cite every fact used and do not infer an industry, seniority, trait, or career claim from an employer name or resume goal.",
     "For each job, return exactly one experience_roles item. Put the job's heading in heading_statement and put only that job's separate concise responsibility or accomplishment statements in bullet_statements. Do not put experience statements in the top-level statements array.",

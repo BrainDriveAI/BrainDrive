@@ -30,10 +30,10 @@ export const CANONICAL_RESUME_SECTION_PRECEDENCE = [
   "contact",
   "summary",
   "experience",
-  "education",
-  "certifications",
-  "skills",
   "projects",
+  "education",
+  "credentials",
+  "skills",
   "leadership",
   "volunteer",
   "links",
@@ -100,7 +100,7 @@ export function sectionForFact(fact: CanonicalStrategyFact): typeof CANONICAL_RE
   if (fact.fact_kind === "employment" || fact.fact_kind === "accomplishment") return "experience";
   if (fact.fact_kind === "job_evidence") return jobAssociation(fact) === null ? "skills" : "experience";
   if (fact.fact_kind === "education") return "education";
-  if (fact.fact_kind === "credential") return "certifications";
+  if (fact.fact_kind === "credential") return "credentials";
   if (fact.fact_kind === "skill") return "skills";
   if (fact.fact_kind === "project") return fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
   return null;
