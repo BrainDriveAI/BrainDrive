@@ -7,7 +7,7 @@ import {
 } from "@/lib/rootAgent";
 
 const PROJECT_LABELS: Record<string, string> = {
-  finance: "Your Finance",
+  finance: "Your Finances",
   fitness: "Your Fitness",
   career: "Your Career",
   relationships: "Your Relationships",
@@ -15,7 +15,7 @@ const PROJECT_LABELS: Record<string, string> = {
 };
 
 const PROJECT_SHORT_LABELS: Record<string, string> = {
-  finance: "Finance",
+  finance: "Finances",
   fitness: "Fitness",
   career: "Career",
   relationships: "Relationships",

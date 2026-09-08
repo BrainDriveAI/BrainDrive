@@ -9,7 +9,7 @@ type ProjectIntro = {
 
 const PROJECT_INTROS: Record<string, ProjectIntro> = {
   [ROOT_AGENT_PROJECT_ID]: {
-    heading: "Welcome to BrainDrive",
+    heading: "Welcome to Your BrainDrive",
     description:
       "Pick something on your mind right now — a goal, a problem, a decision — and let's make progress on it in the next five minutes.",
     suggestions: [

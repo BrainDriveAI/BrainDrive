@@ -44,7 +44,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...baseProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Finance" }));
+    await user.click(screen.getByRole("button", { name: "Finances" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -71,7 +71,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByRole("button", { name: "Your Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Career" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finances" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
@@ -96,7 +96,7 @@ describe("Sidebar", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Goals" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Journal" })).toBeInTheDocument();
@@ -202,7 +202,7 @@ describe("Sidebar", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Back to project list" }));
-    await user.click(screen.getByRole("button", { name: "Your Finance" }));
+    await user.click(screen.getByRole("button", { name: "Your Finances" }));
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
@@ -218,7 +218,7 @@ describe("Sidebar", () => {
       />
     );
 
-    expect(screen.queryByRole("button", { name: "Upload document to Your Finance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload document to Your Finances" })).not.toBeInTheDocument();
     expect(container.querySelector('input[type="file"]')).not.toBeInTheDocument();
   });
 });

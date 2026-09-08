@@ -27,14 +27,14 @@ const gardenFiles: ProjectFile[] = [
 
 describe("sidebar labels", () => {
   it("translates canonical files into owner-facing labels", () => {
-    expect(projectDisplayLabel("finance", "Finance")).toBe("Your Finance");
+    expect(projectDisplayLabel("finance", "Finance")).toBe("Your Finances");
     expect(projectDisplayLabel("career", "Career")).toBe("Your Career");
     expect(projectDisplayLabel("custom-id", "Fitness")).toBe("Your Fitness");
     expect(projectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
     expect(rootProjectDisplayLabel("career", "Career")).toBe("Career");
     expect(rootProjectDisplayLabel("relationships", "Relationships")).toBe("Relationships");
     expect(rootProjectDisplayLabel("fitness", "Fitness")).toBe("Fitness");
-    expect(rootProjectDisplayLabel("finance", "Finance")).toBe("Finance");
+    expect(rootProjectDisplayLabel("finance", "Finance")).toBe("Finances");
     expect(rootProjectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
