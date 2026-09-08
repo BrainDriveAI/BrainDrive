@@ -472,8 +472,17 @@ describe("Resume Builder-owned General draft inference program", () => {
       [jobId, ...evidenceFacts.map((fact) => fact.revision_id)].sort(),
     );
     expect(payload.draft_slots.every((slot: any) => Object.keys(slot).sort().join(",") === [
-      "display_role", "job_fact_revision_id", "section_id", "slot_id", "supporting_confirmed_fact_revision_ids",
+      "display_role", "job_fact_revision_id", "section_id", "slot_id", "supporting_confirmed_fact_revision_ids", "supporting_confirmed_fact_texts",
     ].sort().join(","))).toBe(true);
+    expect(payload.draft_slots.every((slot: any) => (
+      slot.supporting_confirmed_fact_texts.length === slot.supporting_confirmed_fact_revision_ids.length
+      && slot.supporting_confirmed_fact_texts.every((item: any) => (
+        slot.supporting_confirmed_fact_revision_ids.includes(item.revision_id)
+        && typeof item.text === "string"
+        && item.text.length > 0
+        && item.text.length <= 1_024
+      ))
+    ))).toBe(true);
 
     const textBySlot = providerCandidateFor(structuredInput).candidate.text_by_slot;
     const accepted = adjudicateResumeGeneralDraft({
@@ -490,8 +499,8 @@ describe("Resume Builder-owned General draft inference program", () => {
 
   it("accepts the strategy-owned nine-section topology on the first valid provider response", () => {
     const sectionOrder = [
-      "contact", "summary", "experience", "education", "certifications",
-      "skills", "projects", "leadership", "links",
+      "contact", "summary", "experience", "projects", "education",
+      "credentials", "skills", "leadership", "links",
     ];
     const nineSectionInput = {
       ...input,
@@ -520,16 +529,131 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(accepted.issue_ids).not.toContain("resume.general-draft/schema-section-order-invalid");
   });
 
+  it("uses the exact strategy credentials section without provider topology authority", () => {
+    const credentialInput = {
+      ...input,
+      facts: [
+        ...input.facts,
+        {
+          revision_id: "10000000-0000-4000-8000-000000000006",
+          fact_kind: "credential",
+          value: "AWS Certified Cloud Practitioner",
+          state: "confirmed",
+        },
+      ],
+      strategy: {
+        ...input.strategy,
+        fact_revision_ids: [jobId, evidenceId, "10000000-0000-4000-8000-000000000006"],
+        section_order: ["experience", "credentials"],
+      },
+    };
+    const prepared = providerCandidateFor(credentialInput);
+    const accepted = adjudicateResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input: credentialInput,
+      attempt: 1,
+      candidate: prepared.candidate,
+    });
+
+    expect(JSON.parse(prepared.plan.user).assembly_contract.exact_strategy_section_order).toEqual(["experience", "credentials"]);
+    expect(accepted).toMatchObject({
+      decision: "accepted",
+      issue_ids: [],
+      result: { draft: { section_order: ["experience", "credentials"] } },
+    });
+    expect(accepted.result.draft.statements.some((statement: any) => statement.section_id === "credentials")).toBe(true);
+  });
+
   it("keeps provider credentials and final topology outside the provider-facing plan", () => {
     expect(RESUME_GENERAL_DRAFT_PROGRAM).toMatchObject({ id: "resume.general-draft", version: 1, prompt_policy_version: "1" });
     const plan = prepareResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, previous: null });
+    const payload = JSON.parse(plan.user);
     expect(plan.output_schema.properties).toEqual(expect.objectContaining({ title: expect.any(Object), text_by_slot: expect.any(Object) }));
     expect(plan.output_schema.properties).not.toHaveProperty("statements");
     expect(plan.output_schema.properties).not.toHaveProperty("experience_roles");
     expect(plan.output_schema.properties).not.toHaveProperty("omissions");
+    expect(plan.output_schema.properties).not.toHaveProperty("section_order");
+    expect(payload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(payload.draft_slots.every((slot: any) => Array.isArray(slot.supporting_confirmed_fact_texts))).toBe(true);
     expect(plan).not.toHaveProperty("provider_profile_id");
     expect(plan).not.toHaveProperty("credential");
     expect(plan.user).not.toContain(input.persistence_input_digest);
+  });
+
+  it("rejects provider-authored topology and repeats exact app-owned section order in retry", () => {
+    const prepared = providerCandidateFor(input);
+    const reordered = {
+      ...prepared.candidate,
+      section_order: ["summary", "experience"],
+    };
+    expect(adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, candidate: reordered })).toMatchObject({
+      decision: "retry",
+      issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"],
+    });
+
+    const retry = prepareResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input,
+      attempt: 2,
+      previous: { candidate: reordered, issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"] },
+    });
+    const retryPayload = JSON.parse(retry.user);
+    expect(retry.output_schema.properties).not.toHaveProperty("section_order");
+    expect(retryPayload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(retryPayload.repair).toMatchObject({
+      issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"],
+      exact_strategy_section_order: input.strategy.section_order,
+    });
+    expect(retryPayload.repair.instruction).toContain("Do not return section_order");
+  });
+
+  it("retries unsupported wording with slot support text and preserves exact app-owned order", () => {
+    const prepared = providerCandidateFor(input);
+    const targetSlot = prepared.payload.draft_slots.find((slot: any) => slot.display_role === "bullet");
+    const invalid = {
+      ...prepared.candidate,
+      text_by_slot: {
+        ...prepared.candidate.text_by_slot,
+        [targetSlot.slot_id]: "Scaled enterprise transformation programs",
+      },
+    };
+    const first = adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, candidate: invalid });
+    expect(first).toMatchObject({
+      decision: "retry",
+      issue_ids: ["resume.general-draft/statement-factual-wording-unsupported"],
+    });
+
+    const retry = prepareResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input,
+      attempt: 2,
+      previous: { candidate: invalid, issue_ids: first.issue_ids },
+    });
+    const retryPayload = JSON.parse(retry.user);
+    const retrySlot = retryPayload.draft_slots.find((slot: any) => slot.slot_id === targetSlot.slot_id);
+    expect(retry.output_schema.properties).not.toHaveProperty("section_order");
+    expect(retryPayload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(retryPayload.repair).toMatchObject({
+      issue_ids: ["resume.general-draft/statement-factual-wording-unsupported"],
+      exact_strategy_section_order: input.strategy.section_order,
+    });
+    expect(retryPayload.repair.instruction).toContain("supporting_confirmed_fact_texts only");
+    expect(retrySlot.supporting_confirmed_fact_texts).toEqual([
+      { revision_id: evidenceId, text: "Reduced deployment time by 30%" },
+    ]);
+
+    const corrected = {
+      ...prepared.candidate,
+      text_by_slot: {
+        ...prepared.candidate.text_by_slot,
+        [targetSlot.slot_id]: retrySlot.supporting_confirmed_fact_texts[0].text,
+      },
+    };
+    expect(adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 2, candidate: corrected })).toMatchObject({
+      decision: "accepted",
+      issue_ids: [],
+      result: { draft: { section_order: input.strategy.section_order } },
+    });
   });
 
   it("returns exact slot diagnostics to the one app-owned retry", () => {
