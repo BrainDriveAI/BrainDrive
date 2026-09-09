@@ -100,12 +100,13 @@ export async function createInternetSearchProviderRuntime(input: {
   const packagedProcessDriver = packageRuntimeSidecars || shim
     ? null
     : await createDesktopPackagedProcessSidecarDriver({
-        rootDir: input.rootDir,
-        memoryRoot: input.memoryRoot,
-        stateRoot: input.stateRoot,
-        manifest,
-        target,
-      });
+      rootDir: input.rootDir,
+      memoryRoot: input.memoryRoot,
+      stateRoot: input.stateRoot,
+      manifest,
+      target,
+      env,
+    });
   const driver = packageRuntimeSidecars
     ? new PackageRuntimeDescriptorSidecarDriver(packageRuntimeSidecars, input.fetchImpl)
     : shim
@@ -175,8 +176,8 @@ export async function createInternetSearchProviderRuntime(input: {
   };
 }
 
-export async function loadInternetSearchProviderManifest(rootDir: string): Promise<PackageComponentManifest> {
-  const manifestPath = manifestCandidates(rootDir).find((candidate) => existsSync(candidate));
+export async function loadInternetSearchProviderManifest(rootDir: string, env: NodeJS.ProcessEnv = process.env): Promise<PackageComponentManifest> {
+  const manifestPath = manifestCandidates(rootDir, env).find((candidate) => existsSync(candidate));
   if (!manifestPath) throw new Error("Internet Search provider package manifest is missing");
   return PackageComponentManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")));
 }
@@ -344,13 +345,14 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
   stateRoot?: string;
   manifest: PackageComponentManifest;
   target: RuntimeTarget;
+  env?: NodeJS.ProcessEnv;
 }): Promise<SidecarRuntimeDriver | null> {
   if (input.target !== "desktop_windows_x64" && input.target !== "desktop_macos_universal") return null;
   const sidecar = input.manifest.sidecars.find((candidate) => candidate.component_id === INTERNET_SEARCH_SIDECAR_COMPONENT_ID);
   const target = sidecar?.targets.find((candidate) => candidate.target === input.target && candidate.runtime_kind === "packaged_process");
   if (!sidecar || !target || target.runtime_kind !== "packaged_process") return null;
 
-  const packageRoot = internetSearchProviderPackageRoot(input.rootDir);
+  const packageRoot = internetSearchProviderPackageRoot(input.rootDir, input.env);
   if (!packageRoot) return null;
   const requiredPaths = [
     target.artifact_path,
@@ -415,8 +417,8 @@ async function installProofPackageIfMissing(store: InstalledPackageStore, manife
   });
 }
 
-function internetSearchProviderPackageRoot(rootDir: string): string | null {
-  const manifestPath = manifestCandidates(rootDir).find((candidate) => existsSync(candidate));
+function internetSearchProviderPackageRoot(rootDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const manifestPath = manifestCandidates(rootDir, env).find((candidate) => existsSync(candidate));
   return manifestPath ? path.dirname(manifestPath) : null;
 }
 
@@ -562,8 +564,12 @@ function packageStoreRoot(memoryRoot: string, stateRoot?: string): string {
   return path.join(root, "state", "packages");
 }
 
-function manifestCandidates(rootDir: string): string[] {
+function manifestCandidates(rootDir: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const explicitManifestPath = env.BRAINDRIVE_INTERNET_SEARCH_PACKAGE_MANIFEST_PATH?.trim();
+  const explicitPackageRoot = env.BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT?.trim();
   return [
+    ...(explicitManifestPath ? [path.resolve(explicitManifestPath)] : []),
+    ...(explicitPackageRoot ? [path.resolve(explicitPackageRoot, "manifest.json")] : []),
     path.resolve(rootDir, "builds/internet_search/manifest.json"),
     path.resolve(rootDir, "../internet_search/manifest.json"),
     path.resolve(process.cwd(), "builds/internet_search/manifest.json"),

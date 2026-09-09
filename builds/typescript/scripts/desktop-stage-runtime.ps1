@@ -1,7 +1,7 @@
 param(
   [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$McpRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\mcp_release")).Path,
-  [string]$InternetSearchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\internet_search")).Path,
+  [string]$InternetSearchRoot = $(if ($env:BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT) { (Resolve-Path $env:BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT).Path } else { (Resolve-Path (Join-Path $PSScriptRoot "..\..\internet_search")).Path }),
   [string]$ResumeBuilderRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\resume_builder")).Path,
   [string]$BriefBuilderRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\brief_builder")).Path,
   [string]$OutputRoot = (Join-Path $ProjectRoot "src-tauri\desktop-runtime")

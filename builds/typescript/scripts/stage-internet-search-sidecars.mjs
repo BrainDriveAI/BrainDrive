@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -15,13 +16,18 @@ async function main() {
   const crateRoot = path.join(sourceRoot, "sidecar-runtime");
   const manifestPath = path.join(destinationRoot, "manifest.json");
   const executableName = "braindrive-internet-search-sidecar.exe";
+  const sidecarPath = "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe";
+  const stagedExecutable = path.join(destinationRoot, ...sidecarPath.split("/"));
+  if (!existsSync(path.join(crateRoot, "Cargo.toml"))) {
+    if (existsSync(stagedExecutable)) return;
+    throw new Error(`Internet Search sidecar crate was not found at ${crateRoot}`);
+  }
   await execFileAsync("cargo", ["build", "--release", "--manifest-path", path.join(crateRoot, "Cargo.toml")], {
     cwd: crateRoot,
     shell: true,
   });
 
   const builtExecutable = path.join(crateRoot, "target", "release", executableName);
-  const sidecarPath = "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe";
   await copyFileIntoPackage(builtExecutable, path.join(destinationRoot, ...sidecarPath.split("/")));
 
   await writeTextPackageFile(

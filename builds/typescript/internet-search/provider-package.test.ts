@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -216,6 +216,20 @@ describe("SC-005 Internet Search proof provider package migration", () => {
     expect(desktopTargets.find((target) => target.target === "desktop_windows_x64")?.evidence.signing.platform_signature).toBe("windows_authenticode_required");
     expect(desktopTargets.find((target) => target.target === "desktop_macos_universal")?.evidence.signing.platform_signature).toBe("macos_codesign_notarization_required");
     expect(JSON.stringify(desktopTargets)).not.toMatch(/Docker Desktop|native support|supported on Windows|supported on macOS|localhost|127\.|0\.0\.0\.0|\bport\b|token|secret|credential|raw_log|provider payload/i);
+  });
+
+  it("can load the provider manifest from an extracted package repo root", async () => {
+    const root = await tempRoot();
+    const externalRoot = path.join(root, "braindrive-internet-search");
+    await mkdir(externalRoot, { recursive: true });
+    await writeFile(path.join(externalRoot, "manifest.json"), await readFile(path.resolve(process.cwd(), "../internet_search/manifest.json"), "utf8"), "utf8");
+
+    const manifest = await loadInternetSearchProviderManifest("/no/ws5/root", {
+      BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: externalRoot,
+    });
+
+    expect(manifest.package_id).toBe(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+    expect(manifest.package_kind).toEqual(["capability_provider"]);
   });
 
   it("keeps desktop packaged-process targets as admission-only metadata instead of Docker fallback", async () => {
