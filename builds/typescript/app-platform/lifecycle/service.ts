@@ -16,6 +16,7 @@ import { manifestCapabilities, manifestDataCompatibility, PackageVerifier, type 
 import type { AppSupervisor, RuntimeIdentity, RuntimeLaunchDescriptor, StopReason } from "./process-supervisor.js";
 import { AppLifecycleStore, type CapabilityGrant, type LifecycleOperation, type LifecycleRecord, type StoredPackage, type UninstallJournal } from "./store.js";
 import { ImmutablePackageStore, type PromotableVerifiedPackage } from "./verified-package-store.js";
+import type { Stage1CatalogPackageSource } from "./stage1-catalog-source.js";
 
 const OWNER_ID = "00000000-0000-4000-8000-000000000001";
 const ACTOR_ID = "00000000-0000-4000-8000-000000000002";
@@ -41,6 +42,7 @@ export type LifecycleDependencies = {
   audit?: (event: string, details: Record<string, unknown>) => void;
   ownerActorId?: string;
   beforeUninstallDelete?: (targetClass: "package_bytes" | "disposable_cache", targetPath: string) => Promise<void>;
+  catalogPackageSource?: Pick<Stage1CatalogPackageSource, "availableVersion" | "displayName" | "publisherName" | "ownerSafeSource">;
 };
 
 export type LifecycleResponse = { record: LifecycleRecord; operation: LifecycleOperation; grant: CapabilityGrant | null };

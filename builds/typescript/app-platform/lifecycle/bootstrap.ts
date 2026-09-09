@@ -7,6 +7,7 @@ import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository } f
 import { PackageVerifier } from "./package-verifier.js";
 import { ProcessAppSupervisor } from "./process-supervisor.js";
 import { AppLifecycleService } from "./service.js";
+import { createStage1CatalogPackageSource, type Stage1CatalogSourceConfig } from "./stage1-catalog-source.js";
 import { AppLifecycleStore } from "./store.js";
 import { migrateLegacyResumeControlState } from "./state-migration.js";
 import { ImmutablePackageStore } from "./verified-package-store.js";
@@ -18,10 +19,18 @@ import { fileURLToPath } from "node:url";
 export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
 export const BRIEF_BUILDER_VERSION = "1.2.1" as const;
 
-export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean }): Promise<AppLifecycleService> {
+export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean; catalogSource?: Stage1CatalogSourceConfig | null }): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
   const target = input.target ?? "docker_linux_x64";
-  const repository = await createFixtureRepository(path.join(stateRoot, "fixture-source"));
+  const catalogPackageSource = input.catalogSource
+    ? await createStage1CatalogPackageSource({
+        source: input.catalogSource,
+        appId: "ai.braindrive.resume-builder",
+        target,
+        fallbackCacheRoot: path.join(stateRoot, "catalog-cache"),
+      })
+    : null;
+  const repository = catalogPackageSource?.repository ?? await createFixtureRepository(path.join(stateRoot, "fixture-source"));
   const tokenBroker = new CapabilityTokenBroker();
   const supervisor = new ProcessAppSupervisor({
     audit: auditLog,
@@ -45,6 +54,7 @@ export async function createAppLifecycle(input: { memoryRoot: string; hostVersio
     dataAdapter,
     isMemoryMigrationInProgress: input.isMemoryMigrationInProgress,
     ownerActorId: input.ownerActorId,
+    ...(catalogPackageSource ? { catalogPackageSource } : {}),
     runtimeTarget: target !== "docker_linux_x64"
       ? { target, runtimeKind: "packaged_node", transport: "loopback" }
       : { target, runtimeKind: "container", transport: "container_internal" },
