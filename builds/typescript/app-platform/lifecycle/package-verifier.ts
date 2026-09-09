@@ -16,6 +16,10 @@ import {
   RevocationListSchema,
   TrustRootSchema,
 } from "../contracts/package.js";
+import {
+  PackageComponentManifestSchema,
+  type PackageComponentManifest,
+} from "../contracts/package-components.js";
 import { AppPlatformError } from "./errors.js";
 import type { FixtureRepository } from "./fixture-repository.js";
 import { readStoredZip } from "./zip.js";
@@ -44,6 +48,14 @@ export type VerifiedPackage = {
 };
 
 export type VerifiedCatalogPackage = Pick<VerifiedPackage, "manifest" | "trust" | "packageDigest" | "target" | "runtimeKind">;
+export type VerifiedCatalogComponentPackage = {
+  manifest: PackageComponentManifest;
+  packageDigest: `sha256:${string}`;
+  target: PackageTarget;
+  runtimeKind: "component_package";
+  catalogVersion: string;
+  manifestVersion: string;
+};
 
 export type ExpectedPackageIdentity = { appId: string; publisherId: string };
 
@@ -75,6 +87,60 @@ const GenericRevocationListSchema = zod.object({
     entries: zod.array(zod.object({ app_id: CanonicalAppIdSchema, publisher_id: CanonicalPublisherIdSchema, match: zod.union([zod.object({ kind: zod.literal("package_digest"), package_digest: zod.string() }).strict(), zod.object({ kind: zod.literal("version_range"), version_from_inclusive: zod.string(), version_to_inclusive: zod.string() }).strict()]) }).passthrough()),
   }).strict(), signature: SignatureSchema,
 }).strict();
+const LocalDevComponentTrustRootSchema = zod.object({
+  trust_root_version: zod.literal(1),
+  package_id: CanonicalAppIdSchema,
+  publisher_id: CanonicalPublisherIdSchema,
+  release_channel: zod.literal("local-dev"),
+  stage: zod.literal("local-dev"),
+  trust_boundary: zod.string().min(1),
+  owner_added_production_trust_roots: zod.literal(false),
+}).strict();
+const LocalDevComponentSourceIndexSchema = zod.object({
+  source_index_version: zod.literal(1),
+  package_id: CanonicalAppIdSchema,
+  publisher_id: CanonicalPublisherIdSchema,
+  package_version: zod.string().min(1),
+  source_repo: zod.string().min(1),
+  extracted_from: zod.object({
+    repo: zod.string().min(1),
+    paths: zod.array(zod.string().min(1)).min(1),
+  }).strict(),
+  content_boundaries: zod.object({
+    provider_operations: zod.array(zod.string().min(1)).max(64),
+    sidecar_bindings_catalog_projection: zod.literal("never"),
+    host_authority: zod.array(zod.string().min(1)).min(8),
+  }).strict(),
+}).strict();
+const LocalDevComponentDescriptorSchema = zod.object({
+  descriptor_version: zod.literal(1),
+  package_id: CanonicalAppIdSchema,
+  publisher_id: CanonicalPublisherIdSchema,
+  package_version: zod.string().min(1),
+  manifest_package_version: zod.string().min(1),
+  package_kind: zod.array(zod.enum(["capability_provider", "dependency_service"])).min(1).max(2),
+  release_channel: zod.literal("local-dev"),
+  target: zod.enum(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"]),
+  archive: zod.object({
+    format: zod.literal("zip"),
+    profile: zod.literal("braindrive-package-v2"),
+    digest: zod.string().regex(/^sha256:[a-f0-9]{64}$/),
+    manifest_path: zod.literal("manifest.json"),
+  }).strict(),
+  safe_presentation: zod.object({
+    display_name: zod.string().min(1),
+    summary: zod.string().min(1),
+    icon: zod.null(),
+    retention_summary: zod.string().min(1),
+  }).strict(),
+  relationship_projection: zod.object({
+    launchable_app: zod.literal(false),
+    provides_operations: zod.array(zod.string().min(1)).max(64),
+    requires_operations: zod.array(zod.unknown()).max(64),
+    depends_on_packages: zod.array(zod.string()).max(64),
+  }).strict(),
+  authority_boundary: zod.literal("host_verifies_registers_supervises_and_preserves_owner_data"),
+}).strict();
 
 export function manifestCapabilities(manifest: RuntimePackageManifest): Manifest["requested_capabilities"] {
   return manifest.manifest_version === 2
@@ -86,6 +152,89 @@ export function manifestDataCompatibility(manifest: RuntimePackageManifest): Man
   return manifest.manifest_version === 2
     ? { read_min: manifest.compatibility.data_contract_version, read_max: manifest.compatibility.data_contract_version, write_version: manifest.compatibility.data_contract_version }
     : manifest.compatibility.data_schema;
+}
+
+export async function verifyComponentPackageForCatalog(
+  repository: FixtureRepository,
+  version: string,
+  expectedIdentity: ExpectedPackageIdentity,
+  target: PackageTarget,
+): Promise<VerifiedCatalogComponentPackage> {
+  const packageKey = `${expectedIdentity.appId}@${version}`;
+  const authority = repository.authoritiesByAppVersion
+    ? repository.authoritiesByAppVersion[packageKey]
+    : repository.authoritiesByVersion?.[version] ?? repository;
+  const packagePaths = repository.packagesByAppVersion
+    ? repository.packagesByAppVersion[packageKey]
+    : repository.packages[version];
+  if (!authority || !packagePaths) throw new AppPlatformError("package_not_found", "Requested catalog component package is unavailable", 404);
+
+  const trustRoot = LocalDevComponentTrustRootSchema.parse(JSON.parse(await readFile(authority.trustRootPath, "utf8")));
+  if (trustRoot.package_id !== expectedIdentity.appId || trustRoot.publisher_id !== expectedIdentity.publisherId) {
+    throw new AppPlatformError("package_identity_mismatch", "Component package trust root identity does not match the selected catalog package", 403);
+  }
+
+  const sourceIndex = LocalDevComponentSourceIndexSchema.parse(JSON.parse(await readFile(authority.sourceIndexPath, "utf8")));
+  if (sourceIndex.package_id !== expectedIdentity.appId || sourceIndex.publisher_id !== expectedIdentity.publisherId || sourceIndex.package_version !== version) {
+    throw new AppPlatformError("package_identity_mismatch", "Component package source index identity does not match the selected catalog package", 403);
+  }
+
+  const descriptor = LocalDevComponentDescriptorSchema.parse(JSON.parse(await readFile(packagePaths.descriptorPath, "utf8")));
+  if (
+    descriptor.package_id !== expectedIdentity.appId
+    || descriptor.publisher_id !== expectedIdentity.publisherId
+    || descriptor.package_version !== version
+  ) {
+    throw new AppPlatformError("package_identity_mismatch", "Component package descriptor identity does not match the selected catalog package", 403);
+  }
+  if (descriptor.target !== target) {
+    throw new AppPlatformError("host_incompatible", "Component package descriptor does not authorize this host target");
+  }
+
+  const archive = await readFile(packagePaths.archivePath);
+  const packageDigest = digest(archive);
+  if (packageDigest !== descriptor.archive.digest) {
+    throw new AppPlatformError("package_archive_digest_mismatch", "Component package archive digest does not match catalog descriptor metadata");
+  }
+  const entries = readStoredZip(archive);
+  const manifestEntry = entries.find((entry) => entry.name === descriptor.archive.manifest_path);
+  if (!manifestEntry) throw new AppPlatformError("package_manifest_invalid", "Component package manifest is missing");
+  const manifest = PackageComponentManifestSchema.parse(JSON.parse(manifestEntry.bytes.toString("utf8")));
+  if (
+    manifest.package_id !== expectedIdentity.appId
+    || manifest.publisher_id !== expectedIdentity.publisherId
+    || manifest.package_version !== descriptor.manifest_package_version
+  ) {
+    throw new AppPlatformError("package_identity_mismatch", "Component package manifest identity does not match the catalog descriptor", 403);
+  }
+  if (!descriptor.package_kind.every((kind) => manifest.package_kind.includes(kind))) {
+    throw new AppPlatformError("package_identity_mismatch", "Component package kind does not match the catalog descriptor", 403);
+  }
+  if (!descriptor.relationship_projection.provides_operations.every((operation) => sourceIndex.content_boundaries.provider_operations.includes(operation))) {
+    throw new AppPlatformError("package_manifest_invalid", "Component package operation projection is inconsistent");
+  }
+  if (!manifest.sidecars.some((sidecar) => sidecar.targets.some((candidate) => candidate.target === target))) {
+    throw new AppPlatformError("host_incompatible", "Component package does not contain a compatible host sidecar target");
+  }
+
+  const declared = new Map(manifest.files.map((file) => [file.path, file]));
+  const payloadEntries = entries.filter((entry) => entry.name !== descriptor.archive.manifest_path);
+  if (payloadEntries.length !== declared.size) throw new AppPlatformError("package_inventory_invalid", "Component package contains undeclared or missing entries");
+  for (const entry of payloadEntries) {
+    const file = declared.get(entry.name);
+    if (!file || file.size_bytes !== entry.bytes.length || file.digest !== digest(entry.bytes)) {
+      throw new AppPlatformError("package_inventory_invalid", "Component package file inventory does not match manifest metadata");
+    }
+  }
+
+  return {
+    manifest,
+    packageDigest,
+    target,
+    runtimeKind: "component_package",
+    catalogVersion: version,
+    manifestVersion: manifest.package_version,
+  };
 }
 
 function digest(bytes: Buffer | string): `sha256:${string}` {

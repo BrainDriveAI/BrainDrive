@@ -1,5 +1,5 @@
 import { createStage1CatalogPackageSource } from "../app-platform/lifecycle/stage1-catalog-source.js";
-import { PackageVerifier } from "../app-platform/lifecycle/package-verifier.js";
+import { PackageVerifier, verifyComponentPackageForCatalog } from "../app-platform/lifecycle/package-verifier.js";
 
 const catalogPath = process.argv[2];
 const target = process.argv[3] ?? "docker_linux_x64";
@@ -16,10 +16,20 @@ const source = await createStage1CatalogPackageSource({
   appId,
   target,
 });
-const verified = await new PackageVerifier("26.7.23", target).verifyForCatalog(
-  source.repository,
-  source.availableVersion,
-  { appId, publisherId: "ai.braindrive" },
-);
+if (source.packageKind.includes("capability_provider") || source.packageKind.includes("dependency_service")) {
+  const verified = await verifyComponentPackageForCatalog(
+    source.repository,
+    source.availableVersion,
+    { appId, publisherId: "ai.braindrive" },
+    target,
+  );
+  console.log(`PASS ${target} ${verified.manifest.package_id}@catalog:${verified.catalogVersion} manifest:${verified.manifestVersion} ${verified.packageDigest} ${source.ownerSafeSource.cache_status}`);
+} else {
+  const verified = await new PackageVerifier("26.7.23", target).verifyForCatalog(
+    source.repository,
+    source.availableVersion,
+    { appId, publisherId: "ai.braindrive" },
+  );
 
-console.log(`PASS ${target} ${verified.manifest.app_id}@${verified.manifest.package_version} ${verified.packageDigest} ${source.ownerSafeSource.cache_status}`);
+  console.log(`PASS ${target} ${verified.manifest.app_id}@${verified.manifest.package_version} ${verified.packageDigest} ${source.ownerSafeSource.cache_status}`);
+}

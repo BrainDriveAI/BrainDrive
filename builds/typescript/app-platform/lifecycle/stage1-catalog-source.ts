@@ -120,6 +120,8 @@ export type Stage1CatalogPackageSource = {
   availableVersion: string;
   displayName: string;
   publisherName: "BrainDrive";
+  packageKind: Stage1CatalogEntry["package_identity"]["package_kind"];
+  providesOperations: string[];
   capabilityDependencies: CapabilityDependency[];
   ownerSafeSource: {
     kind: "stage1_catalog";
@@ -209,6 +211,8 @@ export async function createStage1CatalogPackageSource(input: {
     availableVersion: entry.package_identity.version,
     displayName: entry.safe_presentation.display_name,
     publisherName: "BrainDrive",
+    packageKind: [...entry.package_identity.package_kind],
+    providesOperations: [...entry.relationship_projection.provides_operations],
     capabilityDependencies: entry.relationship_projection.requires_operations.map((dependency) => CapabilityDependencySchema.parse(dependency)),
     ownerSafeSource: {
       kind: "stage1_catalog",
