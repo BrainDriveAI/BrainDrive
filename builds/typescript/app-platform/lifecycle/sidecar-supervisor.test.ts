@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -22,6 +25,9 @@ import { ImmutablePackageStore } from "./verified-package-store.js";
 
 const roots: string[] = [];
 const drivers: PackagedProcessSidecarDriver[] = [];
+const execFileAsync = promisify(execFile);
+let windowsSidecarExecutable: Buffer | null = null;
+const testSidecarModes = new WeakMap<SidecarBundleReference, "healthy" | "flood" | "crash" | "descendant">();
 afterEach(async () => {
   await Promise.all(drivers.splice(0).map((driver) => driver.close()));
   await Promise.all(roots.splice(0).map(async (root) => {
@@ -128,6 +134,19 @@ process.on("SIGINT", () => server.close(() => process.exit(0)));
 `;
 }
 
+async function sidecarExecutableBytes(mode: "healthy" | "flood" | "crash" | "descendant"): Promise<Buffer | null> {
+  if (process.platform !== "win32") return null;
+  if (!windowsSidecarExecutable) {
+    const crateRoot = fileURLToPath(new URL("../../../internet_search/sidecar-runtime", import.meta.url));
+    await execFileAsync("cargo", ["build", "--release", "--manifest-path", path.join(crateRoot, "Cargo.toml")], {
+      cwd: crateRoot,
+      shell: true,
+    });
+    windowsSidecarExecutable = await readFile(path.join(crateRoot, "target", "release", "braindrive-internet-search-sidecar.exe"));
+  }
+  return windowsSidecarExecutable;
+}
+
 async function installPackagedSidecar(
   mode: "healthy" | "flood" | "crash" | "descendant" = "healthy",
   options: { restartAttempts?: number; memoryMb?: number; chmodEntrypoint?: number; pidFile?: string } = {},
@@ -140,11 +159,13 @@ async function installPackagedSidecar(
   target.resources.restart_attempts = options.restartAttempts ?? target.resources.restart_attempts;
   target.resources.memory_mb = options.memoryMb ?? target.resources.memory_mb;
   const fileBytes = new Map<string, Buffer>();
+  const executableBytes = await sidecarExecutableBytes(mode);
   for (const file of manifest.files) {
-    const body = file.path === target.entrypoint
-      ? sidecarScript(mode, options.pidFile)
-      : `${manifest.package_id}:${manifest.package_version}:${file.path}\n`;
-    const bytes = Buffer.from(body, "utf8");
+    const bytes = file.path === target.entrypoint && executableBytes
+      ? executableBytes
+      : Buffer.from(file.path === target.entrypoint
+        ? sidecarScript(mode, options.pidFile)
+        : `${manifest.package_id}:${manifest.package_version}:${file.path}\n`, "utf8");
     fileBytes.set(file.path, bytes);
     file.size_bytes = bytes.byteLength;
     file.digest = realDigest(bytes);
@@ -181,6 +202,7 @@ async function installPackagedSidecar(
   const verifiedPackage = await createVerifiedSidecarPackageBundleFromStore({ packageStore, packageDigest, manifest: parsed });
   const bundleStore = new SidecarBundleStore(path.join(root, "bundle-store"));
   const staged = await bundleStore.stage({ verifiedPackage, sidecarComponentId: "notes.worker", target: "desktop_windows_x64" });
+  testSidecarModes.set(staged.reference, mode);
   if (options.chmodEntrypoint !== undefined) {
     const resolution = await bundleStore.resolveForDriver(staged.reference);
     await chmod(resolution.entrypoint, options.chmodEntrypoint);
@@ -201,8 +223,13 @@ function makeDriver(
   bundleReference: SidecarBundleReference,
   options: Partial<ConstructorParameters<typeof PackagedProcessSidecarDriver>[0]> = {},
 ) {
+  const mode = testSidecarModes.get(bundleReference);
   const driver = new PackagedProcessSidecarDriver({
     ...options,
+    environment: {
+      ...options.environment,
+      ...(process.platform === "win32" && mode ? { BRAINDRIVE_SIDECAR_TEST_MODE: mode } : {}),
+    },
     bundleStore,
     bundleReferenceFor: () => bundleReference,
   });
@@ -527,14 +554,16 @@ describe("AC-003 packaged-process sidecar driver and containment", () => {
       .rejects.toMatchObject({ code: "lifecycle_failed" });
     expect(timeoutSupervisor.diagnosticsFor(timeout.manifest.package_id, "notes.worker").at(-1)).toMatchObject({ error_code: "stop_timeout" });
 
-    const blocked = await installPackagedSidecar("healthy", { chmodEntrypoint: 0o400 });
-    const blockedDriver = makeDriver(blocked.bundleStore, blocked.bundleReference);
-    const blockedSupervisor = new GenericSidecarSupervisor({ store: blocked.store, target: "desktop_windows_x64", drivers: [blockedDriver] });
-    await expect(blockedSupervisor.start({ packageId: blocked.manifest.package_id, componentId: "notes.worker", authority: { kind: "host" } }))
-      .rejects.toMatchObject({ code: "start_failed" });
-    expect(blockedSupervisor.diagnosticsFor(blocked.manifest.package_id, "notes.worker").at(-1)).toMatchObject({ error_code: "os_security_block" });
+    if (process.platform !== "win32") {
+      const blocked = await installPackagedSidecar("healthy", { chmodEntrypoint: 0o400 });
+      const blockedDriver = makeDriver(blocked.bundleStore, blocked.bundleReference);
+      const blockedSupervisor = new GenericSidecarSupervisor({ store: blocked.store, target: "desktop_windows_x64", drivers: [blockedDriver] });
+      await expect(blockedSupervisor.start({ packageId: blocked.manifest.package_id, componentId: "notes.worker", authority: { kind: "host" } }))
+        .rejects.toMatchObject({ code: "start_failed" });
+      expect(blockedSupervisor.diagnosticsFor(blocked.manifest.package_id, "notes.worker").at(-1)).toMatchObject({ error_code: "os_security_block" });
+      assertNoPrivateRuntimeProjection(blockedSupervisor.diagnosticsFor(blocked.manifest.package_id, "notes.worker"));
+    }
     assertNoPrivateRuntimeProjection(timeoutSupervisor.diagnosticsFor(timeout.manifest.package_id, "notes.worker"));
-    assertNoPrivateRuntimeProjection(blockedSupervisor.diagnosticsFor(blocked.manifest.package_id, "notes.worker"));
   });
 
   it("cleans descendants and rejects stale runtime identities", async () => {

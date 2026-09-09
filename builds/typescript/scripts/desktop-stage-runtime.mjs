@@ -101,6 +101,15 @@ async function main() {
   await copyDirectory(path.join(projectRoot, "dist"), path.join(outputRoot, "typescript", "dist"));
   await copyDirectory(path.join(projectRoot, "client_web", "dist"), path.join(outputRoot, "web"));
   await copyDirectory(internetSearchRoot, path.join(outputRoot, "internet_search"));
+  await execFileAsync(process.execPath, [
+    path.join(scriptRoot, "stage-internet-search-sidecars.mjs"),
+    "--source",
+    internetSearchRoot,
+    "--destination",
+    path.join(outputRoot, "internet_search"),
+  ], {
+    cwd: projectRoot,
+  });
   await copyDirectory(path.join(resumeBuilderRoot, "resources"), path.join(outputRoot, "resume_builder", "resources"));
   await copyDirectory(path.join(briefBuilderRoot, "resources"), path.join(outputRoot, "brief_builder", "resources"));
   await copyDirectory(path.join(projectRoot, "adapters"), path.join(outputRoot, "typescript", "adapters"));

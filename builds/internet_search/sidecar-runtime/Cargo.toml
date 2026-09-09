@@ -1,0 +1,9 @@
+[package]
+name = "braindrive-internet-search-sidecar"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "braindrive-internet-search-sidecar"
+path = "src/main.rs"

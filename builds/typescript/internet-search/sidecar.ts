@@ -12,6 +12,7 @@ export type SearxngSidecarLifecycleState =
 export type SearxngSidecarBinding = {
   transport: SearxngSidecarTransport;
   endpoint_url: string;
+  authorization?: string;
 };
 
 export type SearxngSidecarSnapshot = {
@@ -344,7 +345,7 @@ export function assertPrivateSearxngBinding(binding: SearxngSidecarBinding): Sea
   const hostname = parsed.hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
   if (binding.transport === "loopback") {
     if (!isLoopbackHost(hostname)) throw new Error("SearXNG loopback binding must be private loopback only");
-    return { transport: binding.transport, endpoint_url: parsed.origin };
+    return { transport: binding.transport, endpoint_url: parsed.origin, ...(binding.authorization ? { authorization: binding.authorization } : {}) };
   }
 
   if (hostname === "0.0.0.0" || hostname === "::" || hostname === "") {
@@ -356,7 +357,7 @@ export function assertPrivateSearxngBinding(binding: SearxngSidecarBinding): Sea
   if (!isIpAddress(hostname) && !/^[a-z0-9][a-z0-9-]*$/.test(hostname)) {
     throw new Error("SearXNG container binding must use a Host-controlled service name");
   }
-  return { transport: binding.transport, endpoint_url: parsed.origin };
+  return { transport: binding.transport, endpoint_url: parsed.origin, ...(binding.authorization ? { authorization: binding.authorization } : {}) };
 }
 
 function errorCode(error: unknown, fallback: string): string {
