@@ -54,6 +54,7 @@ export type AppLifecycleRouteEntry = {
   publisherName: string;
   service: AppLifecycleService;
   availableVersion?: string;
+  capabilityDependencies?: readonly CapabilityDependency[];
   source?: { kind: string; label: string; cache_status?: string };
 };
 export type AppLifecycleRouteOptions = {
@@ -64,7 +65,7 @@ export type AppDependencyRouteGate = {
   capability_dependency_status: CapabilityDependencyAvailability[];
   dependency_readiness: CapabilityDependencyReadiness;
 };
-type AppDependencyRouteEntry = { routeKey: string; service: { appId: string } };
+type AppDependencyRouteEntry = { routeKey: string; service: { appId: string }; capabilityDependencies?: readonly CapabilityDependency[] };
 
 export type AppLifecycleRoutePlatform = ReturnType<typeof createAppLifecycleRoutePlatform>;
 
@@ -357,7 +358,7 @@ export async function legacyAppDependencyGate(
   packageStore: InstalledPackageStore | null,
   dependencyResolver: CapabilityDependencyResolver | null,
 ): Promise<AppDependencyRouteGate> {
-  const dependencies = packageStore ? await appPackageDependencies(packageStore, entry.service.appId, entry.routeKey) : [];
+  const dependencies = await appPackageDependencies(packageStore, entry);
   const statuses = await resolveDependencyStatuses(dependencies, dependencyResolver);
   return {
     capability_dependency_status: statuses,
@@ -365,12 +366,14 @@ export async function legacyAppDependencyGate(
   };
 }
 
-async function appPackageDependencies(packageStore: InstalledPackageStore, appId: string, routeKey: string): Promise<SafeRouteDependency[]> {
+async function appPackageDependencies(packageStore: InstalledPackageStore | null, entry: AppDependencyRouteEntry): Promise<SafeRouteDependency[]> {
   const dependencies = new Map<string, SafeRouteDependency>();
+  for (const dependency of entry.capabilityDependencies ?? []) mergeDependency(dependencies, dependency);
+  if (!packageStore) return [...dependencies.values()];
   for (const record of await packageStore.listPackages()) {
     let matched = false;
     for (const component of record.manifest.components) {
-      if (component.component_kind !== "app" || component.app_id !== appId || component.route_key !== routeKey) continue;
+      if (component.component_kind !== "app" || component.app_id !== entry.service.appId || component.route_key !== entry.routeKey) continue;
       matched = true;
       for (const dependency of component.requested_capabilities) mergeDependency(dependencies, dependency);
     }

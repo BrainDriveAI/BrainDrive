@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { AppPlatformError } from "./errors.js";
 import type { FixtureRepository } from "./fixture-repository.js";
+import { CapabilityDependencySchema, type CapabilityDependency } from "../contracts/package-components.js";
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const REFERENCE = /^(?!\/)(?![A-Za-z]:)(?!.*\.\.)(?!.*:\/\/)[A-Za-z0-9._/-]+$/;
@@ -119,6 +120,7 @@ export type Stage1CatalogPackageSource = {
   availableVersion: string;
   displayName: string;
   publisherName: "BrainDrive";
+  capabilityDependencies: CapabilityDependency[];
   ownerSafeSource: {
     kind: "stage1_catalog";
     label: string;
@@ -207,6 +209,7 @@ export async function createStage1CatalogPackageSource(input: {
     availableVersion: entry.package_identity.version,
     displayName: entry.safe_presentation.display_name,
     publisherName: "BrainDrive",
+    capabilityDependencies: entry.relationship_projection.requires_operations.map((dependency) => CapabilityDependencySchema.parse(dependency)),
     ownerSafeSource: {
       kind: "stage1_catalog",
       label: "BrainDrive Stage 1 catalog",

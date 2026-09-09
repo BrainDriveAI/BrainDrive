@@ -42,7 +42,7 @@ export type LifecycleDependencies = {
   audit?: (event: string, details: Record<string, unknown>) => void;
   ownerActorId?: string;
   beforeUninstallDelete?: (targetClass: "package_bytes" | "disposable_cache", targetPath: string) => Promise<void>;
-  catalogPackageSource?: Pick<Stage1CatalogPackageSource, "availableVersion" | "displayName" | "publisherName" | "ownerSafeSource">;
+  catalogPackageSource?: Pick<Stage1CatalogPackageSource, "availableVersion" | "displayName" | "publisherName" | "capabilityDependencies" | "ownerSafeSource">;
 };
 
 export type LifecycleResponse = { record: LifecycleRecord; operation: LifecycleOperation; grant: CapabilityGrant | null };

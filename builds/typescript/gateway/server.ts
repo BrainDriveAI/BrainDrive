@@ -496,7 +496,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         catalogSource: stage1CatalogSource,
       })
     : null;
-  const briefLifecycleService = appLifecycleService && !stage1CatalogSource
+  const briefLifecycleService = appLifecycleService
     ? await createBriefAppLifecycle({
         memoryRoot: runtimeConfig.memory_root,
         hostVersion: appVersion,
@@ -504,6 +504,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         target: appLifecycleTarget,
         ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
+        catalogSource: stage1CatalogSource,
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
@@ -850,7 +851,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
   if (appLifecycleService) {
     const lifecycleEntries = [
       { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: appLifecycleService.dependencies.catalogPackageSource?.availableVersion ?? MODERN_FIXTURE_VERSION, service: appLifecycleService },
-      ...(briefLifecycleService ? [{ routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: BRIEF_BUILDER_VERSION, service: briefLifecycleService }] : []),
+      ...(briefLifecycleService ? [{ routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: briefLifecycleService.dependencies.catalogPackageSource?.availableVersion ?? BRIEF_BUILDER_VERSION, capabilityDependencies: briefLifecycleService.dependencies.catalogPackageSource?.capabilityDependencies, service: briefLifecycleService }] : []),
     ];
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform(lifecycleEntries, 2, {
       packageStore: internetSearchRuntime.packageStore,
@@ -858,7 +859,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     }));
     appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
       { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost!, service: appLifecycleService },
-      ...(briefMcpHost && briefLifecycleService ? [{ appId: briefMcpHost.appId, routeKey: briefMcpHost.routeKey, host: briefMcpHost, service: briefLifecycleService }] : []),
+      ...(briefMcpHost && briefLifecycleService ? [{ appId: briefMcpHost.appId, routeKey: briefMcpHost.routeKey, host: briefMcpHost, service: briefLifecycleService, capabilityDependencies: briefLifecycleService.dependencies.catalogPackageSource?.capabilityDependencies }] : []),
     ], {
       packageStore: internetSearchRuntime.packageStore,
       capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),

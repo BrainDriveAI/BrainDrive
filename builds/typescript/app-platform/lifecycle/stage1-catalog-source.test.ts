@@ -40,6 +40,13 @@ async function writeStage1Catalog(input: {
   appId?: string;
   targets?: readonly string[];
   status?: "fixture_pending_extraction" | "local_dev_verified";
+  requiresOperations?: readonly {
+    operation_id: string;
+    requirement: "required" | "optional";
+    unavailable_behavior: "block_activation" | "degrade_with_safe_status";
+    provider_selection: "owner_or_admin_policy";
+    silent_install_or_switch: false;
+  }[];
 }): Promise<string> {
   const version = input.version ?? "1.0.0";
   const appId = input.appId ?? "ai.braindrive.resume-builder";
@@ -90,7 +97,7 @@ async function writeStage1Catalog(input: {
         icon: null,
         retention_summary: "Owner resume data retention remains host-owned.",
       },
-      relationship_projection: { launchable_app: true, provides_operations: [], requires_operations: [], depends_on_packages: [] },
+      relationship_projection: { launchable_app: true, provides_operations: [], requires_operations: input.requiresOperations ?? [], depends_on_packages: input.requiresOperations?.length ? ["ai.braindrive.internet-search.searxng"] : [] },
       security_projection: {
         catalog_role: "discovery_and_retrieval_metadata_only",
         runtime_authority: false,
@@ -108,7 +115,14 @@ describe("Stage 1 catalog source", () => {
   it("resolves a local catalog entry into verifier-owned package metadata without exposing runtime authority", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-stage1-catalog-")); roots.push(root);
     const repository = await createFixtureRepository(root);
-    const catalogPath = await writeStage1Catalog({ root, sourceRoot: repository.root });
+    const catalogPath = await writeStage1Catalog({
+      root,
+      sourceRoot: repository.root,
+      requiresOperations: [
+        { operation_id: "web.search@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+        { operation_id: "web.read@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+      ],
+    });
 
     const source = await createStage1CatalogPackageSource({
       source: { kind: "local_file", catalogPath },
@@ -120,6 +134,10 @@ describe("Stage 1 catalog source", () => {
     expect(source).toMatchObject({
       availableVersion: "1.0.0",
       displayName: "Resume Builder",
+      capabilityDependencies: [
+        { operation_id: "web.search@1", requirement: "required", unavailable_behavior: "block_activation" },
+        { operation_id: "web.read@1", requirement: "required", unavailable_behavior: "block_activation" },
+      ],
       ownerSafeSource: { kind: "stage1_catalog", cache_status: "fresh" },
     });
     const verified = await new PackageVerifier("26.7.23", "desktop_windows_x64").verifyForCatalog(

@@ -65,6 +65,7 @@ export type SyntheticFirstPartyFixture = {
   resourceHtml?: string;
   requestedCapabilities?: readonly string[];
   requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
+  capabilityDependencies?: readonly NonNullable<GenericPackageManifest["capability_dependencies"]>[number][];
   presentations?: GenericPackageManifest["presentations"];
 };
 
@@ -125,7 +126,9 @@ export async function createSyntheticFirstPartyFixtureRepository(
       primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
       ...(app.presentations ? { presentations: app.presentations } : {}),
       requested_capabilities: (app.requestedCapabilities ?? ["career.context.read"]).map((name) => ({ name, version: 1 })),
-      requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: DEFAULT_APP_RETENTION_POLICY,
+      requested_inference_purposes: app.requestedInferencePurposes ?? [],
+      ...(app.capabilityDependencies ? { capability_dependencies: app.capabilityDependencies } : {}),
+      provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: DEFAULT_APP_RETENTION_POLICY,
     });
     const archive = createStoredZip([{ name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`), executable: false }, ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") }))]);
     const archivePath = path.join(appRoot, `${app.version}.bdapp`);
