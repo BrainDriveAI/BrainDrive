@@ -14,6 +14,10 @@ import {
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
 
 function inflatedPdfText(pdfBytes: Buffer): string {
+  return inflatedPdfTextPages(pdfBytes).join("\n");
+}
+
+function inflatedPdfTextPages(pdfBytes: Buffer): string[] {
   const source = pdfBytes.toString("latin1");
   const streams: string[] = [];
   let cursor = 0;
@@ -33,16 +37,21 @@ function inflatedPdfText(pdfBytes: Buffer): string {
     }
     cursor = dataEnd + "\nendstream".length;
   }
-  return streams.join("\n");
+  return streams;
 }
 
 function decodedPdfTextRuns(pdfBytes: Buffer): string {
-  const inflated = inflatedPdfText(pdfBytes);
-  const runs: string[] = [];
-  for (const match of inflated.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
-    runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
-  }
-  return runs.join("\n");
+  return decodedPdfTextPages(pdfBytes).join("\n");
+}
+
+function decodedPdfTextPages(pdfBytes: Buffer): string[] {
+  return inflatedPdfTextPages(pdfBytes).map((page) => {
+    const runs: string[] = [];
+    for (const match of page.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+      runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
+    }
+    return runs.join("\n");
+  }).filter(Boolean);
 }
 
 const jobId = "10000000-0000-4000-8000-000000000001";
@@ -352,6 +361,66 @@ describe("Resume Builder-owned General draft inference program", () => {
     const decoded = decodedPdfTextRuns(Buffer.from(exportStep?.bytes_base64 ?? "", "base64"));
     expect(decoded).toContain("José Müller-Nguyễn");
     expect(decoded).toContain("Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render");
+  });
+
+  it("runtime PDF export keeps short sections with their first content line across page breaks", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Maya-Hart-Resume.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya@example.test | 614-555-0192",
+          "",
+          "## Professional Summary",
+          "Entry-level community-program coordinator with campus transit research, volunteer coordination, and service experience.",
+          "",
+          "## Experience",
+          "**Volunteer Coordinator** | Campus Transit Coalition | Columbus, OH | September 2025–Present",
+          "- Delivered scope 1 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 2 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 3 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 4 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 5 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 6 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 7 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 8 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 9 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "",
+          "## Education",
+          "B.A. Public Affairs, Ohio State University, expected 2026",
+          "",
+          "## Certifications",
+          "Lean Six Sigma Yellow Belt, 2025",
+          "",
+          "## Skills",
+          "Volunteer coordination, outreach reporting, transit research, presentation, scheduling",
+        ].join("\n"),
+      }],
+    });
+
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string } | undefined;
+    const pages = decodedPdfTextPages(Buffer.from(exportStep?.bytes_base64 ?? "", "base64"));
+    const skillsPage = pages.find((page) => page.includes("SKILLS"));
+    expect(skillsPage).toContain("Volunteer coordination, outreach reporting");
+    for (const page of pages.slice(0, -1)) {
+      expect(page.trim().split("\n").at(-1)).not.toBe("SKILLS");
+      expect(page.trim().split("\n").at(-1)).not.toBe("CERTIFICATIONS");
+    }
   });
 
   it("runtime PDF export refuses unsupported glyphs instead of dropping them", () => {

@@ -731,8 +731,16 @@ function renderPdfPages(blocks, fontUsage) {
     }
   };
 
-  for (const block of blocks) {
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
     if (block.kind === "spacer") {
+      const nextSectionIndex = nextRenderableBlockIndex(blocks, index + 1);
+      if (nextSectionIndex !== null) {
+        const nextSection = blocks[nextSectionIndex];
+        if (nextSection.kind === "heading" && nextSection.depth > 1 && y - 8 - pdfSectionIntroRequiredHeight(blocks, nextSectionIndex, contentWidth) < 48) {
+          continue;
+        }
+      }
       y -= 8;
       continue;
     }
@@ -744,7 +752,7 @@ function renderPdfPages(blocks, fontUsage) {
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else {
-        ensure(34);
+        ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         y -= 10;
         const text = runsPlainText(block.runs).toUpperCase();
         commands.push(textCommand("F2", 9.5, left, y, text, fontUsage.bold));
@@ -774,6 +782,30 @@ function renderPdfPages(blocks, fontUsage) {
   }
   if (commands.length > 0) pages.push(commands.join("\n"));
   return pages.length > 0 ? pages : [textCommand("F1", 10, left, y, "Resume", fontUsage.regular)];
+}
+
+function nextRenderableBlockIndex(blocks, start) {
+  for (let index = start; index < blocks.length; index += 1) {
+    if (blocks[index].kind !== "spacer") return index;
+  }
+  return null;
+}
+
+function pdfSectionIntroRequiredHeight(blocks, headingIndex, contentWidth) {
+  const heading = blocks[headingIndex];
+  const headingHeight = pdfBlockRequiredHeight(heading, contentWidth);
+  if (heading.kind !== "heading" || heading.depth === 1) return headingHeight;
+  const nextIndex = nextRenderableBlockIndex(blocks, headingIndex + 1);
+  if (nextIndex === null) return headingHeight;
+  const next = blocks[nextIndex];
+  return next.kind === "heading" ? headingHeight : headingHeight + pdfBlockRequiredHeight(next, contentWidth);
+}
+
+function pdfBlockRequiredHeight(block, contentWidth) {
+  if (block.kind === "spacer") return 8;
+  if (block.kind === "heading") return block.depth === 1 ? 38 : 38;
+  if (block.kind === "bullet") return wrapPdfRuns(block.runs, contentWidth - 20, 10).length * 15 + 6;
+  return wrapPdfRuns(block.runs, contentWidth, 10).length * 15 + 8;
 }
 
 function parsePdfInlineMarkdown(text) {
