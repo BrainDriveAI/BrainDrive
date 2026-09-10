@@ -847,9 +847,6 @@ function round(value) {
 function normalizePdfText(value, trim = true) {
   const normalized = String(value ?? "")
     .replace(/[ \t]+/g, " ")
-    .replace(/[\u2012-\u2015]/g, "-")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
     .replace(/\u00a0/g, " ");
   return trim ? normalized.trim() : normalized;
 }

@@ -276,8 +276,9 @@ describe("Resume Builder-owned General draft inference program", () => {
           "",
           "## Experience",
           "",
-          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021–Present",
           "- Leads customer experience operations for an 18-person support and success organization using Zendesk, Looker, Jira, Confluence, and Google Sheets",
+          "- Preserved Wilmington’s “launch desk” language in customer-facing updates.",
           "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
           "",
           "## Education",
@@ -303,7 +304,10 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(pdf).toContain("8226 [350]");
     expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
     const decoded = decodedPdfTextRuns(pdfBytes);
-    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain(" | Wilmington Widgets | 2021–Present");
+    expect(decoded).toContain("Preserved Wilmington’s “launch desk” language");
+    expect(decoded).not.toContain("2021-Present");
+    expect(decoded).not.toContain("Wilmington's \"launch desk\" language");
     expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");

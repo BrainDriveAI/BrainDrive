@@ -712,8 +712,9 @@ describe("Resume Builder chat workspace contract", () => {
           "Customer experience operations manager leading support and success teams across six product squads, with a track record of reducing launch slips and improving retention.",
           "",
           "## Experience",
-          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021–Present",
           "- Reduced first response time from 11 hours to 2.5 hours",
+          "- Preserved Wilmington’s “launch desk” language in customer-facing updates.",
           "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
           "",
           "## Education",
@@ -738,7 +739,10 @@ describe("Resume Builder chat workspace contract", () => {
     expect(pdf).toContain("8226 [350]");
     expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
     const decoded = decodedPdfTextRuns(pdfBytes);
-    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain(" | Wilmington Widgets | 2021–Present");
+    expect(decoded).toContain("Preserved Wilmington’s “launch desk” language");
+    expect(decoded).not.toContain("2021-Present");
+    expect(decoded).not.toContain("Wilmington's \"launch desk\" language");
     expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");
