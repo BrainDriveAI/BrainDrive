@@ -101,7 +101,7 @@ export type PackageInspection = {
     trustRootVersion: 1;
     sourceIndexSequence: number;
     revocationSequence: number;
-    revocationStatus: "not_revoked_fresh";
+    revocationStatus: "not_revoked_fresh" | "not_revoked_stale";
   };
   source: {
     environment: "docker_dev" | "desktop_windows" | "desktop_macos";
@@ -455,7 +455,7 @@ export class VerifiedPackageVerifier {
       if (cachedRevocations) assertMonotonicRevocationCandidate(parseStrict(RevocationListSchema, cachedRevocations, "revocation_metadata_invalid", "Cached revocation metadata violates its strict schema"), revocations);
       assertPackageNotRevoked(revocations, manifest, packageDigest);
       const ageSeconds = Math.max(0, Math.floor((this.clock().getTime() - Date.parse(revocations.payload.issued_at)) / 1_000));
-      if (ageSeconds > 86_400) throw new ContractViolation("revocation_metadata_invalid", "Fresh revocation authority is required for installation");
+      const revocationStatus = ageSeconds > 86_400 ? "not_revoked_stale" : "not_revoked_fresh";
       const trust = PackageTrustSchema.parse({
         trust_policy_version: 1,
         descriptor_digest: canonicalJsonDocumentDigest(descriptor),
@@ -472,7 +472,7 @@ export class VerifiedPackageVerifier {
         source_trusted: true,
         compatibility_valid: true,
         revocation_list_sequence: revocations.payload.sequence,
-        revocation_status: "not_revoked_fresh",
+        revocation_status: revocationStatus,
         revocation_age_seconds: ageSeconds,
         verification_context: "candidate_install_or_update",
         checked_at: this.clock().toISOString(),
@@ -527,7 +527,7 @@ export class VerifiedPackageVerifier {
             trustRootVersion: 1,
             sourceIndexSequence: sourceIndex.payload.sequence,
             revocationSequence: revocations.payload.sequence,
-            revocationStatus: "not_revoked_fresh",
+            revocationStatus,
           },
           source: { environment: request.environment, kind: source.kind, sourceId },
           compatibility: { ...manifest.compatibility, selectedTarget: request.target },

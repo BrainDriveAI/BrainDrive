@@ -112,6 +112,54 @@ async function writeStage1Catalog(input: {
 }
 
 describe("Stage 1 catalog source", () => {
+  it("fetches a repository catalog URL and caches verified relative artifacts for last-known-good use", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-stage1-remote-catalog-")); roots.push(root);
+    const repository = await createFixtureRepository(root);
+    const catalogRoot = path.join(root, "catalog", "stage1");
+    await mkdir(catalogRoot, { recursive: true });
+    await writeStage1Catalog({ root: catalogRoot, sourceRoot: repository.root });
+    const server = Fastify({ logger: false });
+    server.get("/*", async (request, reply) => {
+      const requested = (request.params as { "*": string })["*"];
+      return reply.send(await readFile(path.join(root, requested)));
+    });
+    await server.listen({ host: "127.0.0.1", port: 0 });
+    const address = server.server.address();
+    if (!address || typeof address === "string") throw new Error("expected local HTTP server address");
+    const catalogUrl = `http://127.0.0.1:${address.port}/catalog/stage1/catalog.json`;
+    const cacheRoot = path.join(root, "cache");
+
+    try {
+      const source = await createStage1CatalogPackageSource({
+        source: { kind: "braindrive_https", catalogUrl, cacheRoot },
+        appId: "ai.braindrive.resume-builder",
+        target: "desktop_windows_x64",
+      });
+
+      expect(source.ownerSafeSource.cache_status).toBe("fresh");
+      expect(source.repository.trustRootPath).toContain(path.join("stage1-catalog", "artifacts"));
+      await expect(new PackageVerifier("26.7.23", "desktop_windows_x64").verifyForCatalog(
+        source.repository,
+        source.availableVersion,
+        { appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive" },
+      )).resolves.toMatchObject({ manifest: { package_version: "1.0.0" } });
+    } finally {
+      await server.close();
+    }
+
+    const cached = await createStage1CatalogPackageSource({
+      source: { kind: "braindrive_https", catalogUrl, cacheRoot },
+      appId: "ai.braindrive.resume-builder",
+      target: "desktop_windows_x64",
+    });
+    expect(cached.ownerSafeSource.cache_status).toBe("last_known_good");
+    await expect(new PackageVerifier("26.7.23", "desktop_windows_x64").verifyForCatalog(
+      cached.repository,
+      cached.availableVersion,
+      { appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive" },
+    )).resolves.toMatchObject({ manifest: { package_version: "1.0.0" } });
+  });
+
   it("resolves a local catalog entry into verifier-owned package metadata without exposing runtime authority", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-stage1-catalog-")); roots.push(root);
     const repository = await createFixtureRepository(root);

@@ -192,11 +192,11 @@ export async function createStage1CatalogPackageSource(input: {
     }
   }
 
-  const trustRootPath = await resolveVerifiedReference(loaded.sourceRoot, target.trust_root, "trust_root");
-  const sourceIndexPath = await resolveVerifiedReference(loaded.sourceRoot, target.source_index, "source_index");
-  const revocationListPath = await resolveVerifiedReference(loaded.sourceRoot, target.revocation, "revocation");
-  const descriptorPath = await resolveVerifiedReference(loaded.sourceRoot, target.descriptor, "descriptor");
-  const archivePath = await resolveVerifiedReference(loaded.sourceRoot, target.archive, "archive");
+  const trustRootPath = await resolveVerifiedReference(loaded.sourceRoot, target.trust_root, "trust_root", loaded.artifactCacheRoot);
+  const sourceIndexPath = await resolveVerifiedReference(loaded.sourceRoot, target.source_index, "source_index", loaded.artifactCacheRoot);
+  const revocationListPath = await resolveVerifiedReference(loaded.sourceRoot, target.revocation, "revocation", loaded.artifactCacheRoot);
+  const descriptorPath = await resolveVerifiedReference(loaded.sourceRoot, target.descriptor, "descriptor", loaded.artifactCacheRoot);
+  const archivePath = await resolveVerifiedReference(loaded.sourceRoot, target.archive, "archive", loaded.artifactCacheRoot);
   const key = `${entry.package_identity.package_id}@${entry.package_identity.version}`;
   return {
     repository: {
@@ -281,11 +281,22 @@ async function readCatalog(source: Stage1CatalogSourceConfig, fallbackCacheRoot?
   raw: string;
   sourceRoot: string;
   cacheStatus: "fresh" | "last_known_good";
+  artifactCacheRoot?: string;
 }> {
-  if (source.kind === "braindrive_https") {
-    throw new AppPlatformError("package_not_found", "BrainDrive HTTPS catalog source is not enabled in this local-dev run");
-  }
   const cacheRoot = source.cacheRoot ?? fallbackCacheRoot;
+  if (source.kind === "braindrive_https") {
+    if (!cacheRoot) throw new AppPlatformError("package_not_found", "Stage 1 remote catalog cache is unavailable");
+    const catalogUrl = normalizeCatalogUrl(source.catalogUrl);
+    assertAllowedCatalogUrl(catalogUrl);
+    try {
+      const raw = await fetchText(catalogUrl);
+      const sourceRoot = catalogReferenceRootUrl(catalogUrl);
+      await writeCache(cacheRoot, raw, sourceRoot);
+      return { raw, sourceRoot, cacheStatus: "fresh", artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+    } catch {
+      return { ...(await readCache(cacheRoot)), artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+    }
+  }
   try {
     const catalogPath = path.resolve(source.catalogPath);
     const raw = await readFile(catalogPath, "utf8");
@@ -305,6 +316,37 @@ function catalogReferenceRoot(catalogPath: string): string {
     return path.dirname(catalogRoot);
   }
   return stageRoot;
+}
+
+function normalizeCatalogUrl(catalogUrl: string): string {
+  const url = new URL(catalogUrl);
+  if (url.hostname === "github.com") {
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length >= 5 && segments[2] === "blob") {
+      return new URL(`${segments[0]}/${segments[1]}/${segments.slice(3).join("/")}`, "https://raw.githubusercontent.com/").toString();
+    }
+  }
+  return url.toString();
+}
+
+function assertAllowedCatalogUrl(catalogUrl: string): void {
+  const url = new URL(catalogUrl);
+  if (url.protocol === "https:") return;
+  if (url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname)) return;
+  throw new AppPlatformError("package_not_found", "Stage 1 HTTPS catalog source must use HTTPS");
+}
+
+function catalogReferenceRootUrl(catalogUrl: string): string {
+  const url = new URL(catalogUrl);
+  const segments = url.pathname.split("/");
+  if (segments.at(-1) === "catalog.json" && segments.at(-2) === "stage1" && segments.at(-3) === "catalog") {
+    url.pathname = `${segments.slice(0, -3).join("/")}/`;
+  } else {
+    url.pathname = `${segments.slice(0, -1).join("/")}/`;
+  }
+  url.search = "";
+  url.hash = "";
+  return url.toString();
 }
 
 async function writeCache(cacheRoot: string, raw: string, sourceRoot: string): Promise<void> {
@@ -330,15 +372,63 @@ function asCatalogReadError(error: unknown): AppPlatformError {
   return new AppPlatformError("package_not_found", error instanceof Error ? error.message : "Stage 1 catalog source is unavailable");
 }
 
-async function resolveVerifiedReference(sourceRoot: string, reference: z.infer<typeof ArtifactRefSchema>, label: string): Promise<string> {
+function artifactCacheRoot(cacheRoot: string): string {
+  return path.join(cacheRoot, "stage1-catalog", "artifacts");
+}
+
+async function resolveVerifiedReference(sourceRoot: string, reference: z.infer<typeof ArtifactRefSchema>, label: string, cacheRoot?: string): Promise<string> {
+  if (/^https:\/\//i.test(sourceRoot) || /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])/i.test(sourceRoot)) {
+    if (!cacheRoot) throw new AppPlatformError("package_not_found", "Stage 1 remote catalog cache is unavailable");
+    return resolveRemoteVerifiedReference(sourceRoot, reference, label, cacheRoot);
+  }
   const resolved = path.resolve(sourceRoot, reference.reference);
   const sourceRootResolved = path.resolve(sourceRoot);
   if (resolved !== sourceRootResolved && !resolved.startsWith(`${sourceRootResolved}${path.sep}`)) {
     throw new AppPlatformError("source_index_signature_invalid", `Stage 1 catalog ${label} reference escapes the catalog root`);
   }
-  const actualDigest = `sha256:${createHash("sha256").update(await readFile(resolved)).digest("hex")}`;
+  verifyReferenceDigest(await readFile(resolved), reference, label);
+  return resolved;
+}
+
+async function resolveRemoteVerifiedReference(sourceRoot: string, reference: z.infer<typeof ArtifactRefSchema>, label: string, cacheRoot: string): Promise<string> {
+  const url = new URL(reference.reference, sourceRoot);
+  const root = path.resolve(cacheRoot);
+  const resolved = path.resolve(root, ...reference.reference.split("/"));
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new AppPlatformError("source_index_signature_invalid", `Stage 1 catalog ${label} reference escapes the catalog cache`);
+  }
+  try {
+    const bytes = await fetchBytes(url.toString());
+    verifyReferenceDigest(bytes, reference, label);
+    await mkdir(path.dirname(resolved), { recursive: true, mode: 0o700 });
+    await writeFile(resolved, bytes, { mode: 0o600 });
+    return resolved;
+  } catch (error) {
+    try {
+      const bytes = await readFile(resolved);
+      verifyReferenceDigest(bytes, reference, label);
+      return resolved;
+    } catch {
+      throw asCatalogReadError(error);
+    }
+  }
+}
+
+function verifyReferenceDigest(bytes: Buffer | Uint8Array, reference: z.infer<typeof ArtifactRefSchema>, label: string): void {
+  const actualDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   if (actualDigest !== reference.digest) {
     throw new AppPlatformError("source_index_signature_invalid", `Stage 1 catalog ${label} digest does not match referenced artifact`);
   }
-  return resolved;
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Stage 1 catalog fetch failed: ${response.status} ${response.statusText}`);
+  return await response.text();
+}
+
+async function fetchBytes(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Stage 1 catalog artifact fetch failed: ${response.status} ${response.statusText}`);
+  return Buffer.from(await response.arrayBuffer());
 }

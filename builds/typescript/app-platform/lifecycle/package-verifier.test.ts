@@ -382,7 +382,7 @@ describe("signed fixture package verification", () => {
     expect(parsed.manifestDigest).toBe(canonicalJsonDocumentDigest(transitionalManifest));
   });
 
-  it("republishes the current mounted Resume package with fresh verification metadata after a host restart", async () => {
+  it("keeps immutable packages installable when signed revocation metadata ages without an explicit revocation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-17T12:00:00.000Z"));
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-current-republish-"));
@@ -398,12 +398,12 @@ describe("signed fixture package verification", () => {
     vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
     await expect(verifier.verifyForCatalog(initial, MODERN_FIXTURE_VERSION, {
       appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
-    })).rejects.toMatchObject({ code: "revocation_metadata_stale" });
+    })).resolves.toMatchObject({ trust: { executable_allowed: true, revocation_status: "not_revoked_stale" } });
 
     const restarted = await createFixtureRepository(sourceRoot);
     await expect(verifier.verifyForCatalog(restarted, MODERN_FIXTURE_VERSION, {
       appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
-    })).resolves.toMatchObject({ trust: { executable_allowed: true } });
+    })).resolves.toMatchObject({ trust: { executable_allowed: true, revocation_status: "not_revoked_fresh" } });
   });
 
   it("retains prior signed first-party app versions when publishing a changed package", async () => {

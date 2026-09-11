@@ -25,10 +25,15 @@ async function assertPathExists(targetPath, label) {
   }
 }
 
-async function copyDirectory(source, destination) {
+async function copyDirectory(source, destination, options = {}) {
   await assertPathExists(source, "Required runtime directory");
   await mkdir(path.dirname(destination), { recursive: true });
-  await cp(source, destination, { recursive: true, force: true });
+  const excludedRoots = (options.excludeRootNames ?? []).map((name) => path.resolve(source, name));
+  await cp(source, destination, {
+    recursive: true,
+    force: true,
+    filter: (sourcePath) => !excludedRoots.some((excludedRoot) => sourcePath === excludedRoot || sourcePath.startsWith(`${excludedRoot}${path.sep}`)),
+  });
 }
 
 async function copyFile(source, destination) {
@@ -100,7 +105,7 @@ async function main() {
 
   await copyDirectory(path.join(projectRoot, "dist"), path.join(outputRoot, "typescript", "dist"));
   await copyDirectory(path.join(projectRoot, "client_web", "dist"), path.join(outputRoot, "web"));
-  await copyDirectory(internetSearchRoot, path.join(outputRoot, "internet_search"));
+  await copyDirectory(internetSearchRoot, path.join(outputRoot, "internet_search"), { excludeRootNames: ["sidecar-runtime"] });
   await execFileAsync(process.execPath, [
     path.join(scriptRoot, "stage-internet-search-sidecars.mjs"),
     "--source",

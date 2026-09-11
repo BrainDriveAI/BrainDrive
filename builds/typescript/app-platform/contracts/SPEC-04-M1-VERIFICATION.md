@@ -27,7 +27,7 @@ The repository-consistent contract location is `builds/typescript/app-platform/c
 | OQ-4-1 archive, canonicalization, manifest, signing and rotation | `.bdapp` stored ZIP profile; canonical JSON plus LF; SHA-256; Ed25519; pinned app root authorizes bounded release keys | DJJones, project/security/release authority |
 | OQ-4-2 package sources | Signed repository fixture index for Docker; credential-free signed BrainDrive release assets for native Windows | DJJones, project/release authority |
 | OQ-4-3 LKG, snapshot, quota and checkpoint | Active plus one non-revoked LKG and one pre-migration snapshot until one authenticated request succeeds under the new runtime generation | DJJones, project/data authority |
-| OQ-4-4 revocation | BrainDrive release authority; signed monotonic list; hourly refresh, stale after 24 hours; explicit match fails closed; cached last-valid list remains binding | DJJones, security/release authority |
+| OQ-4-4 revocation | BrainDrive release authority; signed monotonic list; hourly refresh, stale after 24 hours as a diagnostic; explicit match fails closed; cached last-valid list remains binding | DJJones, security/release authority |
 | OQ-4-5 retained-data deletion | Deferred to a separate accepted privacy/data-management specification; default uninstall preserves owner data and exports | DJJones, project/privacy authority |
 | OQ-4-6 desktop target | Native Windows x64 is the first claimed packaged target; macOS/Linux remain unclaimed until separately accepted and live-tested | DJJones, desktop release/QA authority |
 
