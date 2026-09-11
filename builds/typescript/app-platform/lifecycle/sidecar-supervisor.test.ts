@@ -134,7 +134,7 @@ process.on("SIGINT", () => server.close(() => process.exit(0)));
 `;
 }
 
-async function sidecarExecutableBytes(mode: "healthy" | "flood" | "crash" | "descendant"): Promise<Buffer | null> {
+async function sidecarExecutableBytes(_mode: "healthy" | "flood" | "crash" | "descendant"): Promise<Buffer | null> {
   if (process.platform !== "win32") return null;
   if (!windowsSidecarExecutable) {
     const crateRoot = fileURLToPath(new URL("../../../internet_search/sidecar-runtime", import.meta.url));
