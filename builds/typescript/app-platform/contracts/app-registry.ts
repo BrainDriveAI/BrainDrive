@@ -43,6 +43,27 @@ export const InferencePurposeRequestSchema = z
   .object({ purpose_id: InferencePurposeIdentifierSchema, version: z.number().int().positive().max(65_535) })
   .strict();
 
+export const AppCapabilityDependencySchema = z
+  .object({
+    operation_id: z.string().min(5).max(128).regex(/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$/),
+    requirement: z.enum(["required", "optional"]),
+    unavailable_behavior: z.enum(["block_activation", "degrade_with_safe_status"]),
+    provider_selection: z.literal("owner_or_admin_policy"),
+    silent_install_or_switch: z.literal(false),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!["web.search@1", "web.read@1"].includes(value.operation_id)) {
+      context.addIssue({ code: "custom", path: ["operation_id"], message: "missing operation contract" });
+    }
+    if (value.requirement === "required" && value.unavailable_behavior !== "block_activation") {
+      context.addIssue({ code: "custom", path: ["unavailable_behavior"], message: "required dependencies must block activation" });
+    }
+    if (value.requirement === "optional" && value.unavailable_behavior !== "degrade_with_safe_status") {
+      context.addIssue({ code: "custom", path: ["unavailable_behavior"], message: "optional dependencies must degrade safely" });
+    }
+  });
+
 export const AppIdentitySchema = z
   .object({
     app_id: CanonicalAppIdSchema,
@@ -687,6 +708,7 @@ export const GenericPackageManifestSchema = z
     presentations: AppPresentationSetSchema.optional(),
     requested_capabilities: z.array(CapabilityRequestSchema).max(64),
     requested_inference_purposes: z.array(InferencePurposeRequestSchema).max(32),
+    capability_dependencies: z.array(AppCapabilityDependencySchema).max(64).optional(),
     provenance_path: PackagePathSchema,
     sbom_path: PackagePathSchema,
     retention_policy: AppRetentionPolicySchema,
@@ -701,6 +723,7 @@ export const GenericPackageManifestSchema = z
     };
     unique(value.requested_capabilities.map((item) => `${item.name}@${item.version}`), ["requested_capabilities"]);
     unique(value.requested_inference_purposes.map((item) => `${item.purpose_id}@${item.version}`), ["requested_inference_purposes"]);
+    unique((value.capability_dependencies ?? []).map((item) => item.operation_id), ["capability_dependencies"]);
     unique(value.files.map((file) => file.path.toLowerCase()), ["files"]);
     const sortedPaths = [...value.files.map((file) => file.path)].sort();
     if (value.files.some((file, index) => file.path !== sortedPaths[index])) {

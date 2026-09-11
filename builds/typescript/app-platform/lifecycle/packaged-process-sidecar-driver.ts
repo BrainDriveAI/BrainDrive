@@ -35,6 +35,7 @@ export type PackagedProcessSidecarDriverOptions = {
   outputLimitBytes?: number;
   readinessTimeoutMs?: number;
   stopTimeoutMs?: number;
+  environment?: Record<string, string | undefined>;
   waitForExit?: (child: ChildProcess, timeoutMs: number) => Promise<boolean>;
   restartBackoffMs?: [number, number, number];
 };
@@ -129,12 +130,15 @@ export class PackagedProcessSidecarDriver implements SidecarRuntimeDriver {
     }
 
     const token = randomBytes(32).toString("base64url");
-    const child = spawn(resolution.entrypoint, [], {
-      cwd: path.dirname(resolution.entrypoint),
+    const entrypointForSpawn = process.platform === "win32" ? path.toNamespacedPath(resolution.entrypoint) : resolution.entrypoint;
+    const cwdForSpawn = process.platform === "win32" ? path.toNamespacedPath(path.dirname(resolution.entrypoint)) : path.dirname(resolution.entrypoint);
+    const child = spawn(entrypointForSpawn, [], {
+      cwd: cwdForSpawn,
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       env: {
+        ...definedEnvironment(this.options.environment),
         BRAINDRIVE_SIDECAR_BIND: `${bind.host}:${bind.port}`,
         BRAINDRIVE_SIDECAR_COMPONENT_ID: context.sidecar.component_id,
         BRAINDRIVE_SIDECAR_CONNECTION_TOKEN: token,
@@ -157,6 +161,8 @@ export class PackagedProcessSidecarDriver implements SidecarRuntimeDriver {
     };
     child.stdout?.on("data", (bytes: Buffer) => this.countOutput(key, record, bytes));
     child.stderr?.on("data", (bytes: Buffer) => this.countOutput(key, record, bytes));
+    child.stdout?.on("error", () => this.recordOutputPipeError(key, record));
+    child.stderr?.on("error", () => this.recordOutputPipeError(key, record));
     child.once("exit", () => {
       if (!record.expectedStop && this.records.get(key) === record && !record.outputLimitTriggered) {
         this.recordDiagnostic(key, "health", "failed", "unhealthy", "process_crashed");
@@ -315,6 +321,11 @@ export class PackagedProcessSidecarDriver implements SidecarRuntimeDriver {
     killProcessGroup(record.child, "SIGKILL");
   }
 
+  private recordOutputPipeError(key: string, record: RuntimeRecord): void {
+    if (record.expectedStop || record.outputLimitTriggered) return;
+    this.recordDiagnostic(key, "containment", isRunning(record.child) ? "running" : "failed", "unknown", "output_pipe_error");
+  }
+
   private async stopRecord(
     key: string,
     record: RuntimeRecord,
@@ -464,6 +475,14 @@ function effectiveStopTimeoutMs(record: RuntimeRecord, hostMaximumMs: number): n
 
 function isRunning(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null;
+}
+
+function definedEnvironment(environment: Record<string, string | undefined> | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    if (value !== undefined) result[key] = value;
+  }
+  return result;
 }
 
 function runtimeKey(packageId: string, componentId: string): string {

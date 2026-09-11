@@ -44,7 +44,7 @@ describe("grant, token, and trust security", () => {
     }).success).toBe(false);
   });
 
-  it("requires executable permission to derive from every trust check", () => {
+  it("requires executable permission to derive from every trust check while stale revocation age remains diagnostic", () => {
     const trust = {
       trust_policy_version: 1,
       descriptor_digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -69,7 +69,7 @@ describe("grant, token, and trust security", () => {
     };
     expect(PackageTrustSchema.safeParse(trust).success).toBe(false);
     expect(PackageTrustSchema.safeParse({ ...trust, package_signature_valid: true, revocation_status: "not_revoked_stale", verification_context: "verified_local_recheck" }).success).toBe(true);
-    expect(PackageTrustSchema.safeParse({ ...trust, package_signature_valid: true, revocation_status: "not_revoked_stale" }).success).toBe(false);
+    expect(PackageTrustSchema.safeParse({ ...trust, package_signature_valid: true, revocation_status: "not_revoked_stale" }).success).toBe(true);
     expect(PackageTrustSchema.safeParse({ ...trust, package_signature_valid: true, revocation_status: "revoked" }).success).toBe(false);
   });
 

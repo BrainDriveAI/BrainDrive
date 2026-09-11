@@ -12,6 +12,7 @@ import { BRIEF_BUILDER_VERSION, createAppLifecycle, createBriefAppLifecycle, typ
 import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
 import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
+import type { Stage1CatalogSourceConfig } from "../app-platform/lifecycle/stage1-catalog-source.js";
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
 import { BriefAppHostAdapter } from "../app-platform/mcp-host/brief-host-adapter.js";
 import { ResumeAppHostAdapter } from "../app-platform/mcp-host/resume-host-adapter.js";
@@ -481,24 +482,29 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
   );
 
   let migrationInProgress = false;
+  const appLifecycleTarget = readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET);
+  const appStateRoot = process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined;
+  const stage1CatalogSource = readStage1CatalogSourceEnv();
   const appLifecycleService = readBooleanEnv(process.env.BRAINDRIVE_APP_PLATFORM_ENABLED, false)
     ? await createAppLifecycle({
         memoryRoot: runtimeConfig.memory_root,
         hostVersion: appVersion,
-        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
-        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        stateRoot: appStateRoot,
+        target: appLifecycleTarget,
         ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
+        catalogSource: stage1CatalogSource,
       })
     : null;
   const briefLifecycleService = appLifecycleService
     ? await createBriefAppLifecycle({
         memoryRoot: runtimeConfig.memory_root,
         hostVersion: appVersion,
-        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
-        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        stateRoot: appStateRoot,
+        target: appLifecycleTarget,
         ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
+        catalogSource: stage1CatalogSource,
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
@@ -529,27 +535,29 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       installedAppInference: new InstalledAppInferenceExecutor({ resolveProvider: installedProviderResolver, audit: auditLog }),
       exportBroker,
     }));
-    const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService!.dependencies.ownerDataRoot);
-    const briefProviderResolver = process.env.BRAINDRIVE_E2E_BRIEF_INFERENCE_FIXTURE === "1"
-      ? async () => ({
-        providerProfileId: "synthetic-brief-workflow-fixture", modelId: "synthetic-brief-contract-model", compatibility: "brief_structured_no_tools_v1" as const,
-        adapter: { completeStructuredNoTools: async ({ user, signal }: { user: string; signal: AbortSignal }) => {
-          if (signal.aborted) throw new Error("cancelled");
-          const parsed = JSON.parse(user) as { source: string };
-          const quote = parsed.source.split(/(?<=[.!?])\s+/)[0]?.trim() || parsed.source.trim();
-          return { text: JSON.stringify({ title: "Owner source brief", statements: [{ statement_id: randomUUID(), text: quote, support: { kind: "source_quote", quote } }] }), finishReason: "stop" as const };
-        } },
-      })
-      : createLiveBriefProviderResolver({ adapterName: runtimeConfig.provider_adapter, adapterConfig, loadPreferences: loadLivePreferences });
-    const briefInference = new BriefInferenceBroker(briefProviderResolver, auditLog);
-    const briefDomain = new BriefDomainService(briefDataStore);
-    const briefInferenceDispatcher = new AppInferenceDispatcher(new AppInferencePurposeRegistry([createBriefInferencePurposeRegistration(briefInference)]), Date.now, auditLog);
-    briefMcpHost = new AppMcpHost(BriefAppHostAdapter.create(briefLifecycleService!, createBriefCapabilityRegistrations(briefDomain, briefInferenceDispatcher), auditLog));
+    if (briefLifecycleService) {
+      const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService.dependencies.ownerDataRoot);
+      const briefProviderResolver = process.env.BRAINDRIVE_E2E_BRIEF_INFERENCE_FIXTURE === "1"
+        ? async () => ({
+          providerProfileId: "synthetic-brief-workflow-fixture", modelId: "synthetic-brief-contract-model", compatibility: "brief_structured_no_tools_v1" as const,
+          adapter: { completeStructuredNoTools: async ({ user, signal }: { user: string; signal: AbortSignal }) => {
+            if (signal.aborted) throw new Error("cancelled");
+            const parsed = JSON.parse(user) as { source: string };
+            const quote = parsed.source.split(/(?<=[.!?])\s+/)[0]?.trim() || parsed.source.trim();
+            return { text: JSON.stringify({ title: "Owner source brief", statements: [{ statement_id: randomUUID(), text: quote, support: { kind: "source_quote", quote } }] }), finishReason: "stop" as const };
+          } },
+        })
+        : createLiveBriefProviderResolver({ adapterName: runtimeConfig.provider_adapter, adapterConfig, loadPreferences: loadLivePreferences });
+      const briefInference = new BriefInferenceBroker(briefProviderResolver, auditLog);
+      const briefDomain = new BriefDomainService(briefDataStore);
+      const briefInferenceDispatcher = new AppInferenceDispatcher(new AppInferencePurposeRegistry([createBriefInferencePurposeRegistration(briefInference)]), Date.now, auditLog);
+      briefMcpHost = new AppMcpHost(BriefAppHostAdapter.create(briefLifecycleService, createBriefCapabilityRegistrations(briefDomain, briefInferenceDispatcher), auditLog));
+    }
   }
   if (appLifecycleService) {
     auditLog("app_platform.lifecycle.enabled", {
       app_id: "ai.braindrive.resume-builder",
-      fixture_source: "repository_fixture",
+      fixture_source: stage1CatalogSource ? "stage1_catalog" : "repository_fixture",
       supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "docker_linux_x64" ? "docker_process" : "desktop_packaged_node",
     });
     app.addHook("onClose", async () => {
@@ -620,8 +628,8 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
   const internetSearchRuntime = dependencies.internetSearchRuntime ?? await createInternetSearchProviderRuntime({
     rootDir,
     memoryRoot: runtimeConfig.memory_root,
-    stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
-    target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+    stateRoot: appStateRoot,
+    target: appLifecycleTarget,
     env: process.env,
   });
   app.addHook("onClose", async () => {
@@ -841,16 +849,17 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
   });
 
   if (appLifecycleService) {
-    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
-      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: appLifecycleService },
-      { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: BRIEF_BUILDER_VERSION, service: briefLifecycleService! },
-    ], 2, {
+    const lifecycleEntries = [
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: appLifecycleService.dependencies.catalogPackageSource?.availableVersion ?? MODERN_FIXTURE_VERSION, service: appLifecycleService },
+      ...(briefLifecycleService ? [{ routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: briefLifecycleService.dependencies.catalogPackageSource?.availableVersion ?? BRIEF_BUILDER_VERSION, capabilityDependencies: briefLifecycleService.dependencies.catalogPackageSource?.capabilityDependencies, service: briefLifecycleService }] : []),
+    ];
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform(lifecycleEntries, 2, {
       packageStore: internetSearchRuntime.packageStore,
       capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
     }));
     appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
       { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost!, service: appLifecycleService },
-      { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost!, service: briefLifecycleService! },
+      ...(briefMcpHost && briefLifecycleService ? [{ appId: briefMcpHost.appId, routeKey: briefMcpHost.routeKey, host: briefMcpHost, service: briefLifecycleService, capabilityDependencies: briefLifecycleService.dependencies.catalogPackageSource?.capabilityDependencies }] : []),
     ], {
       packageStore: internetSearchRuntime.packageStore,
       capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
@@ -3606,6 +3615,26 @@ function readAppLifecycleTarget(value: string | undefined): AppLifecycleRuntimeT
   const target = value?.trim() || "docker_linux_x64";
   if (target === "docker_linux_x64" || target === "desktop_windows_x64" || target === "desktop_macos_universal") return target;
   throw new Error("BRAINDRIVE_APP_PLATFORM_TARGET must name an accepted Resume Builder runtime target");
+}
+
+function readStage1CatalogSourceEnv(): Stage1CatalogSourceConfig | null {
+  const catalogPath = process.env.BRAINDRIVE_STAGE1_CATALOG_PATH?.trim();
+  if (catalogPath) {
+    return {
+      kind: "local_file",
+      catalogPath,
+      cacheRoot: process.env.BRAINDRIVE_STAGE1_CATALOG_CACHE_ROOT?.trim() || undefined,
+    };
+  }
+  const catalogUrl = process.env.BRAINDRIVE_STAGE1_CATALOG_URL?.trim();
+  if (catalogUrl) {
+    return {
+      kind: "braindrive_https",
+      catalogUrl,
+      cacheRoot: process.env.BRAINDRIVE_STAGE1_CATALOG_CACHE_ROOT?.trim() || path.join(tmpdir(), "braindrive-stage1-catalog-cache"),
+    };
+  }
+  return null;
 }
 
 function applyDesktopCorsHeaders(

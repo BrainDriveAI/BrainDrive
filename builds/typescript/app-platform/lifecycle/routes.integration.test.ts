@@ -489,6 +489,97 @@ describe("owner lifecycle gateway routes", () => {
     await app.close();
   });
 
+  it("blocks catalog-declared required dependencies before install staging or runtime start", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac005-catalog-required-")); roots.push(root);
+    const routeKey = "brief-builder";
+    const appId = "ai.braindrive.brief-builder";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Brief Builder" });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      {
+        routeKey,
+        displayName: "Brief Builder",
+        publisherName: "BrainDrive",
+        availableVersion: "1.0.0",
+        service: h.service,
+        capabilityDependencies: [
+          { operation_id: "web.search@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+          { operation_id: "web.read@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+        ],
+      },
+    ], 2, {
+      capabilityDependencyResolver: dependencyResolver({
+        operation_id: "web.search@1",
+        state: "missing",
+        callable: false,
+        provider_count: 0,
+        failure_code: "provider_unavailable",
+        safe_message: "Capability provider is unavailable.",
+        checked_at: "2026-09-01T12:05:00.000Z",
+      }),
+    }));
+
+    const status = (await app.inject({ method: "GET", url: "/apps/brief-builder/status" })).json();
+    expect(status).toMatchObject({
+      dependency_readiness: { status: "blocked", blocking_operation_ids: ["web.search@1", "web.read@1"] },
+      capability_dependency_status: [
+        { operation_id: "web.search@1", requirement: "required", state: "missing", callable: false },
+        { operation_id: "web.read@1", requirement: "required", state: "missing", callable: false },
+      ],
+      available_actions: [],
+    });
+    expect(JSON.stringify(status)).not.toMatch(/provider_id|payload\/|adapter|export_name|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
+
+    const blockedInstall = await app.inject({ method: "POST", url: "/apps/brief-builder/install", payload: installBody() });
+    expect(blockedInstall.statusCode).toBe(409);
+    expect(blockedInstall.json()).toMatchObject({ error: "provider_unavailable", retryable: false });
+    expect(await h.service.status()).toMatchObject({ state: "not_installed", generation: 0, installation_id: null, pending_operation_id: null });
+    expect(await h.store.listOperations()).toHaveLength(0);
+    expect(h.supervisor.startCount).toBe(0);
+    await app.close();
+  });
+
+  it("allows catalog-declared Brief activation when Internet Search operations are callable", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac005-catalog-ready-")); roots.push(root);
+    const routeKey = "brief-builder";
+    const appId = "ai.braindrive.brief-builder";
+    const h = await createLifecycleHarness(path.join(root, "app"), { appId, routeKey, displayName: "Brief Builder" });
+    const dependencies = [
+      { operation_id: "web.search@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+      { operation_id: "web.read@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
+    ] as const;
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey, displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service, capabilityDependencies: dependencies },
+    ], 2, {
+      capabilityDependencyResolver: dependencyResolver({
+        operation_id: "web.search@1",
+        state: "available",
+        callable: true,
+        provider_count: 1,
+        failure_code: null,
+        safe_message: "Capability dependency is available.",
+        checked_at: "2026-09-01T12:10:00.000Z",
+      }),
+    }));
+
+    const installed = await app.inject({ method: "POST", url: "/apps/brief-builder/install", payload: installBody() });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json()).toMatchObject({
+      state: "active",
+      dependency_readiness: { status: "ready", blocking_operation_ids: [] },
+      capability_dependency_status: [
+        { operation_id: "web.search@1", requirement: "required", state: "available", callable: true, provider_count: 1 },
+        { operation_id: "web.read@1", requirement: "required", state: "available", callable: true, provider_count: 1 },
+      ],
+    });
+    expect(installed.json().available_actions).toContain("launch");
+    expect(h.supervisor.startCount).toBe(1);
+    await app.close();
+  });
+
   it("keeps optional unavailable dependencies visible as degraded while allowing declared degraded launch", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-ac003-optional-degraded-")); roots.push(root);
     const routeKey = "research-consumer";

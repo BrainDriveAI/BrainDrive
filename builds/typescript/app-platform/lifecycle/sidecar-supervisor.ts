@@ -129,6 +129,7 @@ export class SidecarRuntimeBindingService {
     const key = bindingKey(input.packageRecord.package_id, input.sidecar.component_id);
     const generation = (this.generations.get(key) ?? 0) + 1;
     this.generations.set(key, generation);
+    const transport = bindingTransportForTarget(input.target, input.sidecar);
     const projection = SidecarRuntimeBindingProjectionSchema.parse({
       binding_version: 1,
       binding_id: this.ids.next(),
@@ -139,8 +140,8 @@ export class SidecarRuntimeBindingService {
       runtime_id: input.runtimeId,
       binding_generation: generation,
       target: input.target.target,
-      transport: input.sidecar.binding.transport,
-      endpoint_class: endpointClass(input.sidecar.binding.transport),
+      transport,
+      endpoint_class: endpointClass(transport),
       audience: input.sidecar.binding.visibility,
       public_bind: false,
       created_at: this.clock().toISOString(),
@@ -498,6 +499,7 @@ export class GenericSidecarSupervisor {
   }
 
   private emptyBinding(selected: { packageRecord: InstalledPackageRecord; sidecar: SidecarDescriptor; target: SidecarDescriptor["targets"][number] }, runtimeId: string): PrivateSidecarRuntimeBinding {
+    const transport = bindingTransportForTarget(selected.target, selected.sidecar);
     return SidecarRuntimeBindingProjectionSchema.parse({
       binding_version: 1,
       binding_id: this.ids.next(),
@@ -508,8 +510,8 @@ export class GenericSidecarSupervisor {
       runtime_id: runtimeId,
       binding_generation: 1,
       target: selected.target.target,
-      transport: selected.sidecar.binding.transport,
-      endpoint_class: endpointClass(selected.sidecar.binding.transport),
+      transport,
+      endpoint_class: endpointClass(transport),
       audience: selected.sidecar.binding.visibility,
       public_bind: false,
       created_at: this.now(),
@@ -536,7 +538,7 @@ function validateBindingCandidate(
   if (candidate.publicBind || candidate.hostPath || candidate.processId || candidate.containerId) {
     throw new AppPlatformError("denied", "Sidecar binding candidate contains public or host-private runtime details", 403);
   }
-  if (candidate.transport !== sidecar.binding.transport || !targetSupportsBinding(target, sidecar)) {
+  if (candidate.transport !== bindingTransportForTarget(target, sidecar) || !targetSupportsBinding(target, sidecar)) {
     throw new AppPlatformError("descriptor_invalid", "Sidecar binding candidate does not match the descriptor");
   }
   if (candidate.transport === "ipc") {
@@ -565,7 +567,15 @@ function validateBindingCandidate(
 
 function targetSupportsBinding(target: SidecarDescriptor["targets"][number], sidecar: SidecarDescriptor): boolean {
   if (target.runtime_kind === "container") return sidecar.binding.transport === "container_internal";
-  return sidecar.binding.transport === target.bind;
+  return target.bind === "loopback" || target.bind === "ipc";
+}
+
+function bindingTransportForTarget(
+  target: SidecarDescriptor["targets"][number],
+  sidecar: SidecarDescriptor,
+): PrivateSidecarBindingCandidate["transport"] {
+  if (target.runtime_kind === "container") return sidecar.binding.transport;
+  return target.bind;
 }
 
 function runtimeKind(target: SidecarDescriptor["targets"][number]): SidecarRuntimeDriver["runtimeKind"] {

@@ -54,6 +54,8 @@ export type AppLifecycleRouteEntry = {
   publisherName: string;
   service: AppLifecycleService;
   availableVersion?: string;
+  capabilityDependencies?: readonly CapabilityDependency[];
+  source?: { kind: string; label: string; cache_status?: string };
 };
 export type AppLifecycleRouteOptions = {
   packageStore?: InstalledPackageStore;
@@ -63,7 +65,7 @@ export type AppDependencyRouteGate = {
   capability_dependency_status: CapabilityDependencyAvailability[];
   dependency_readiness: CapabilityDependencyReadiness;
 };
-type AppDependencyRouteEntry = { routeKey: string; service: { appId: string } };
+type AppDependencyRouteEntry = { routeKey: string; service: { appId: string }; capabilityDependencies?: readonly CapabilityDependency[] };
 
 export type AppLifecycleRoutePlatform = ReturnType<typeof createAppLifecycleRoutePlatform>;
 
@@ -356,7 +358,7 @@ export async function legacyAppDependencyGate(
   packageStore: InstalledPackageStore | null,
   dependencyResolver: CapabilityDependencyResolver | null,
 ): Promise<AppDependencyRouteGate> {
-  const dependencies = packageStore ? await appPackageDependencies(packageStore, entry.service.appId, entry.routeKey) : [];
+  const dependencies = await appPackageDependencies(packageStore, entry);
   const statuses = await resolveDependencyStatuses(dependencies, dependencyResolver);
   return {
     capability_dependency_status: statuses,
@@ -364,12 +366,14 @@ export async function legacyAppDependencyGate(
   };
 }
 
-async function appPackageDependencies(packageStore: InstalledPackageStore, appId: string, routeKey: string): Promise<SafeRouteDependency[]> {
+async function appPackageDependencies(packageStore: InstalledPackageStore | null, entry: AppDependencyRouteEntry): Promise<SafeRouteDependency[]> {
   const dependencies = new Map<string, SafeRouteDependency>();
+  for (const dependency of entry.capabilityDependencies ?? []) mergeDependency(dependencies, dependency);
+  if (!packageStore) return [...dependencies.values()];
   for (const record of await packageStore.listPackages()) {
     let matched = false;
     for (const component of record.manifest.components) {
-      if (component.component_kind !== "app" || component.app_id !== appId || component.route_key !== routeKey) continue;
+      if (component.component_kind !== "app" || component.app_id !== entry.service.appId || component.route_key !== entry.routeKey) continue;
       matched = true;
       for (const dependency of component.requested_capabilities) mergeDependency(dependencies, dependency);
     }
@@ -471,7 +475,7 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
   let manifest: RuntimePackageManifest | undefined = storedPackage?.manifest;
   let availablePackage: Awaited<ReturnType<typeof service.dependencies.verifier.verifyForCatalog>> | null = null;
   let availabilityError: AppPlatformError | null = null;
-  const availableVersion = entry.availableVersion ?? descriptor.packageVersion;
+  const availableVersion = entry.availableVersion ?? service.dependencies.catalogPackageSource?.availableVersion ?? descriptor.packageVersion;
   if (availableVersion) {
     try {
       availablePackage = await service.dependencies.verifier.verifyForCatalog(service.dependencies.repository, availableVersion, { appId: service.appId, publisherId: service.publisherId });
@@ -494,9 +498,9 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
     contract_version: 1,
     identity: {
       app_id: record.app_id,
-      display_name: manifest?.manifest_version === 2 ? manifest.catalog.display_name : entry.displayName,
+      display_name: manifest?.manifest_version === 2 ? manifest.catalog.display_name : service.dependencies.catalogPackageSource?.displayName ?? entry.displayName,
       publisher_id: service.publisherId,
-      publisher_name: entry.publisherName,
+      publisher_name: service.dependencies.catalogPackageSource?.publisherName ?? entry.publisherName,
       installation_id: record.installation_id,
       package_digest: record.active_package_digest,
     },
@@ -511,7 +515,7 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
       checked_at: storedPackage?.trust.checked_at ?? null,
       revocation_status: record.state === "quarantined" ? "revoked" : trust?.revocation_status ?? "not_checked",
     },
-    source: { kind: "repository_fixture", label: "Bundled BrainDrive app source" },
+    source: entry.source ?? service.dependencies.catalogPackageSource?.ownerSafeSource ?? { kind: "repository_fixture", label: "Bundled BrainDrive app source" },
     compatibility: {
       host: availabilityError ? false : trust?.compatibility_valid ?? null,
       app_contract: manifest?.compatibility.app_contract ?? null,

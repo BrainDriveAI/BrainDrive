@@ -290,15 +290,17 @@ describe("M3 verifier and safe archive handling", () => {
     await expect(readdir(request.stagingRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects a rollback index, stale revocation authority, and an explicit package revocation", async () => {
+  it("rejects a rollback index and explicit package revocation while preserving stale revocation diagnostics", async () => {
     const root = await temporaryRoot("bd-m3-monotonic-");
     const current = PackageSourceIndexSchema.parse(JSON.parse((await fixtureBytes("source-index.json")).toString("utf8")));
     const newer = PackageSourceIndexSchema.parse({ ...current, payload: { ...current.payload, sequence: 2, prior_index_digest: `sha256:${"a".repeat(64)}` } });
     await expect(new VerifiedPackageVerifier(new FixtureTransport(), () => FIXED_TIME).verify(await verificationRequest(root, { cachedSourceIndex: newer })))
       .rejects.toMatchObject({ code: "source_index_rollback" });
     const staleClock = () => new Date(FIXED_TIME.getTime() + 86_401_000);
-    await expect(new VerifiedPackageVerifier(new FixtureTransport(), staleClock).verify(await verificationRequest(root)))
-      .rejects.toMatchObject({ code: "revocation_metadata_invalid" });
+    const stale = await new VerifiedPackageVerifier(new FixtureTransport(), staleClock).verify(await verificationRequest(root));
+    expect(stale.inspection.trust.revocationStatus).toBe("not_revoked_stale");
+    expect(stale.trust.revocation_status).toBe("not_revoked_stale");
+    expect(stale.trust.executable_allowed).toBe(true);
 
     const descriptor = PackageDescriptorSchema.parse(JSON.parse((await fixtureBytes("1.0.0.descriptor.json")).toString("utf8")));
     const revocations = RevocationListSchema.parse(JSON.parse((await fixtureBytes("revocations.json")).toString("utf8")));

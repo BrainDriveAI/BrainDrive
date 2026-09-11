@@ -706,8 +706,7 @@ export const PackageTrustSchema = z
       value.file_inventory_valid &&
       value.source_trusted &&
       value.compatibility_valid &&
-      value.revocation_status !== "revoked" &&
-      (value.revocation_status !== "not_revoked_stale" || value.verification_context === "verified_local_recheck");
+      value.revocation_status !== "revoked";
     if (value.executable_allowed !== expected) {
       context.addIssue({ code: "custom", message: "executable_allowed must derive from all trust checks" });
     }

@@ -1441,6 +1441,51 @@
                 "additionalProperties": false
               }
             },
+            "capability_dependencies": {
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "operation_id": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 128,
+                    "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,4}$"
+                  },
+                  "requirement": {
+                    "type": "string",
+                    "enum": [
+                      "required",
+                      "optional"
+                    ]
+                  },
+                  "unavailable_behavior": {
+                    "type": "string",
+                    "enum": [
+                      "block_activation",
+                      "degrade_with_safe_status"
+                    ]
+                  },
+                  "provider_selection": {
+                    "type": "string",
+                    "const": "owner_or_admin_policy"
+                  },
+                  "silent_install_or_switch": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": [
+                  "operation_id",
+                  "requirement",
+                  "unavailable_behavior",
+                  "provider_selection",
+                  "silent_install_or_switch"
+                ],
+                "additionalProperties": false
+              }
+            },
             "provenance_path": {
               "type": "string",
               "minLength": 1,

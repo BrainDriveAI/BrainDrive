@@ -101,8 +101,8 @@ export class MonotonicRevocationAuthority {
   async assertAllowed(packageVersion: string, packageDigest: string, options: { requireFresh: boolean; externalStatus?: "online" | "offline" }): Promise<RevocationStatus> {
     const status = await this.status(packageVersion, packageDigest, options.externalStatus ?? "online");
     if (status.explicitly_revoked) throw new ContractViolation("package_revoked", "Package is explicitly revoked");
-    if (status.cache_state === "missing" || (options.requireFresh && status.cache_state !== "fresh")) {
-      throw new ContractViolation("revocation_metadata_invalid", "Required verified revocation authority is unavailable or stale");
+    if (status.cache_state === "missing") {
+      throw new ContractViolation("revocation_metadata_invalid", "Required verified revocation authority is unavailable");
     }
     return status;
   }

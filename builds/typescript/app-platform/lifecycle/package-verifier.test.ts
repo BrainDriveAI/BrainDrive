@@ -11,11 +11,13 @@ import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository, MO
 import {
   PackageVerifier,
   parsePackageComponentManifestForConformance,
+  verifyComponentPackageForCatalog,
   type PackageComponentManifest,
 } from "./package-verifier.js";
 import { parseStoredRuntimePackageManifestWithDigest } from "./runtime-manifest.js";
 import { createVerifiedSidecarPackageBundleFromStore, SidecarBundleStore, type VerifiedSidecarPackageBundle } from "./sidecar-bundle-store.js";
 import { ImmutablePackageStore, type ImmutablePackageRecord } from "./verified-package-store.js";
+import { createStoredZip } from "./zip.js";
 
 const roots: string[] = [];
 
@@ -53,11 +55,15 @@ function clone<T>(value: T): T {
 }
 
 async function sidecarFixture(): Promise<PackageComponentManifest> {
+  return packageComponentFixture("valid-app-owned-sidecar");
+}
+
+async function packageComponentFixture(fixtureId: string): Promise<PackageComponentManifest> {
   const source = JSON.parse(await readFile(new URL("../contracts/fixtures/sidecar-package/sc-001-conformance-corpus.json", import.meta.url), "utf8")) as {
     valid_cases: Array<{ fixture_id: string; manifest: unknown }>;
   };
-  const fixture = source.valid_cases.find((candidate) => candidate.fixture_id === "valid-app-owned-sidecar");
-  if (!fixture) throw new Error("valid-app-owned-sidecar fixture is missing");
+  const fixture = source.valid_cases.find((candidate) => candidate.fixture_id === fixtureId);
+  if (!fixture) throw new Error(`${fixtureId} fixture is missing`);
   return parsePackageComponentManifestForConformance(clone(fixture.manifest));
 }
 
@@ -141,6 +147,99 @@ async function materializeSidecarPackage(
 }
 
 describe("signed fixture package verification", () => {
+  it("verifies a Stage 1 catalog component package without app-release signing authority", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-component-catalog-"));
+    roots.push(root);
+    const manifest = clone(await packageComponentFixture("valid-provider-sidecar"));
+    const catalogVersion = "0.1.0";
+    const packageRoot = path.join(root, "source");
+    const files = new Map<string, Buffer>();
+
+    for (const file of manifest.files) {
+      const bytes = Buffer.from(`${manifest.package_id}:${file.path}\n`, "utf8");
+      files.set(file.path, bytes);
+      file.size_bytes = bytes.byteLength;
+      file.digest = digest(bytes);
+    }
+    const parsed = parsePackageComponentManifestForConformance(manifest);
+    const archive = createStoredZip([
+      { name: "manifest.json", bytes: Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf8"), executable: false },
+      ...parsed.files.map((file) => ({ name: file.path, bytes: files.get(file.path)!, executable: file.mode === "executable" })),
+    ]);
+    const packageDigest = digest(archive);
+    const authorityRoot = path.join(packageRoot, "component", catalogVersion);
+    await mkdir(authorityRoot, { recursive: true });
+    const trustRootPath = path.join(authorityRoot, "trust-root.json");
+    const sourceIndexPath = path.join(authorityRoot, "source-index.json");
+    const revocationListPath = path.join(authorityRoot, "revocations.json");
+    const descriptorPath = path.join(authorityRoot, "descriptor.json");
+    const archivePath = path.join(authorityRoot, `${catalogVersion}.bdcap`);
+    await writeFile(trustRootPath, `${JSON.stringify({
+      trust_root_version: 1,
+      package_id: parsed.package_id,
+      publisher_id: parsed.publisher_id,
+      release_channel: "local-dev",
+      stage: "local-dev",
+      trust_boundary: "BrainDrive-built and BrainDrive-reviewed Stage 1 packages only",
+      owner_added_production_trust_roots: false,
+    }, null, 2)}\n`, "utf8");
+    await writeFile(sourceIndexPath, `${JSON.stringify({
+      source_index_version: 1,
+      package_id: parsed.package_id,
+      publisher_id: parsed.publisher_id,
+      package_version: catalogVersion,
+      source_repo: "braindrive-internet-search",
+      extracted_from: { repo: "braindrive-ws5", paths: ["builds/typescript/internet-search"] },
+      content_boundaries: {
+        provider_operations: parsed.provided_operations.map((operation) => operation.operation_id),
+        sidecar_bindings_catalog_projection: "never",
+        host_authority: [
+          "verification", "trust", "compatibility", "revocation", "registration",
+          "lifecycle_state", "runtime_supervision", "owner_data_preservation",
+        ],
+      },
+    }, null, 2)}\n`, "utf8");
+    await writeFile(revocationListPath, "{\"revocations\":[]}\n", "utf8");
+    await writeFile(descriptorPath, `${JSON.stringify({
+      descriptor_version: 1,
+      package_id: parsed.package_id,
+      publisher_id: parsed.publisher_id,
+      package_version: catalogVersion,
+      manifest_package_version: parsed.package_version,
+      package_kind: parsed.package_kind,
+      release_channel: "local-dev",
+      target: "docker_linux_x64",
+      archive: { format: "zip", profile: "braindrive-package-v2", digest: packageDigest, manifest_path: "manifest.json" },
+      safe_presentation: parsed.catalog,
+      relationship_projection: {
+        launchable_app: false,
+        provides_operations: parsed.provided_operations.map((operation) => operation.operation_id),
+        requires_operations: [],
+        depends_on_packages: [],
+      },
+      authority_boundary: "host_verifies_registers_supervises_and_preserves_owner_data",
+    }, null, 2)}\n`, "utf8");
+    await writeFile(archivePath, archive);
+
+    const verified = await verifyComponentPackageForCatalog({
+      root: packageRoot,
+      trustRootPath,
+      sourceIndexPath,
+      revocationListPath,
+      packages: {},
+      packagesByAppVersion: { [`${parsed.package_id}@${catalogVersion}`]: { archivePath, descriptorPath } },
+      authoritiesByAppVersion: { [`${parsed.package_id}@${catalogVersion}`]: { trustRootPath, sourceIndexPath, revocationListPath } },
+    }, catalogVersion, { appId: parsed.package_id, publisherId: parsed.publisher_id }, "docker_linux_x64");
+
+    expect(verified).toMatchObject({
+      manifest: { package_id: parsed.package_id, package_kind: ["capability_provider"] },
+      packageDigest,
+      catalogVersion,
+      manifestVersion: parsed.package_version,
+      runtimeKind: "component_package",
+    });
+  });
+
   it("keys same-version packages by verified app identity and rejects every expected-identity mismatch before extraction", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-multi-app-"));
     roots.push(root);
@@ -283,7 +382,7 @@ describe("signed fixture package verification", () => {
     expect(parsed.manifestDigest).toBe(canonicalJsonDocumentDigest(transitionalManifest));
   });
 
-  it("republishes the current mounted Resume package with fresh verification metadata after a host restart", async () => {
+  it("keeps immutable packages installable when signed revocation metadata ages without an explicit revocation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-17T12:00:00.000Z"));
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-current-republish-"));
@@ -299,12 +398,12 @@ describe("signed fixture package verification", () => {
     vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
     await expect(verifier.verifyForCatalog(initial, MODERN_FIXTURE_VERSION, {
       appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
-    })).rejects.toMatchObject({ code: "revocation_metadata_stale" });
+    })).resolves.toMatchObject({ trust: { executable_allowed: true, revocation_status: "not_revoked_stale" } });
 
     const restarted = await createFixtureRepository(sourceRoot);
     await expect(verifier.verifyForCatalog(restarted, MODERN_FIXTURE_VERSION, {
       appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
-    })).resolves.toMatchObject({ trust: { executable_allowed: true } });
+    })).resolves.toMatchObject({ trust: { executable_allowed: true, revocation_status: "not_revoked_fresh" } });
   });
 
   it("retains prior signed first-party app versions when publishing a changed package", async () => {

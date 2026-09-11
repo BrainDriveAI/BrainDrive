@@ -1,7 +1,7 @@
 param(
   [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$McpRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\mcp_release")).Path,
-  [string]$InternetSearchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\internet_search")).Path,
+  [string]$InternetSearchRoot = $(if ($env:BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT) { (Resolve-Path $env:BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT).Path } else { (Resolve-Path (Join-Path $PSScriptRoot "..\..\internet_search")).Path }),
   [string]$ResumeBuilderRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\resume_builder")).Path,
   [string]$BriefBuilderRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\brief_builder")).Path,
   [string]$OutputRoot = (Join-Path $ProjectRoot "src-tauri\desktop-runtime")
@@ -67,6 +67,7 @@ Copy-File -Source $nodePath -Destination (Join-Path $OutputRoot "node\$nodeExeNa
 Copy-Directory -Source (Join-Path $ProjectRoot "dist") -Destination (Join-Path $OutputRoot "typescript\dist")
 Copy-Directory -Source (Join-Path $ProjectRoot "client_web\dist") -Destination (Join-Path $OutputRoot "web")
 Copy-Directory -Source $InternetSearchRoot -Destination (Join-Path $OutputRoot "internet_search")
+& node (Join-Path $PSScriptRoot "stage-internet-search-sidecars.mjs") --source $InternetSearchRoot --destination (Join-Path $OutputRoot "internet_search")
 Copy-Directory -Source (Join-Path $ResumeBuilderRoot "resources") -Destination (Join-Path $OutputRoot "resume_builder\resources")
 Copy-Directory -Source (Join-Path $BriefBuilderRoot "resources") -Destination (Join-Path $OutputRoot "brief_builder\resources")
 Copy-Directory -Source (Join-Path $ProjectRoot "adapters") -Destination (Join-Path $OutputRoot "typescript\adapters")

@@ -173,6 +173,7 @@ export class HttpSearxngSearchClient implements SearxngSearchClient {
   readonly #timeoutMs: number;
   readonly #fetchImpl: typeof fetch;
   readonly #engines: string | null;
+  readonly #authorization: string | null;
 
   constructor(
     binding: SearxngSidecarBinding,
@@ -183,6 +184,7 @@ export class HttpSearxngSearchClient implements SearxngSearchClient {
     this.#timeoutMs = capPositiveInt(options.timeoutMs, DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
     this.#fetchImpl = options.fetchImpl ?? fetch;
     this.#engines = normalizeSearxngEngines(options.engines ?? DEFAULT_SEARXNG_ENGINES);
+    this.#authorization = binding.authorization ?? null;
   }
 
   async search(input: SearxngSearchClientInput): Promise<unknown> {
@@ -208,7 +210,9 @@ export class HttpSearxngSearchClient implements SearxngSearchClient {
     }
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
-      const response = await this.#fetchImpl(url, { signal: controller.signal, headers: { accept: "application/json" } });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (this.#authorization) headers.authorization = `Bearer ${this.#authorization}`;
+      const response = await this.#fetchImpl(url, { signal: controller.signal, headers });
       if (response.status === 429) throw new WebSearchProviderError("rate_limited", "Search provider rate limit was reached.", true);
       if (response.status === 401 || response.status === 403) throw new WebSearchProviderError("blocked", "Search provider refused the request.", true);
       if (!response.ok) throw new WebSearchProviderError("provider_unavailable", "Search provider is unavailable.", true);

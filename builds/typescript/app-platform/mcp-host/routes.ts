@@ -11,6 +11,7 @@ import type { AppMcpHost } from "./app-host.js";
 import { AppArtifactRegistrationRequestSchema, AppArtifactSafeMediaTypeSchema, AppExportDestinationIntentSchema } from "../contracts/app-artifacts.js";
 import { AppDocumentDeleteModeSchema, AppDocumentMediaTypeSchema, AppStorageRetentionClassSchema } from "../contracts/app-storage.js";
 import { AppRouteKeySchema, CanonicalAppIdSchema, CapabilityIdentifierSchema, HostBindingIdSchema } from "../contracts/app-registry.js";
+import type { CapabilityDependency } from "../contracts/package-components.js";
 
 const bridgeRequestSchema = z.object({
   session_id: z.string().uuid(),
@@ -160,7 +161,7 @@ type ServerCapabilityRequest = z.infer<typeof serverCapabilityRequestSchema>;
 type AppScopedProviderOperationId = "web.search@1" | "web.read@1";
 type AppScopedCapabilityRouter = Pick<CapabilityOperationRouter, "call">;
 
-export type AppMcpHostRouteEntry = { appId: string; routeKey: string; host: AppMcpHost; service?: AppLifecycleService };
+export type AppMcpHostRouteEntry = { appId: string; routeKey: string; host: AppMcpHost; service?: AppLifecycleService; capabilityDependencies?: readonly CapabilityDependency[] };
 export type AppMcpHostRouteOptions = {
   packageStore?: InstalledPackageStore;
   capabilityDependencyResolver?: CapabilityDependencyResolver | null;
@@ -178,7 +179,7 @@ export function createAppMcpHostRoutePlatform(rawEntries: readonly AppMcpHostRou
     if (entry.host.appId !== appId || entry.host.routeKey !== routeKey) {
       throw new AppPlatformError("descriptor_invalid", "MCP host route binding does not match the registered host");
     }
-    return Object.freeze({ appId, routeKey, host: entry.host, service: entry.service });
+    return Object.freeze({ appId, routeKey, host: entry.host, service: entry.service, capabilityDependencies: entry.capabilityDependencies });
   });
   if (entries.length === 0 || new Set(entries.map((entry) => entry.appId)).size !== entries.length || new Set(entries.map((entry) => entry.routeKey)).size !== entries.length) {
     throw new AppPlatformError("descriptor_invalid", "MCP host route registry is empty or ambiguous");
@@ -246,7 +247,7 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     const parsed = launchRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     try {
-      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId } }, platform.packageStore, platform.capabilityDependencyResolver);
+      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId }, capabilityDependencies: selected.capabilityDependencies }, platform.packageStore, platform.capabilityDependencyResolver);
       const resume = parsed.data.resume
         ? {
             sessionId: parsed.data.resume.session_id,
@@ -266,7 +267,7 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     const parsed = chatWorkspaceLaunchRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
     try {
-      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId } }, platform.packageStore, platform.capabilityDependencyResolver);
+      await assertLegacyAppDependenciesReady({ routeKey: selected.routeKey, service: { appId: selected.appId }, capabilityDependencies: selected.capabilityDependencies }, platform.packageStore, platform.capabilityDependencyResolver);
       return reply.send(await selected.host.launchChatWorkspace({
         presentationId: parsed.data.presentation_id,
         workspaceId: parsed.data.workspace_id,
