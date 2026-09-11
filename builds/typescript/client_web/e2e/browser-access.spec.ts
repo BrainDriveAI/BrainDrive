@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers";
+import { appLaunchButton, expectAppWorkspaceReady, loginAsLocalUser } from "./helpers";
 
 test.describe("LAN browser access", () => {
   test.skip(
@@ -43,55 +43,74 @@ test.describe("LAN browser access", () => {
     const install = page.getByRole("button", { name: "Install Resume Builder" });
     await expect(install).toBeVisible({ timeout: 15_000 });
     await install.click();
-    const launch = page.getByRole("button", { name: "Continue from Career" });
+    const card = page.locator('[data-app-key="resume-builder"]');
+    const launch = appLaunchButton(card, "Resume Builder");
     await expect(launch).toBeVisible({ timeout: 15_000 });
     await launch.click();
 
-    await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
-    const frame = page
-      .frameLocator('iframe[title="Resume Builder sandbox proxy"]')
-      .frameLocator('iframe[title="Resume Builder"]');
-    await expect(frame.getByRole("heading", { name: "Start with what BrainDrive already knows" })).toBeVisible({ timeout: 15_000 });
+    const readiness = await expectAppWorkspaceReady(page, "Resume Builder");
+    if (readiness.kind === "sandbox") {
+      await expect(readiness.frame.getByRole("heading", { name: "Start with what BrainDrive already knows" })).toBeVisible({ timeout: 15_000 });
+
+      await page.setViewportSize({ width: 1600, height: 1000 });
+      const wideLayout = await readiness.frame.locator("body").evaluate(() => {
+        const shell = document.querySelector<HTMLElement>(".shell")!.getBoundingClientRect();
+        const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
+        const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
+        return { shellWidth: shell.width, stepsTop: steps.top, panelTop: panel.top, panelWidth: panel.width };
+      });
+      expect(wideLayout.shellWidth).toBeGreaterThan(1_100);
+      expect(Math.abs(wideLayout.stepsTop - wideLayout.panelTop)).toBeLessThan(2);
+      expect(wideLayout.panelWidth).toBeGreaterThan(800);
+
+      await page.setViewportSize({ width: 760, height: 900 });
+      await expect.poll(() => readiness.frame.locator("body").evaluate(() => {
+        const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
+        const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
+        return panel.top >= steps.bottom;
+      })).toBe(true);
+
+      await page.setViewportSize({ width: 430, height: 900 });
+      await expect.poll(() => readiness.frame.getByRole("button", { name: "Continue to interview" }).evaluate((button) => {
+        const buttonWidth = button.getBoundingClientRect().width;
+        const panelWidth = button.closest<HTMLElement>(".panel")!.getBoundingClientRect().width;
+        return buttonWidth / panelWidth;
+      })).toBeGreaterThan(0.85);
+
+      await readiness.frame.getByRole("button", { name: "Continue to interview" }).click();
+      const recoveryValue = "Exact browser recovery\nResume Tokyo";
+      const answer = readiness.frame.getByLabel("Your answer");
+      await answer.fill(recoveryValue);
+      await expect(readiness.frame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible({ timeout: 10_000 });
+
+      await page.getByRole("button", { name: "Reload app" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
+      const recoveredAnswer = readiness.frame.getByLabel("Your answer");
+      await expect(recoveredAnswer).toHaveValue(recoveryValue, { timeout: 15_000 });
+      await expect(recoveredAnswer).toBeFocused();
+      await expect(readiness.frame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible();
+      return;
+    }
 
     await page.setViewportSize({ width: 1600, height: 1000 });
-    const wideLayout = await frame.locator("body").evaluate(() => {
-      const shell = document.querySelector<HTMLElement>(".shell")!.getBoundingClientRect();
-      const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
-      const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
-      return { shellWidth: shell.width, stepsTop: steps.top, panelTop: panel.top, panelWidth: panel.width };
-    });
-    expect(wideLayout.shellWidth).toBeGreaterThan(1_100);
-    expect(Math.abs(wideLayout.stepsTop - wideLayout.panelTop)).toBeLessThan(2);
-    expect(wideLayout.panelWidth).toBeGreaterThan(800);
-
-    await page.setViewportSize({ width: 760, height: 900 });
-    await expect.poll(() => frame.locator("body").evaluate(() => {
-      const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
-      const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
-      return panel.top >= steps.bottom;
-    })).toBe(true);
+    await expect(page.getByRole("navigation", { name: "Resume Builder workspace navigation" })).toBeVisible();
+    expect(await page.getByTestId("app-chat-workspace").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 
     await page.setViewportSize({ width: 430, height: 900 });
-    await expect.poll(() => frame.getByRole("button", { name: "Continue to interview" }).evaluate((button) => {
-      const buttonWidth = button.getBoundingClientRect().width;
-      const panelWidth = button.closest<HTMLElement>(".panel")!.getBoundingClientRect().width;
-      return buttonWidth / panelWidth;
-    })).toBeGreaterThan(0.85);
+    await expect(page.getByRole("button", { name: "Open workspace navigation menu" })).toBeVisible();
+    expect(await page.getByTestId("app-chat-workspace").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 
-    await frame.getByRole("button", { name: "Continue to interview" }).click();
-    const recoveryValue = "Exact browser recovery\nRésumé 東京 🚀";
-    const answer = frame.getByLabel("Your answer");
-    await answer.fill(recoveryValue);
-    await expect(frame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Open workspace navigation menu" }).click();
+    const drawer = page.getByRole("dialog", { name: "Resume Builder workspace navigation" });
+    await expect(drawer).toBeVisible();
+    await drawer.getByRole("button", { name: "Your Resume Profile" }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
 
+    await page.setViewportSize({ width: 1600, height: 1000 });
     await page.getByRole("button", { name: "Reload app" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
-    const recoveredFrame = page
-      .frameLocator('iframe[title="Resume Builder sandbox proxy"]')
-      .frameLocator('iframe[title="Resume Builder"]');
-    const recoveredAnswer = recoveredFrame.getByLabel("Your answer");
-    await expect(recoveredAnswer).toHaveValue(recoveryValue, { timeout: 15_000 });
-    await expect(recoveredAnswer).toBeFocused();
-    await expect(recoveredFrame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible();
+    await expectAppWorkspaceReady(page, "Resume Builder");
+    await page.getByRole("button", { name: "Your Resume Profile" }).click();
+    await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
   });
 });

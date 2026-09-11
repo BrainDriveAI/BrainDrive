@@ -269,12 +269,12 @@ const ISSUE = Object.freeze({
   roleBulletDuplicate: "resume.general-draft/role-bullet-duplicate",
 });
 
-const sectionOrderValues = Object.freeze(["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "volunteer", "links"]);
+const sectionOrderValues = Object.freeze(["contact", "summary", "experience", "projects", "education", "credentials", "skills", "leadership", "volunteer", "links", "certifications"]);
 const topLevelSections = sectionOrderValues.filter((section) => section !== "experience");
 const omissionReasonCodes = ["structural_mismatch", "redundant", "owner_excluded"];
 const mustUseClosureRule = "Every required fact revision ID must appear in at least one statement support array or in exactly one omission record.";
 const summaryClosureRule = "Return exactly one top-level summary statement when the strategy decision is include, and none when it is omit.";
-const slotAssemblyRule = "Return text for every exact draft slot and no other slot. The app owns section, role, evidence-support, omission, and statement identity assembly.";
+const slotAssemblyRule = "Return text for every exact draft slot and no other slot. The app owns section, role, evidence-support, omission, statement identity, and exact section-order assembly.";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STOP_WORDS = new Set(["and", "the", "for", "with", "from", "into", "that", "this", "were", "was", "are", "has", "have", "had", "your", "their", "our", "using", "through", "across", "over", "under", "target", "targeting", "pursue", "pursuing", "seek", "seeking", "a", "an", "to", "of", "in", "on", "at", "by", "as", "or"]);
 const PROTECTED_TOKEN = /(?:\b\d+(?:[.,]\d+)?%?\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b|https?:\/\/\S+)/gi;
@@ -731,8 +731,16 @@ function renderPdfPages(blocks, fontUsage) {
     }
   };
 
-  for (const block of blocks) {
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
     if (block.kind === "spacer") {
+      const nextSectionIndex = nextRenderableBlockIndex(blocks, index + 1);
+      if (nextSectionIndex !== null) {
+        const nextSection = blocks[nextSectionIndex];
+        if (nextSection.kind === "heading" && nextSection.depth > 1 && y - 8 - pdfSectionIntroRequiredHeight(blocks, nextSectionIndex, contentWidth) < 48) {
+          continue;
+        }
+      }
       y -= 8;
       continue;
     }
@@ -744,7 +752,7 @@ function renderPdfPages(blocks, fontUsage) {
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else {
-        ensure(34);
+        ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         y -= 10;
         const text = runsPlainText(block.runs).toUpperCase();
         commands.push(textCommand("F2", 9.5, left, y, text, fontUsage.bold));
@@ -774,6 +782,30 @@ function renderPdfPages(blocks, fontUsage) {
   }
   if (commands.length > 0) pages.push(commands.join("\n"));
   return pages.length > 0 ? pages : [textCommand("F1", 10, left, y, "Resume", fontUsage.regular)];
+}
+
+function nextRenderableBlockIndex(blocks, start) {
+  for (let index = start; index < blocks.length; index += 1) {
+    if (blocks[index].kind !== "spacer") return index;
+  }
+  return null;
+}
+
+function pdfSectionIntroRequiredHeight(blocks, headingIndex, contentWidth) {
+  const heading = blocks[headingIndex];
+  const headingHeight = pdfBlockRequiredHeight(heading, contentWidth);
+  if (heading.kind !== "heading" || heading.depth === 1) return headingHeight;
+  const nextIndex = nextRenderableBlockIndex(blocks, headingIndex + 1);
+  if (nextIndex === null) return headingHeight;
+  const next = blocks[nextIndex];
+  return next.kind === "heading" ? headingHeight : headingHeight + pdfBlockRequiredHeight(next, contentWidth);
+}
+
+function pdfBlockRequiredHeight(block, contentWidth) {
+  if (block.kind === "spacer") return 8;
+  if (block.kind === "heading") return block.depth === 1 ? 38 : 38;
+  if (block.kind === "bullet") return wrapPdfRuns(block.runs, contentWidth - 20, 10).length * 15 + 6;
+  return wrapPdfRuns(block.runs, contentWidth, 10).length * 15 + 8;
 }
 
 function parsePdfInlineMarkdown(text) {
@@ -847,9 +879,6 @@ function round(value) {
 function normalizePdfText(value, trim = true) {
   const normalized = String(value ?? "")
     .replace(/[ \t]+/g, " ")
-    .replace(/[\u2012-\u2015]/g, "-")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
     .replace(/\u00a0/g, " ");
   return trim ? normalized.trim() : normalized;
 }
@@ -1075,19 +1104,40 @@ function topLevelSectionForFact(fact) {
     contact: "contact",
     education: "education",
     skill: "skills",
-    credential: "certifications",
+    credential: "credentials",
     project: "projects",
     leadership_volunteer: "leadership",
   }[fact.fact_kind] ?? null;
 }
 
-function makeDraftSlot(seed, sectionId, displayRole, supportIds, jobFactRevisionId = null) {
+function sectionForStrategyOrder(section, sectionOrder) {
+  if (section === "credentials" && !sectionOrder.includes("credentials") && sectionOrder.includes("certifications")) return "certifications";
+  return section;
+}
+
+function supportTextForSlotFact(fact, displayRole) {
+  if (!fact) return null;
+  const text = displayRole === "heading" ? jobHeadingText(fact) : resumeText(fact);
+  return text ? text.slice(0, 1_024) : null;
+}
+
+function supportTextsForSlot(supportIds, factsById, displayRole) {
+  return supportIds
+    .map((revisionId) => {
+      const text = supportTextForSlotFact(factsById.get(revisionId), displayRole);
+      return text ? { revision_id: revisionId, text } : null;
+    })
+    .filter(Boolean);
+}
+
+function makeDraftSlot(seed, sectionId, displayRole, supportIds, jobFactRevisionId = null, factsById = new Map()) {
   return {
     slot_id: stableId(`slot:${seed}`),
     section_id: sectionId,
     display_role: displayRole,
     job_fact_revision_id: jobFactRevisionId,
     supporting_confirmed_fact_revision_ids: [...supportIds],
+    supporting_confirmed_fact_texts: supportTextsForSlot(supportIds, factsById, displayRole),
   };
 }
 
@@ -1109,6 +1159,7 @@ function evidenceGroupsForJob(facts, jobId) {
 
 function buildDraftAssembly(input) {
   const facts = selectedFacts(input);
+  const factsById = new Map(facts.map((fact) => [fact.revision_id, fact]));
   const plannedOmissions = (input.strategy.omissions ?? []).filter((omission) => (
     isRecord(omission)
     && typeof omission.fact_revision_id === "string"
@@ -1121,25 +1172,25 @@ function buildDraftAssembly(input) {
   const slots = [];
 
   for (const fact of included) {
-    const section = topLevelSectionForFact(fact);
+    const section = sectionForStrategyOrder(topLevelSectionForFact(fact), sectionOrder);
     if (!section || !sectionOrder.includes(section)) continue;
-    slots.push(makeDraftSlot(`top:${section}:${fact.revision_id}`, section, section === "contact" ? "line" : "bullet", [fact.revision_id]));
+    slots.push(makeDraftSlot(`top:${section}:${fact.revision_id}`, section, section === "contact" ? "line" : "bullet", [fact.revision_id], null, factsById));
   }
   if (input.strategy.summary_decision === "include" && sectionOrder.includes("summary")) {
     const summarySupport = jobs.length > 0
       ? jobs.slice(0, 2).map((fact) => fact.revision_id)
       : included.filter((fact) => fact.fact_kind !== "preference").slice(0, 2).map((fact) => fact.revision_id);
-    if (summarySupport.length > 0) slots.push(makeDraftSlot(`summary:${summarySupport.join(":")}`, "summary", "line", summarySupport));
+    if (summarySupport.length > 0) slots.push(makeDraftSlot(`summary:${summarySupport.join(":")}`, "summary", "line", summarySupport, null, factsById));
   }
 
   const overflowIds = [];
   for (const job of jobs) {
-    slots.push(makeDraftSlot(`heading:${job.revision_id}`, "experience", "heading", [job.revision_id], job.revision_id));
+    slots.push(makeDraftSlot(`heading:${job.revision_id}`, "experience", "heading", [job.revision_id], job.revision_id, factsById));
     const groups = evidenceGroupsForJob(included, job.revision_id);
     overflowIds.push(...groups.overflowIds);
     const bulletGroups = groups.represented.length > 0 ? groups.represented : [{ dimension: "role", ids: [job.revision_id] }];
     for (const group of bulletGroups) {
-      slots.push(makeDraftSlot(`bullet:${job.revision_id}:${group.dimension}:${group.ids.join(":")}`, "experience", "bullet", group.ids, job.revision_id));
+      slots.push(makeDraftSlot(`bullet:${job.revision_id}:${group.dimension}:${group.ids.join(":")}`, "experience", "bullet", group.ids, job.revision_id, factsById));
     }
   }
 
@@ -1192,9 +1243,9 @@ export function prepareResumeGeneralDraft({ program, input, attempt, previous })
   const policy = {
     purpose: "Create one unapproved General Resume draft using only the supplied confirmed facts and strategy.",
     assembly: "Write only the title and text_by_slot values required by the schema. Do not add, remove, rename, combine, or reassign slots. The app assembles the final structure and evidence bindings.",
-    experience: "Each experience heading and bullet slot is already bound to exactly one role. Write concise text supported only by that slot's supplied fact revision IDs.",
+    experience: "Each experience heading and bullet slot is already bound to exactly one role. Write concise text supported only by that slot's supplied fact revision IDs and supporting_confirmed_fact_texts.",
     other_sections: "Each non-experience slot already has its section and evidence binding. Preference facts guide presentation but must not be rendered as resume content.",
-    evidence: "Do not infer facts or transfer details between slots. Each text value must be supported by all and only the confirmed facts bound to that slot.",
+    evidence: "Do not infer facts, add resume polish terms, or transfer details between slots. Use the supporting_confirmed_fact_texts for each slot as the only allowed source words and meaning for that slot; when uncertain, copy concise wording from the support text.",
   };
   const { persistence_input_digest: _persistenceInputDigest, ...modelInput } = accepted;
   const requiredFactRevisionIds = [...new Set((accepted.strategy.evidence_priorities ?? [])
@@ -1214,7 +1265,8 @@ export function prepareResumeGeneralDraft({ program, input, attempt, previous })
   const repair = attempt === 2 ? {
     prior_candidate: previous.candidate,
     issue_ids: previous.issue_ids,
-    instruction: "Correct only the identified text or schema issue and return a complete replacement object with every exact slot.",
+    instruction: "Correct only the identified text or schema issue and return a complete replacement object with every exact slot. For wording issues, rewrite the affected slot text from that slot's supporting_confirmed_fact_texts only. Do not return section_order; the app copies exact_strategy_section_order into the assembled draft.",
+    exact_strategy_section_order: assembly.sectionOrder,
     ...(previous.issue_ids.includes(ISSUE.slotTexts) ? slotTextDiagnostics(previous.candidate, assembly.slots) : {}),
     ...(previous.issue_ids.includes(ISSUE.mustUse) ? {
       unresolved_rule: mustUseClosureRule,
@@ -1234,7 +1286,7 @@ export function prepareResumeGeneralDraft({ program, input, attempt, previous })
     system: "You execute the installed Resume Builder app's bounded General Resume text program. Return only JSON matching the supplied schema. The app, not the model, owns resume structure and evidence bindings.",
     user: JSON.stringify({
       policy,
-      assembly_contract: { rule: slotAssemblyRule, exact_slot_count: assembly.slots.length },
+      assembly_contract: { rule: slotAssemblyRule, exact_slot_count: assembly.slots.length, exact_strategy_section_order: assembly.sectionOrder },
       draft_slots: assembly.slots,
       must_use_closure: mustUseClosure,
       summary_closure: summaryClosure,
@@ -1581,7 +1633,7 @@ function deterministicFallback(input) {
   }
   for (const fact of included) {
     if (["employment", "accomplishment", "preference"].includes(fact.fact_kind) || (fact.fact_kind === "job_evidence" && jobIdForFact(fact))) continue;
-    const section = topLevelSectionForFact(fact);
+    const section = sectionForStrategyOrder(topLevelSectionForFact(fact), sectionOrder);
     if (!section || !sectionOrder.includes(section) || section === "summary") continue;
     statements.push({
       statement_id: stableId(`statement:${fact.revision_id}`), section_id: section, kind: "factual",
@@ -1785,7 +1837,7 @@ function strategySectionForFact(fact) {
   if (["employment", "accomplishment"].includes(fact.fact_kind)) return "experience";
   if (fact.fact_kind === "job_evidence") return jobIdForFact(fact) === null ? "skills" : "experience";
   if (fact.fact_kind === "education") return "education";
-  if (fact.fact_kind === "credential") return "certifications";
+  if (fact.fact_kind === "credential") return "credentials";
   if (fact.fact_kind === "skill") return "skills";
   if (fact.fact_kind === "project") return typeof fact.value === "string" && fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
   return null;
@@ -1799,7 +1851,7 @@ function deterministicAppStrategy(input) {
   const includeSummary = jobs.length >= 2;
   const present = new Set(facts.map(strategySectionForFact).filter(Boolean));
   if (includeSummary) present.add("summary");
-  const sectionOrder = ["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "volunteer", "links"].filter((section) => present.has(section));
+  const sectionOrder = ["contact", "summary", "experience", "projects", "education", "credentials", "skills", "leadership", "volunteer", "links"].filter((section) => present.has(section));
   const unresolvedGapIds = strategyAvailableGapIds(input);
   return {
     strategy_version: 1,
@@ -1829,7 +1881,7 @@ function canonicalizeAppStrategy(candidate, input) {
   const omitted = new Set(candidate.omissions.map((entry) => entry.fact_revision_id));
   const present = new Set(facts.filter((fact) => !omitted.has(fact.revision_id)).map(strategySectionForFact).filter(Boolean));
   if (candidate.summary_decision === "include") present.add("summary");
-  const sectionOrder = ["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "volunteer", "links"].filter((section) => present.has(section));
+  const sectionOrder = ["contact", "summary", "experience", "projects", "education", "credentials", "skills", "leadership", "volunteer", "links"].filter((section) => present.has(section));
   const factIds = new Set(facts.map((fact) => fact.revision_id));
   return {
     ...candidate,

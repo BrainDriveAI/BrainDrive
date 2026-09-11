@@ -14,6 +14,10 @@ import {
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
 
 function inflatedPdfText(pdfBytes: Buffer): string {
+  return inflatedPdfTextPages(pdfBytes).join("\n");
+}
+
+function inflatedPdfTextPages(pdfBytes: Buffer): string[] {
   const source = pdfBytes.toString("latin1");
   const streams: string[] = [];
   let cursor = 0;
@@ -33,16 +37,21 @@ function inflatedPdfText(pdfBytes: Buffer): string {
     }
     cursor = dataEnd + "\nendstream".length;
   }
-  return streams.join("\n");
+  return streams;
 }
 
 function decodedPdfTextRuns(pdfBytes: Buffer): string {
-  const inflated = inflatedPdfText(pdfBytes);
-  const runs: string[] = [];
-  for (const match of inflated.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
-    runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
-  }
-  return runs.join("\n");
+  return decodedPdfTextPages(pdfBytes).join("\n");
+}
+
+function decodedPdfTextPages(pdfBytes: Buffer): string[] {
+  return inflatedPdfTextPages(pdfBytes).map((page) => {
+    const runs: string[] = [];
+    for (const match of page.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+      runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
+    }
+    return runs.join("\n");
+  }).filter(Boolean);
 }
 
 const jobId = "10000000-0000-4000-8000-000000000001";
@@ -276,8 +285,9 @@ describe("Resume Builder-owned General draft inference program", () => {
           "",
           "## Experience",
           "",
-          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021–Present",
           "- Leads customer experience operations for an 18-person support and success organization using Zendesk, Looker, Jira, Confluence, and Google Sheets",
+          "- Preserved Wilmington’s “launch desk” language in customer-facing updates.",
           "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
           "",
           "## Education",
@@ -303,7 +313,10 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(pdf).toContain("8226 [350]");
     expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
     const decoded = decodedPdfTextRuns(pdfBytes);
-    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain(" | Wilmington Widgets | 2021–Present");
+    expect(decoded).toContain("Preserved Wilmington’s “launch desk” language");
+    expect(decoded).not.toContain("2021-Present");
+    expect(decoded).not.toContain("Wilmington's \"launch desk\" language");
     expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");
@@ -348,6 +361,66 @@ describe("Resume Builder-owned General draft inference program", () => {
     const decoded = decodedPdfTextRuns(Buffer.from(exportStep?.bytes_base64 ?? "", "base64"));
     expect(decoded).toContain("José Müller-Nguyễn");
     expect(decoded).toContain("Łukasz, Şirin, Ćurić, Đặng, Νίκος, and Алексей all render");
+  });
+
+  it("runtime PDF export keeps short sections with their first content line across page breaks", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.export.pdf.request",
+      action_input: { safe_filename: "Maya-Hart-Resume.pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya@example.test | 614-555-0192",
+          "",
+          "## Professional Summary",
+          "Entry-level community-program coordinator with campus transit research, volunteer coordination, and service experience.",
+          "",
+          "## Experience",
+          "**Volunteer Coordinator** | Campus Transit Coalition | Columbus, OH | September 2025–Present",
+          "- Delivered scope 1 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 2 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 3 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 4 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 5 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 6 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 7 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 8 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 9 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "",
+          "## Education",
+          "B.A. Public Affairs, Ohio State University, expected 2026",
+          "",
+          "## Certifications",
+          "Lean Six Sigma Yellow Belt, 2025",
+          "",
+          "## Skills",
+          "Volunteer coordination, outreach reporting, transit research, presentation, scheduling",
+        ].join("\n"),
+      }],
+    });
+
+    const exportStep = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64?: string } | undefined;
+    const pages = decodedPdfTextPages(Buffer.from(exportStep?.bytes_base64 ?? "", "base64"));
+    const skillsPage = pages.find((page) => page.includes("SKILLS"));
+    expect(skillsPage).toContain("Volunteer coordination, outreach reporting");
+    for (const page of pages.slice(0, -1)) {
+      expect(page.trim().split("\n").at(-1)).not.toBe("SKILLS");
+      expect(page.trim().split("\n").at(-1)).not.toBe("CERTIFICATIONS");
+    }
   });
 
   it("runtime PDF export refuses unsupported glyphs instead of dropping them", () => {
@@ -472,8 +545,17 @@ describe("Resume Builder-owned General draft inference program", () => {
       [jobId, ...evidenceFacts.map((fact) => fact.revision_id)].sort(),
     );
     expect(payload.draft_slots.every((slot: any) => Object.keys(slot).sort().join(",") === [
-      "display_role", "job_fact_revision_id", "section_id", "slot_id", "supporting_confirmed_fact_revision_ids",
+      "display_role", "job_fact_revision_id", "section_id", "slot_id", "supporting_confirmed_fact_revision_ids", "supporting_confirmed_fact_texts",
     ].sort().join(","))).toBe(true);
+    expect(payload.draft_slots.every((slot: any) => (
+      slot.supporting_confirmed_fact_texts.length === slot.supporting_confirmed_fact_revision_ids.length
+      && slot.supporting_confirmed_fact_texts.every((item: any) => (
+        slot.supporting_confirmed_fact_revision_ids.includes(item.revision_id)
+        && typeof item.text === "string"
+        && item.text.length > 0
+        && item.text.length <= 1_024
+      ))
+    ))).toBe(true);
 
     const textBySlot = providerCandidateFor(structuredInput).candidate.text_by_slot;
     const accepted = adjudicateResumeGeneralDraft({
@@ -490,8 +572,8 @@ describe("Resume Builder-owned General draft inference program", () => {
 
   it("accepts the strategy-owned nine-section topology on the first valid provider response", () => {
     const sectionOrder = [
-      "contact", "summary", "experience", "education", "certifications",
-      "skills", "projects", "leadership", "links",
+      "contact", "summary", "experience", "projects", "education",
+      "credentials", "skills", "leadership", "links",
     ];
     const nineSectionInput = {
       ...input,
@@ -520,16 +602,131 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(accepted.issue_ids).not.toContain("resume.general-draft/schema-section-order-invalid");
   });
 
+  it("uses the exact strategy credentials section without provider topology authority", () => {
+    const credentialInput = {
+      ...input,
+      facts: [
+        ...input.facts,
+        {
+          revision_id: "10000000-0000-4000-8000-000000000006",
+          fact_kind: "credential",
+          value: "AWS Certified Cloud Practitioner",
+          state: "confirmed",
+        },
+      ],
+      strategy: {
+        ...input.strategy,
+        fact_revision_ids: [jobId, evidenceId, "10000000-0000-4000-8000-000000000006"],
+        section_order: ["experience", "credentials"],
+      },
+    };
+    const prepared = providerCandidateFor(credentialInput);
+    const accepted = adjudicateResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input: credentialInput,
+      attempt: 1,
+      candidate: prepared.candidate,
+    });
+
+    expect(JSON.parse(prepared.plan.user).assembly_contract.exact_strategy_section_order).toEqual(["experience", "credentials"]);
+    expect(accepted).toMatchObject({
+      decision: "accepted",
+      issue_ids: [],
+      result: { draft: { section_order: ["experience", "credentials"] } },
+    });
+    expect(accepted.result.draft.statements.some((statement: any) => statement.section_id === "credentials")).toBe(true);
+  });
+
   it("keeps provider credentials and final topology outside the provider-facing plan", () => {
     expect(RESUME_GENERAL_DRAFT_PROGRAM).toMatchObject({ id: "resume.general-draft", version: 1, prompt_policy_version: "1" });
     const plan = prepareResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, previous: null });
+    const payload = JSON.parse(plan.user);
     expect(plan.output_schema.properties).toEqual(expect.objectContaining({ title: expect.any(Object), text_by_slot: expect.any(Object) }));
     expect(plan.output_schema.properties).not.toHaveProperty("statements");
     expect(plan.output_schema.properties).not.toHaveProperty("experience_roles");
     expect(plan.output_schema.properties).not.toHaveProperty("omissions");
+    expect(plan.output_schema.properties).not.toHaveProperty("section_order");
+    expect(payload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(payload.draft_slots.every((slot: any) => Array.isArray(slot.supporting_confirmed_fact_texts))).toBe(true);
     expect(plan).not.toHaveProperty("provider_profile_id");
     expect(plan).not.toHaveProperty("credential");
     expect(plan.user).not.toContain(input.persistence_input_digest);
+  });
+
+  it("rejects provider-authored topology and repeats exact app-owned section order in retry", () => {
+    const prepared = providerCandidateFor(input);
+    const reordered = {
+      ...prepared.candidate,
+      section_order: ["summary", "experience"],
+    };
+    expect(adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, candidate: reordered })).toMatchObject({
+      decision: "retry",
+      issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"],
+    });
+
+    const retry = prepareResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input,
+      attempt: 2,
+      previous: { candidate: reordered, issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"] },
+    });
+    const retryPayload = JSON.parse(retry.user);
+    expect(retry.output_schema.properties).not.toHaveProperty("section_order");
+    expect(retryPayload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(retryPayload.repair).toMatchObject({
+      issue_ids: ["resume.general-draft/schema-candidate-shape-invalid"],
+      exact_strategy_section_order: input.strategy.section_order,
+    });
+    expect(retryPayload.repair.instruction).toContain("Do not return section_order");
+  });
+
+  it("retries unsupported wording with slot support text and preserves exact app-owned order", () => {
+    const prepared = providerCandidateFor(input);
+    const targetSlot = prepared.payload.draft_slots.find((slot: any) => slot.display_role === "bullet");
+    const invalid = {
+      ...prepared.candidate,
+      text_by_slot: {
+        ...prepared.candidate.text_by_slot,
+        [targetSlot.slot_id]: "Scaled enterprise transformation programs",
+      },
+    };
+    const first = adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 1, candidate: invalid });
+    expect(first).toMatchObject({
+      decision: "retry",
+      issue_ids: ["resume.general-draft/statement-factual-wording-unsupported"],
+    });
+
+    const retry = prepareResumeGeneralDraft({
+      program: RESUME_GENERAL_DRAFT_PROGRAM,
+      input,
+      attempt: 2,
+      previous: { candidate: invalid, issue_ids: first.issue_ids },
+    });
+    const retryPayload = JSON.parse(retry.user);
+    const retrySlot = retryPayload.draft_slots.find((slot: any) => slot.slot_id === targetSlot.slot_id);
+    expect(retry.output_schema.properties).not.toHaveProperty("section_order");
+    expect(retryPayload.assembly_contract.exact_strategy_section_order).toEqual(input.strategy.section_order);
+    expect(retryPayload.repair).toMatchObject({
+      issue_ids: ["resume.general-draft/statement-factual-wording-unsupported"],
+      exact_strategy_section_order: input.strategy.section_order,
+    });
+    expect(retryPayload.repair.instruction).toContain("supporting_confirmed_fact_texts only");
+    expect(retrySlot.supporting_confirmed_fact_texts).toEqual([
+      { revision_id: evidenceId, text: "Reduced deployment time by 30%" },
+    ]);
+
+    const corrected = {
+      ...prepared.candidate,
+      text_by_slot: {
+        ...prepared.candidate.text_by_slot,
+        [targetSlot.slot_id]: retrySlot.supporting_confirmed_fact_texts[0].text,
+      },
+    };
+    expect(adjudicateResumeGeneralDraft({ program: RESUME_GENERAL_DRAFT_PROGRAM, input, attempt: 2, candidate: corrected })).toMatchObject({
+      decision: "accepted",
+      issue_ids: [],
+      result: { draft: { section_order: input.strategy.section_order } },
+    });
   });
 
   it("returns exact slot diagnostics to the one app-owned retry", () => {

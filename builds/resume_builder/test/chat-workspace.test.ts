@@ -30,6 +30,10 @@ import {
 } from "../src/index.js";
 
 function inflatedPdfText(pdfBytes: Buffer): string {
+  return inflatedPdfTextPages(pdfBytes).join("\n");
+}
+
+function inflatedPdfTextPages(pdfBytes: Buffer): string[] {
   const source = pdfBytes.toString("latin1");
   const streams: string[] = [];
   let cursor = 0;
@@ -49,16 +53,21 @@ function inflatedPdfText(pdfBytes: Buffer): string {
     }
     cursor = dataEnd + "\nendstream".length;
   }
-  return streams.join("\n");
+  return streams;
 }
 
 function decodedPdfTextRuns(pdfBytes: Buffer): string {
-  const inflated = inflatedPdfText(pdfBytes);
-  const runs: string[] = [];
-  for (const match of inflated.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
-    runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
-  }
-  return runs.join("\n");
+  return decodedPdfTextPages(pdfBytes).join("\n");
+}
+
+function decodedPdfTextPages(pdfBytes: Buffer): string[] {
+  return inflatedPdfTextPages(pdfBytes).map((page) => {
+    const runs: string[] = [];
+    for (const match of page.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+      runs.push(Buffer.from(match[1], "hex").swap16().toString("utf16le"));
+    }
+    return runs.join("\n");
+  }).filter(Boolean);
 }
 
 function rasterizedPdfTextLayoutDigest(pdfBytes: Buffer): string {
@@ -712,8 +721,9 @@ describe("Resume Builder chat workspace contract", () => {
           "Customer experience operations manager leading support and success teams across six product squads, with a track record of reducing launch slips and improving retention.",
           "",
           "## Experience",
-          "**Senior CX Operations Manager** | Wilmington Widgets | 2021-Present",
+          "**Senior CX Operations Manager** | Wilmington Widgets | 2021–Present",
           "- Reduced first response time from 11 hours to 2.5 hours",
+          "- Preserved Wilmington’s “launch desk” language in customer-facing updates.",
           "- Built a 14-person support organization; William Wilmington, MMWW iiill.",
           "",
           "## Education",
@@ -738,7 +748,10 @@ describe("Resume Builder chat workspace contract", () => {
     expect(pdf).toContain("8226 [350]");
     expect(pdf).not.toContain("/DW 500 /CIDToGIDMap");
     const decoded = decodedPdfTextRuns(pdfBytes);
-    expect(decoded).toContain(" | Wilmington Widgets | 2021-Present");
+    expect(decoded).toContain(" | Wilmington Widgets | 2021–Present");
+    expect(decoded).toContain("Preserved Wilmington’s “launch desk” language");
+    expect(decoded).not.toContain("2021-Present");
+    expect(decoded).not.toContain("Wilmington's \"launch desk\" language");
     expect(decoded).toContain("B.A. Communications, Ohio State University 2014");
     expect(pdf).toContain("/Encoding /Identity-H");
     expect(pdf).toContain("/ToUnicode 3 0 R");
@@ -896,6 +909,70 @@ describe("Resume Builder chat workspace contract", () => {
 
     const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
     expect(rasterizedPdfTextLayoutDigest(pdfBytes)).toBe("3f4f705cdce0f942b49aeb4e16e88185b94b264af44cfed0368a7e33f301f94d");
+  });
+
+  it("keeps short PDF sections with their first content line across page breaks", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.export.pdf.request",
+      action_input: { format: "pdf", destination_intent: "new_download" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-export-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.document",
+        document_binding_id: RESUME_DOCUMENT_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: [
+          "# Maya Hart",
+          "",
+          "Columbus, Ohio | maya@example.test | 614-555-0192",
+          "",
+          "## Professional Summary",
+          "Entry-level community-program coordinator with campus transit research, volunteer coordination, and service experience.",
+          "",
+          "## Experience",
+          "**Volunteer Coordinator** | Campus Transit Coalition | Columbus, OH | September 2025–Present",
+          "- Delivered scope 1 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 2 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 3 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 4 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 5 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 6 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 7 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 8 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "- Delivered scope 9 across campus operations, volunteer scheduling, outreach reporting, and weekly service coordination.",
+          "",
+          "## Education",
+          "B.A. Public Affairs, Ohio State University, expected 2026",
+          "",
+          "## Certifications",
+          "Lean Six Sigma Yellow Belt, 2025",
+          "",
+          "## Skills",
+          "Volunteer coordination, outreach reporting, transit research, presentation, scheduling",
+        ].join("\n"),
+      }],
+    });
+
+    const pages = decodedPdfTextPages(Buffer.from(String(plan.steps[0].bytes_base64), "base64"));
+    const skillsPage = pages.find((page) => page.includes("SKILLS"));
+    const certificationsPage = pages.find((page) => page.includes("CERTIFICATIONS"));
+    expect(certificationsPage).toContain("Lean Six Sigma Yellow Belt");
+    expect(skillsPage).toContain("Volunteer coordination, outreach reporting");
+    for (const page of pages.slice(0, -1)) {
+      expect(page.trim().split("\n").at(-1)).not.toBe("SKILLS");
+      expect(page.trim().split("\n").at(-1)).not.toBe("CERTIFICATIONS");
+    }
   });
 
   it("blocks PDF export of the empty Resume placeholder", () => {
