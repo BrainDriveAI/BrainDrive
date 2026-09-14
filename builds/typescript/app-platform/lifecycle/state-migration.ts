@@ -125,6 +125,11 @@ async function writeAtomicJson(target: string, value: unknown): Promise<void> {
   catch (error) { await rm(temporary, { force: true }); throw error; }
 }
 
+async function readMigrationReceipt(receiptPath: string): Promise<z.infer<typeof MigrationReceiptSchema> | null> {
+  try { return MigrationReceiptSchema.parse(JSON.parse(await readFile(receiptPath, "utf8"))); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw new AppPlatformError("store_corrupt", "Resume control-state migration receipt is invalid"); }
+}
+
 type ResumeControlStateMigrationInput = {
   stateRoot: string;
   beforeDestinationCommit?: () => Promise<void>;
@@ -134,15 +139,29 @@ type ResumeControlStateMigrationInput = {
 async function runLegacyResumeControlStateMigration(input: ResumeControlStateMigrationInput): Promise<ResumeControlStateMigrationResult> {
   const stateRoot = path.resolve(input.stateRoot);
   const sourceRegistry = path.join(stateRoot, "registry");
+  const appRoot = path.join(stateRoot, "apps", "resume-builder");
+  const destinationRegistry = path.join(appRoot, "registry");
+  const receiptPath = path.join(appRoot, "migration-receipt.json");
+  const receipt = await readMigrationReceipt(receiptPath);
+  const destinationExists = await exists(destinationRegistry);
+  if (receipt && destinationExists) {
+    const destinationFiles = await collectFiles(destinationRegistry);
+    validateLegacyRecords(destinationFiles);
+    return {
+      outcome: "already_migrated",
+      app_id: RESUME_APP_ID,
+      source_digest: receipt.source_digest as `sha256:${string}`,
+      destination_digest: treeDigest(destinationFiles),
+      pre_migration_snapshot_digest: receipt.pre_migration_snapshot_digest as `sha256:${string}`,
+    };
+  }
   if (!(await exists(sourceRegistry))) {
+    if (receipt) throw new AppPlatformError("conflict", "Resume migration receipt exists without committed app-scoped state");
     return { outcome: "missing", app_id: RESUME_APP_ID, source_digest: null, destination_digest: null, pre_migration_snapshot_digest: null };
   }
   const sourceFiles = await collectFiles(sourceRegistry);
   validateLegacyRecords(sourceFiles);
   const sourceDigest = treeDigest(sourceFiles);
-  const appRoot = path.join(stateRoot, "apps", "resume-builder");
-  const destinationRegistry = path.join(appRoot, "registry");
-  const receiptPath = path.join(appRoot, "migration-receipt.json");
   const evidenceRoot = path.join(stateRoot, "migration-evidence", "resume-builder", sourceDigest.slice(7));
   const evidenceRegistry = path.join(evidenceRoot, "registry");
 
@@ -162,11 +181,6 @@ async function runLegacyResumeControlStateMigration(input: ResumeControlStateMig
   const snapshotDigest = treeDigest(snapshotFiles);
   if (snapshotDigest !== sourceDigest) throw new AppPlatformError("conflict", "Pre-migration control snapshot conflicts with legacy source");
 
-  const receipt = await (async () => {
-    try { return MigrationReceiptSchema.parse(JSON.parse(await readFile(receiptPath, "utf8"))); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw new AppPlatformError("store_corrupt", "Resume control-state migration receipt is invalid"); }
-  })();
-  const destinationExists = await exists(destinationRegistry);
   if (destinationExists) {
     const destinationFiles = await collectFiles(destinationRegistry);
     validateLegacyRecords(destinationFiles);

@@ -592,6 +592,22 @@ describe("Spec 08 M2 legacy Resume control-state migration", () => {
     expect(await readFile(syntheticOwnerArtifact)).toEqual(artifactBytes);
   });
 
+  it("keeps using migrated app-scoped control state when abandoned legacy state later becomes invalid", async () => {
+    const root = await temporaryRoot("bd-spec08-m2-migrated-legacy-corrupt-");
+    const fixture = await legacyFixture(root);
+    const first = await migrateLegacyResumeControlState({ stateRoot: fixture.legacyRoot });
+    await writeFile(path.join(fixture.legacyRoot, "registry", "lifecycle.json"), "{", "utf8");
+
+    await expect(migrateLegacyResumeControlState({ stateRoot: fixture.legacyRoot }))
+      .resolves.toMatchObject({
+        outcome: "already_migrated",
+        source_digest: first.source_digest,
+        pre_migration_snapshot_digest: first.pre_migration_snapshot_digest,
+      });
+    expect(JSON.parse(await readFile(path.join(fixture.legacyRoot, "apps", "resume-builder", "registry", "lifecycle.json"), "utf8")))
+      .toEqual(fixture.lifecycle);
+  });
+
   it("recovers an exact partial destination and rejects corrupt or conflicting state without replacement", async () => {
     const partialRoot = await temporaryRoot("bd-spec08-m2-partial-");
     const partial = await legacyFixture(partialRoot);
