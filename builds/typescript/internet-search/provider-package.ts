@@ -376,7 +376,7 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
       packageDigest,
       descriptorDigest: digestString(`internet-search-desktop-sidecar:${input.target}:${packageDigest}`),
       stageRoot,
-      entrypoint: path.join(stageRoot, ...target.entrypoint.split("/")),
+      entrypoint: target.entrypoint,
       target: input.target,
     });
     const verifiedPackage = await createVerifiedSidecarPackageBundleFromStore({

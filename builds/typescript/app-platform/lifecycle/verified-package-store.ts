@@ -132,6 +132,41 @@ function manifestPublisherId(manifest: RuntimePackageManifest | PackageComponent
   return manifest.publisher_id;
 }
 
+function isAbsolutePath(value: string): boolean {
+  return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value);
+}
+
+function normalizeSeparators(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+function normalizePromotedEntrypoint(verified: PromotableVerifiedPackage, contentRoot?: string): string {
+  const candidate = normalizeSeparators(verified.entrypoint);
+  const filesByPath = new Map(verified.manifest.files.map((file) => [file.path, file]));
+  const exact = filesByPath.get(candidate);
+  if (exact) {
+    if (exact.mode !== "executable") throw new ContractViolation("package_file_mismatch", "Package entrypoint is not executable authority");
+    return exact.path;
+  }
+
+  const baseRoots = [verified.stageRoot, contentRoot].filter((value): value is string => Boolean(value));
+  for (const baseRoot of baseRoots) {
+    const relative = normalizeSeparators(path.relative(baseRoot, verified.entrypoint));
+    const file = filesByPath.get(relative);
+    if (file && !relative.startsWith("../") && !isAbsolutePath(relative)) {
+      if (file.mode !== "executable") throw new ContractViolation("package_file_mismatch", "Package entrypoint is not executable authority");
+      return file.path;
+    }
+  }
+
+  if (isAbsolutePath(verified.entrypoint)) {
+    const matches = verified.manifest.files.filter((file) => candidate.endsWith(`/${file.path}`) || candidate.endsWith(file.path));
+    if (matches.length === 1 && matches[0]!.mode === "executable") return matches[0]!.path;
+  }
+
+  throw new ContractViolation("package_file_mismatch", "Package entrypoint must resolve to signed package content");
+}
+
 export class ImmutablePackageStore {
   readonly layout: { packages: string; metadata: string; references: string; referenceLocks: string };
 
@@ -157,6 +192,7 @@ export class ImmutablePackageStore {
     const key = verified.packageDigest.slice(7);
     const contentRoot = path.join(this.layout.packages, key);
     const metadataPath = path.join(this.layout.metadata, `${key}.json`);
+    const entrypoint = normalizePromotedEntrypoint(verified, contentRoot);
     const metadata = StoreMetadataSchema.parse({
       package_store_version: 1,
       package_digest: verified.packageDigest,
@@ -166,7 +202,7 @@ export class ImmutablePackageStore {
       package_version: verified.manifest.package_version,
       app_id: manifestPackageId(verified.manifest),
       publisher_id: manifestPublisherId(verified.manifest),
-      entrypoint: verified.entrypoint,
+      entrypoint,
       target: verified.target,
       promoted_at: this.clock().toISOString(),
     });
@@ -201,7 +237,7 @@ export class ImmutablePackageStore {
         existing.package_digest !== verified.packageDigest
         || existing.descriptor_digest !== verified.descriptorDigest
         || existing.manifest_digest !== canonicalJsonDocumentDigest(verified.manifest)
-        || existing.entrypoint !== verified.entrypoint
+        || normalizePromotedEntrypoint({ ...verified, entrypoint: existing.entrypoint }, contentRoot) !== entrypoint
       ) {
         await rm(verified.stageRoot, { recursive: true, force: true }).catch(() => undefined);
         throw new ContractViolation("recoverable_internal_failure", "Immutable package metadata conflicts with existing content");
@@ -211,6 +247,10 @@ export class ImmutablePackageStore {
       } catch (integrityError) {
         await rm(verified.stageRoot, { recursive: true, force: true }).catch(() => undefined);
         throw integrityError;
+      }
+      if (existing.entrypoint !== entrypoint) {
+        await chmod(metadataPath, 0o600).catch(() => undefined);
+        await writeAtomic(metadataPath, StoreMetadataSchema.parse({ ...existing, entrypoint }), 0o400);
       }
       await rm(verified.stageRoot, { recursive: true, force: true });
     }
@@ -306,9 +346,10 @@ export class ImmutablePackageStore {
   /** Rechecks promoted bytes against freshly verified signed inventory before re-enable. */
   async assertStoredIntegrity(verified: PromotableVerifiedPackage): Promise<ImmutablePackageRecord> {
     const record = await this.read(verified.packageDigest);
+    const entrypoint = normalizePromotedEntrypoint(verified, record.contentRoot);
     if (
       record.packageVersion !== verified.manifest.package_version
-      || record.entrypoint !== verified.entrypoint
+      || normalizePromotedEntrypoint({ ...verified, entrypoint: record.entrypoint }, record.contentRoot) !== entrypoint
     ) {
       throw new ContractViolation("package_file_mismatch", "Immutable package metadata differs from verified authority");
     }

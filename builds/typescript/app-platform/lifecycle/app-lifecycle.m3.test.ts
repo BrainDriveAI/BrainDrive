@@ -421,6 +421,29 @@ describe("M3 immutable store and explicit grants", () => {
     await expect(stat(first.contentRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("repairs legacy absolute staged entrypoint metadata for identical immutable content", async () => {
+    const root = await temporaryRoot("bd-m3-store-entrypoint-repair-");
+    const request = await verificationRequest(root);
+    const verifier = new VerifiedPackageVerifier(new FixtureTransport(), () => FIXED_TIME);
+    const store = new ImmutablePackageStore(root, () => FIXED_TIME);
+    const first = await store.promote(await verifier.verify(request));
+    expect(path.isAbsolute(first.entrypoint)).toBe(false);
+
+    const metadataPath = path.join(store.layout.metadata, `${first.packageDigest.slice(7)}.json`);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as { entrypoint: string };
+    await chmod(metadataPath, 0o600);
+    await writeFile(metadataPath, `${JSON.stringify({
+      ...metadata,
+      entrypoint: path.join(root, "stale-stage", "package", first.entrypoint),
+    })}\n`, "utf8");
+
+    const repaired = await store.promote(await verifier.verify(request));
+    const repairedMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as { entrypoint: string };
+    expect(repaired.contentRoot).toBe(first.contentRoot);
+    expect(repaired.entrypoint).toBe(first.entrypoint);
+    expect(repairedMetadata.entrypoint).toBe(first.entrypoint);
+  });
+
   it("creates only the exact installation-scoped approved grant and persists no paths or credentials", async () => {
     const root = await temporaryRoot("bd-m3-grant-");
     const verified = await new VerifiedPackageVerifier(new FixtureTransport(), () => FIXED_TIME).verify(await verificationRequest(root));
