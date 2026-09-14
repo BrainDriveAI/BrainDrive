@@ -66,16 +66,7 @@ async function main() {
   });
 
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  await rewriteManifestInventory(destinationRoot, manifest, [
-    "payload/provider/read.js",
-    "payload/provider/search.js",
-    sidecarPath,
-    "payload/dependencies/searxng/windows-x64/lock.json",
-    "provenance/searxng-windows.intoto.jsonl",
-    "sbom/searxng-windows.cyclonedx.json",
-    "provenance/intoto.jsonl",
-    "sbom/cyclonedx.json",
-  ]);
+  await rewriteManifestInventory(destinationRoot, manifest);
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(`Staged unsigned Windows Internet Search sidecar at ${path.join(destinationRoot, ...sidecarPath.split("/"))}`);
 }
@@ -102,26 +93,46 @@ async function writeJsonPackageFile(root, packagePath, value) {
   await writeTextPackageFile(root, packagePath, `${JSON.stringify(value)}\n`);
 }
 
-async function rewriteManifestInventory(root, manifest, packagePaths) {
+async function rewriteManifestInventory(root, manifest) {
+  for (const sidecar of manifest.sidecars ?? []) {
+    sidecar.targets = sidecar.targets.filter((target) => {
+      if (target.runtime_kind !== "packaged_process") return true;
+      const bundle = target.dependency_bundle;
+      return [
+        target.artifact_path,
+        target.entrypoint,
+        bundle.lockfile_path,
+        bundle.provenance_path,
+        bundle.sbom_path,
+      ].every((packagePath) => existsSync(path.join(root, ...packagePath.split("/"))));
+    });
+  }
+  if (!(manifest.sidecars ?? []).some((sidecar) => sidecar.targets.some((target) => target.target === "desktop_windows_x64" && target.runtime_kind === "packaged_process"))) {
+    throw new Error("Staged Internet Search package is missing the Windows sidecar target");
+  }
+
+  manifest.files = manifest.files.filter((file) => existsSync(path.join(root, ...file.path.split("/"))));
   const filesByPath = new Map(manifest.files.map((file) => [file.path, file]));
-  for (const packagePath of packagePaths) {
-    const file = filesByPath.get(packagePath);
-    if (!file) continue;
-    const bytes = await readFile(path.join(root, ...packagePath.split("/")));
+  for (const file of filesByPath.values()) {
+    const bytes = await readFile(path.join(root, ...file.path.split("/")));
     file.size_bytes = bytes.byteLength;
     file.digest = digest(bytes);
   }
 
-  const windowsTarget = manifest.sidecars
+  const desktopTargets = manifest.sidecars
     .flatMap((sidecar) => sidecar.targets)
-    .find((target) => target.target === "desktop_windows_x64" && target.runtime_kind === "packaged_process");
-  if (!windowsTarget) return;
+    .filter((target) => target.runtime_kind === "packaged_process");
 
-  const bundle = windowsTarget.dependency_bundle;
-  bundle.bundle_digest = filesByPath.get(windowsTarget.artifact_path)?.digest ?? bundle.bundle_digest;
-  bundle.lockfile_digest = filesByPath.get(bundle.lockfile_path)?.digest ?? bundle.lockfile_digest;
-  bundle.provenance_digest = filesByPath.get(bundle.provenance_path)?.digest ?? bundle.provenance_digest;
-  bundle.sbom_digest = filesByPath.get(bundle.sbom_path)?.digest ?? bundle.sbom_digest;
+  for (const target of desktopTargets) {
+    const bundle = target.dependency_bundle;
+    bundle.bundle_digest = filesByPath.get(target.artifact_path)?.digest ?? bundle.bundle_digest;
+    bundle.lockfile_digest = filesByPath.get(bundle.lockfile_path)?.digest ?? bundle.lockfile_digest;
+    bundle.provenance_digest = filesByPath.get(bundle.provenance_path)?.digest ?? bundle.provenance_digest;
+    bundle.sbom_digest = filesByPath.get(bundle.sbom_path)?.digest ?? bundle.sbom_digest;
+  }
+
+  const windowsTarget = desktopTargets.find((target) => target.target === "desktop_windows_x64");
+  if (!windowsTarget) return;
   windowsTarget.resources.startup_timeout_ms = 10_000;
   windowsTarget.resources.health_timeout_ms = 2_000;
   windowsTarget.resources.stop_timeout_ms = 2_000;
