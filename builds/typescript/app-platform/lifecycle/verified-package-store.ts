@@ -245,6 +245,17 @@ export class ImmutablePackageStore {
       try {
         await this.assertStoredIntegrity(verified);
       } catch (integrityError) {
+        const references = await this.readReferences(verified.packageDigest);
+        if (integrityError instanceof ContractViolation && integrityError.code === "package_file_mismatch" && references.reference_ids.length === 0) {
+          const executablePaths = new Set(verified.manifest.files.filter((file) => file.mode === "executable").map((file) => file.path));
+          await makeTreeRemovable(contentRoot).catch(() => undefined);
+          await rm(contentRoot, { recursive: true, force: true });
+          await rename(verified.stageRoot, contentRoot);
+          await chmodTree(contentRoot, executablePaths);
+          await chmod(metadataPath, 0o600).catch(() => undefined);
+          await writeAtomic(metadataPath, metadata, 0o400);
+          return this.read(verified.packageDigest);
+        }
         await rm(verified.stageRoot, { recursive: true, force: true }).catch(() => undefined);
         throw integrityError;
       }

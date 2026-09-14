@@ -460,12 +460,31 @@ describe("M3 immutable store and explicit grants", () => {
       .toThrowError(expect.objectContaining({ code: "widened_grant" }));
   });
 
-  it("rejects an idempotent promotion when existing immutable bytes no longer match signed authority", async () => {
+  it("repairs unreferenced idempotent promotion content when existing immutable inventory is stale", async () => {
+    const root = await temporaryRoot("bd-m3-store-unreferenced-repair-");
+    const request = await verificationRequest(root);
+    const verifier = new VerifiedPackageVerifier(new FixtureTransport(), () => FIXED_TIME);
+    const store = new ImmutablePackageStore(root, () => FIXED_TIME);
+    const first = await store.promote(await verifier.verify(request));
+    const unexpected = path.join(first.contentRoot, "stale-macos-placeholder");
+    await chmod(first.contentRoot, 0o700).catch(() => undefined);
+    await writeFile(unexpected, "stale undeclared package content\n", "utf8");
+
+    const candidate = await verifier.verify(request);
+    const repaired = await store.promote(candidate);
+
+    expect(repaired.contentRoot).toBe(first.contentRoot);
+    await expect(stat(unexpected)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(candidate.stageRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects an idempotent promotion when referenced immutable bytes no longer match signed authority", async () => {
     const root = await temporaryRoot("bd-m3-store-corrupt-");
     const request = await verificationRequest(root);
     const verifier = new VerifiedPackageVerifier(new FixtureTransport(), () => FIXED_TIME);
     const store = new ImmutablePackageStore(root, () => FIXED_TIME);
     const first = await store.promote(await verifier.verify(request));
+    await store.acquire(first.packageDigest, deterministicFixtureId("referenced-corrupt-package"));
     const entrypoint = path.join(first.contentRoot, first.entrypoint);
     await chmod(entrypoint, 0o600);
     await writeFile(entrypoint, "tampered immutable content\n", "utf8");

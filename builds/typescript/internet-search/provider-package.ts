@@ -92,7 +92,7 @@ export async function createInternetSearchProviderRuntime(input: {
   const target = input.target ?? "docker_linux_x64";
   const store = input.packageStore ?? new InstalledPackageStore(packageStoreRoot(input.memoryRoot, input.stateRoot));
   await store.initialize();
-  const manifest = await loadInternetSearchProviderManifest(input.rootDir);
+  const manifest = await loadInternetSearchProviderManifest(input.rootDir, env);
   await installProofPackageIfMissing(store, manifest);
 
   const packageRuntimeSidecars = await readPackageRuntimeSidecars(env.BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE, manifest, target);
@@ -407,12 +407,22 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
 }
 
 async function installProofPackageIfMissing(store: InstalledPackageStore, manifest: PackageComponentManifest): Promise<void> {
+  const packageDigest = digestInternetSearchProviderManifest(manifest);
+  const source = { kind: "repository_fixture" as const, label: "Internet Search provider package fixture" };
   const existing = await store.readPackage(manifest.package_id);
-  if (existing) return;
+  if (existing) {
+    if (existing.package_digest === packageDigest && existing.package_version === manifest.package_version) return;
+    await store.updatePackage(manifest.package_id, {
+      manifest,
+      packageDigest,
+      source,
+    });
+    return;
+  }
   await store.installPackage({
     manifest,
-    packageDigest: digestInternetSearchProviderManifest(manifest),
-    source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
+    packageDigest,
+    source,
     installedAt: "2026-09-01T00:00:00.000Z",
   });
 }

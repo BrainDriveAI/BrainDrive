@@ -232,6 +232,53 @@ describe("SC-005 Internet Search proof provider package migration", () => {
     expect(manifest.package_kind).toEqual(["capability_provider"]);
   });
 
+  it("updates the installed proof package when the staged manifest digest changes", async () => {
+    const root = await tempRoot();
+    const externalRoot = path.join(root, "braindrive-internet-search");
+    const memoryRoot = path.join(root, "memory");
+    const stateRoot = path.join(root, "state");
+    await mkdir(externalRoot, { recursive: true });
+    const rawManifest = await readFile(path.resolve(process.cwd(), "../internet_search/manifest.json"), "utf8");
+    const firstManifest = JSON.parse(rawManifest) as PackageComponentManifest;
+    firstManifest.package_version = "0.9.0";
+    await writeFile(path.join(externalRoot, "manifest.json"), `${JSON.stringify(firstManifest, null, 2)}\n`, "utf8");
+
+    const firstRuntime = await createInternetSearchProviderRuntime({
+      rootDir: "/no/ws5/root",
+      memoryRoot,
+      stateRoot,
+      target: "docker_linux_x64",
+      env: { BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: externalRoot },
+      searchExecutor: null,
+      readExecutor: null,
+    });
+    const firstRecord = await firstRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+    await firstRuntime.close();
+
+    await writeFile(path.join(externalRoot, "manifest.json"), rawManifest, "utf8");
+    const secondRuntime = await createInternetSearchProviderRuntime({
+      rootDir: "/no/ws5/root",
+      memoryRoot,
+      stateRoot,
+      target: "docker_linux_x64",
+      env: { BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: externalRoot },
+      searchExecutor: null,
+      readExecutor: null,
+    });
+
+    try {
+      const secondRecord = await secondRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      expect(secondRecord?.generation).toBe(2);
+      expect(secondRecord?.package_version).toBe("1.0.0");
+      expect(secondRecord?.package_digest).not.toBe(firstRecord?.package_digest);
+      expect(secondRecord?.previous_package_digest).toBe(firstRecord?.package_digest);
+      expect(await secondRuntime.packageStore.readComponent(INTERNET_SEARCH_PROVIDER_PACKAGE_ID, INTERNET_SEARCH_SIDECAR_COMPONENT_ID))
+        .toMatchObject({ state: "stopped", health: "unknown" });
+    } finally {
+      await secondRuntime.close();
+    }
+  });
+
   it("keeps desktop packaged-process targets as admission-only metadata instead of Docker fallback", async () => {
     const root = await tempRoot();
     const providerRuntime = await createInternetSearchProviderRuntime({

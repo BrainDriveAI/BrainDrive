@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
@@ -97,6 +97,7 @@ async function rewriteManifestInventory(root, manifest) {
   for (const sidecar of manifest.sidecars ?? []) {
     sidecar.targets = sidecar.targets.filter((target) => {
       if (target.runtime_kind !== "packaged_process") return true;
+      if (target.target !== "desktop_windows_x64") return false;
       const bundle = target.dependency_bundle;
       return [
         target.artifact_path,
@@ -107,11 +108,12 @@ async function rewriteManifestInventory(root, manifest) {
       ].every((packagePath) => existsSync(path.join(root, ...packagePath.split("/"))));
     });
   }
+  await pruneWindowsExcludedPaths(root);
   if (!(manifest.sidecars ?? []).some((sidecar) => sidecar.targets.some((target) => target.target === "desktop_windows_x64" && target.runtime_kind === "packaged_process"))) {
     throw new Error("Staged Internet Search package is missing the Windows sidecar target");
   }
 
-  manifest.files = manifest.files.filter((file) => existsSync(path.join(root, ...file.path.split("/"))));
+  manifest.files = manifest.files.filter((file) => !isWindowsExcludedPackagePath(file.path) && existsSync(path.join(root, ...file.path.split("/"))));
   const filesByPath = new Map(manifest.files.map((file) => [file.path, file]));
   for (const file of filesByPath.values()) {
     const bytes = await readFile(path.join(root, ...file.path.split("/")));
@@ -142,6 +144,22 @@ async function rewriteManifestInventory(root, manifest) {
   windowsTarget.resources.cache_mb = 16;
   windowsTarget.resources.log_bytes = 65_536;
   windowsTarget.resources.max_output_event_bytes = 4_096;
+}
+
+async function pruneWindowsExcludedPaths(root) {
+  await Promise.all([
+    "payload/sidecars/search-runtime/macos-universal",
+    "payload/dependencies/searxng/macos-universal",
+    "provenance/searxng-macos.intoto.jsonl",
+    "sbom/searxng-macos.cyclonedx.json",
+  ].map((packagePath) => rm(path.join(root, ...packagePath.split("/")), { recursive: true, force: true })));
+}
+
+function isWindowsExcludedPackagePath(packagePath) {
+  return packagePath.startsWith("payload/sidecars/search-runtime/macos-universal/")
+    || packagePath.startsWith("payload/dependencies/searxng/macos-universal/")
+    || packagePath === "provenance/searxng-macos.intoto.jsonl"
+    || packagePath === "sbom/searxng-macos.cyclonedx.json";
 }
 
 function digest(bytes) {
