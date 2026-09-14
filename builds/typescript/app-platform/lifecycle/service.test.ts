@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppLifecycleService } from "./service.js";
+import { AppPlatformError } from "./errors.js";
 import { revokeFixtureVersion } from "./fixture-repository.js";
 import { createLifecycleHarness } from "./test-helpers.js";
 import { ImmutablePackageStore } from "./verified-package-store.js";
@@ -286,6 +287,25 @@ describe("trusted lifecycle service", () => {
       capabilities: ["career.context.read"],
       operationId: crypto.randomUUID(),
     })).resolves.toMatchObject({ claims: { grant_id: repaired.grant_id } });
+  });
+
+  it("fails closed without blocking startup when active retained data is incompatible", async () => {
+    const h = await harness();
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-00001", approveCapabilities: true });
+    await h.supervisor.stop(h.supervisor.inspect(installed.record.installation_id!)[0], "reconcile");
+    h.dependencies.ownerDataLifecycle!.prepareActivation = async () => {
+      throw new AppPlatformError("incompatible_schema", "Retained app data requires a compatible app version", 409);
+    };
+
+    const restarted = new AppLifecycleService(h.dependencies);
+    await expect(restarted.initialize()).resolves.toBeUndefined();
+    await expect(restarted.status()).resolves.toMatchObject({
+      state: "failed_recoverable",
+      active_package_digest: installed.record.active_package_digest,
+    });
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toEqual([]);
+    expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(true);
+    expect((await h.store.readGrant(installed.grant!.grant_id))?.revoked_at).not.toBeNull();
   });
 
   it("fails closed without blocking startup when persisted active package metadata is stale", async () => {

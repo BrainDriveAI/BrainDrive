@@ -556,11 +556,37 @@ export class AppLifecycleService {
       record = next;
     }
     if (record.state === "active") {
-      if (this.dependencies.supervisor.inspect(record.installation_id!).length === 0) await this.restartPrior(record);
+      if (this.dependencies.supervisor.inspect(record.installation_id!).length === 0) {
+        try {
+          await this.restartPrior(record);
+        } catch (error) {
+          if (!(await this.failClosedStartupActivation(error, record))) throw error;
+        }
+      }
     } else if (record.installation_id) {
       await this.stopInstallation(record.installation_id, "reconcile");
       this.dependencies.tokenBroker.revokeInstallation(record.installation_id);
     }
+  }
+
+  private async failClosedStartupActivation(error: unknown, prior: LifecycleRecord): Promise<boolean> {
+    const failure = asAppPlatformError(error);
+    if (!["denied", "incompatible_schema", "recoverable_internal_failure", "validation_failed"].includes(failure.code)) return false;
+    if (!prior.installation_id || prior.state !== "active") return false;
+    this.dependencies.tokenBroker.revokeInstallation(prior.installation_id);
+    if (prior.grant_id) await this.dependencies.store.revokeGrant(prior.grant_id).catch(() => undefined);
+    await this.stopInstallation(prior.installation_id, "reconcile").catch(() => undefined);
+    const now = new Date().toISOString();
+    const checkpoint = prior.successful_use_checkpoint?.status === "pending"
+      ? { ...prior.successful_use_checkpoint, status: "failed" as const, completed_at: now, evidence_operation_id: null }
+      : prior.successful_use_checkpoint;
+    let operation = this.newOperation("reconcile", prior, prior.installation_id, `startup-activation-recovery-${randomUUID()}`, { startup_activation_failed: true, error_code: failure.code }, "failed_recoverable", "failed_recoverable");
+    await this.dependencies.store.saveOperation(operation);
+    const next = LifecycleRecordSchema.parse({ ...prior, state: "failed_recoverable", generation: prior.generation + 1, pending_operation_id: null, successful_use_checkpoint: checkpoint, updated_at: now });
+    await this.dependencies.store.compareAndSwapLifecycle(prior.generation, next);
+    operation = await this.complete(operation, next, "committed", true);
+    this.emit("app.lifecycle.reconcile.failed_recoverable", prior, next, operation, failure.code);
+    return true;
   }
 
   private async restartPrior(record: LifecycleRecord): Promise<LifecycleRecord> {
