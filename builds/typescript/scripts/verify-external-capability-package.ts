@@ -51,6 +51,11 @@ async function verifyDesktopSidecar(root: string, target: Extract<RuntimeTargetN
       BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: root,
     }));
     await verifyFiles(root, manifest);
+    const sidecar = manifest.sidecars.find((candidate) => candidate.component_id === INTERNET_SEARCH_SIDECAR_COMPONENT_ID);
+    const sidecarTarget = sidecar?.targets.find((candidate) => candidate.target === target && candidate.runtime_kind === "packaged_process");
+    if (!sidecarTarget || sidecarTarget.runtime_kind !== "packaged_process") {
+      throw new Error(`missing packaged-process sidecar target: ${target}`);
+    }
     const packageDigest = digestInternetSearchProviderManifest(manifest);
     const promotionRoot = path.join(tempRoot, "promotion-root");
     await mkdir(promotionRoot, { recursive: true });
@@ -61,7 +66,7 @@ async function verifyDesktopSidecar(root: string, target: Extract<RuntimeTargetN
       packageDigest,
       descriptorDigest: digest(`external-capability:${target}:${packageDigest}`),
       stageRoot: promotionRoot,
-      entrypoint: path.join(promotionRoot, "manifest.json"),
+      entrypoint: sidecarTarget.entrypoint,
       target,
     });
     const verifiedPackage = await createVerifiedSidecarPackageBundleFromStore({ packageStore, packageDigest, manifest });
