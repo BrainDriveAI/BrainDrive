@@ -6,8 +6,9 @@ import { z } from "zod";
 
 import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
 import { LifecycleOperationSchema, LifecycleRecordSchema } from "../contracts/lifecycle.js";
-import { CapabilityGrantSchema, PackageManifestSchema, PackageTrustSchema } from "../contracts/package.js";
+import { CapabilityGrantSchema, PackageTrustSchema } from "../contracts/package.js";
 import { AppPlatformError } from "./errors.js";
+import { parseStoredRuntimePackageManifest } from "./runtime-manifest.js";
 
 const RESUME_APP_ID = "ai.braindrive.resume-builder";
 
@@ -80,7 +81,7 @@ function validateLegacyRecords(files: readonly MigrationFile[]): void {
       } else if (file.relative.startsWith("packages/")) {
         if (!value || typeof value !== "object" || (value as { store_version?: unknown }).store_version !== 1) throw new Error("invalid stored package");
         const stored = value as { package_digest?: unknown; manifest?: unknown; trust?: unknown };
-        const manifest = PackageManifestSchema.parse(stored.manifest);
+        const manifest = parseStoredRuntimePackageManifest(stored.manifest);
         PackageTrustSchema.parse(stored.trust);
         if (manifest.app_id !== RESUME_APP_ID || typeof stored.package_digest !== "string") throw new Error("identity mismatch");
       }

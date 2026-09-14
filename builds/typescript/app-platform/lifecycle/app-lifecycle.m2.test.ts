@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ResumeDataLifecycleAdapter } from "../../resume-domain/lifecycle.js";
 import { LifecycleDiagnosticEventSchema } from "../contracts/audit.js";
-import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
-import type { FirstPartyAppRegistration } from "../contracts/app-registry.js";
+import { canonicalInputDigest, canonicalJson, canonicalJsonDocumentDigest } from "../contracts/common.js";
+import { DEFAULT_APP_RETENTION_POLICY, GenericPackageManifestSchema, type FirstPartyAppRegistration } from "../contracts/app-registry.js";
 import {
   ALLOWED_LIFECYCLE_TRANSITIONS,
   LifecycleRecordSchema,
@@ -50,6 +50,10 @@ const GRANT_ID = "20000000-0000-4000-8000-000000000004";
 const ACTIVE_DIGEST = `sha256:${"a".repeat(64)}` as const;
 const LKG_DIGEST = `sha256:${"b".repeat(64)}` as const;
 const FIXED_TIME = "2026-08-08T12:00:00.000Z";
+
+function digest(character: string): `sha256:${string}` {
+  return `sha256:${character.repeat(64)}`;
+}
 
 function spec08Registration(appId: string, routeKey: string): FirstPartyAppRegistration {
   return {
@@ -606,6 +610,105 @@ describe("Spec 08 M2 legacy Resume control-state migration", () => {
       });
     expect(JSON.parse(await readFile(path.join(fixture.legacyRoot, "apps", "resume-builder", "registry", "lifecycle.json"), "utf8")))
       .toEqual(fixture.lifecycle);
+  });
+
+  it("accepts modern package manifests in migrated app-scoped Resume state", async () => {
+    const root = await temporaryRoot("bd-spec08-m2-migrated-modern-package-");
+    const fixture = await legacyFixture(root);
+    const first = await migrateLegacyResumeControlState({ stateRoot: fixture.legacyRoot });
+    const modernPackageDigest = digest("d");
+    const modernManifest = GenericPackageManifestSchema.parse({
+      manifest_version: 2,
+      app_id: APP_ID,
+      publisher_id: "ai.braindrive",
+      package_version: "4.2.21",
+      catalog: {
+        display_name: "Resume Builder",
+        summary: "Build and manage resume materials.",
+        icon: null,
+        retention_summary: "Resume owner data is retained when app runtime authority is removed.",
+      },
+      archive: {
+        format: "zip",
+        profile: "braindrive-zip-v1",
+        compression: "store",
+        layout_version: 1,
+        manifest_path: "manifest.json",
+        undeclared_entries: "reject",
+        links_and_device_nodes: "reject",
+        max_file_count: 256,
+        max_compressed_bytes: 67_108_864,
+        max_uncompressed_bytes: 268_435_456,
+      },
+      files: [
+        { path: "payload/server/dist/index.js", kind: "file", mode: "executable", size_bytes: 123, digest: digest("1") },
+        { path: "payload/ui/index.html", kind: "file", mode: "read_only", size_bytes: 456, digest: digest("2") },
+        { path: "provenance/build.jsonl", kind: "file", mode: "read_only", size_bytes: 789, digest: digest("3") },
+        { path: "sbom/cyclonedx.json", kind: "file", mode: "read_only", size_bytes: 789, digest: digest("4") },
+      ],
+      platform_artifacts: [
+        { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/server/dist/index.js" },
+        { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/server/dist/index.js" },
+      ],
+      compatibility: {
+        app_contract: 1,
+        host_min_version: "26.7.23",
+        mcp_protocol: "2026-07-28",
+        mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" },
+        data_contract_version: 4,
+      },
+      primary_resource: {
+        resource_version: 1,
+        uri: "ui://resume-builder/main",
+        package_path: "payload/ui/index.html",
+        mime_type: "text/html;profile=mcp-app",
+        content_digest: digest("2"),
+      },
+      requested_capabilities: [],
+      requested_inference_purposes: [],
+      provenance_path: "provenance/build.jsonl",
+      sbom_path: "sbom/cyclonedx.json",
+      retention_policy: DEFAULT_APP_RETENTION_POLICY,
+    });
+    await mkdir(path.join(fixture.legacyRoot, "apps", "resume-builder", "registry", "packages"), { recursive: true });
+    await writeFile(path.join(fixture.legacyRoot, "apps", "resume-builder", "registry", "packages", `${modernPackageDigest.slice(7)}.json`), `${canonicalJson({
+      store_version: 1,
+      package_digest: modernPackageDigest,
+      package_version: modernManifest.package_version,
+      package_root: path.join(root, "packages", "resume-builder", modernPackageDigest.slice(7)),
+      entrypoint: "payload/server/dist/index.js",
+      manifest: modernManifest,
+      trust: {
+        trust_policy_version: 1,
+        descriptor_digest: digest("5"),
+        package_digest: modernPackageDigest,
+        manifest_digest: canonicalJsonDocumentDigest(modernManifest),
+        publisher_id: "ai.braindrive",
+        signing_key_id: "braindrive-app-release-test",
+        trust_root_version: 1,
+        source_index_sequence: 1,
+        source_index_signature_valid: true,
+        package_signature_valid: true,
+        archive_digest_valid: true,
+        file_inventory_valid: true,
+        source_trusted: true,
+        compatibility_valid: true,
+        revocation_list_sequence: 1,
+        revocation_status: "not_revoked_stale",
+        revocation_age_seconds: 86_400,
+        verification_context: "verified_local_recheck",
+        checked_at: FIXED_TIME,
+        executable_allowed: true,
+      },
+    })}\n`, "utf8");
+    await writeFile(path.join(fixture.legacyRoot, "registry", "lifecycle.json"), "{", "utf8");
+
+    await expect(migrateLegacyResumeControlState({ stateRoot: fixture.legacyRoot }))
+      .resolves.toMatchObject({
+        outcome: "already_migrated",
+        source_digest: first.source_digest,
+        pre_migration_snapshot_digest: first.pre_migration_snapshot_digest,
+      });
   });
 
   it("recovers an exact partial destination and rejects corrupt or conflicting state without replacement", async () => {
