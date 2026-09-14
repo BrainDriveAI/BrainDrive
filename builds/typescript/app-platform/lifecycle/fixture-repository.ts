@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalInputDigest, canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
-import { RESUME_DATA_SCHEMA_VERSION } from "../contracts/constants.js";
 import { DEFAULT_APP_RETENTION_POLICY, GenericPackageManifestSchema, type GenericPackageManifest } from "../contracts/app-registry.js";
 import { z } from "zod";
 import {
@@ -1266,7 +1265,7 @@ async function loadOrCreateFixtureSource(
           archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
           files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })),
           platform_artifacts: platformArtifacts,
-          compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: { read_min: 1, read_max: RESUME_DATA_SCHEMA_VERSION, write_version: RESUME_DATA_SCHEMA_VERSION } },
+          compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: { read_min: 1, read_max: 1, write_version: 1 } },
           requested_capabilities: ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
           provenance_path: "provenance/build.jsonl",
           sbom_path: "sbom/cyclonedx.json",
