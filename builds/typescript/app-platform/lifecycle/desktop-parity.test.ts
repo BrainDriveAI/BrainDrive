@@ -77,18 +77,21 @@ describe("Docker and packaged desktop lifecycle parity", () => {
     expect(macStates).toEqual(["active", "disabled", "active", "active", "active", "not_installed", "active"]);
   }, 45_000);
 
-  it("stages package manifests for desktop without Docker Desktop sidecar assumptions", async () => {
-    const [nodeStage, powershellStage, tauriReadme, manifest] = await Promise.all([
+  it("keeps Internet Search sidecar packages out of the initial desktop runtime", async () => {
+    const [nodeStage, powershellStage, sidecarStage, tauriReadme, manifest] = await Promise.all([
       readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.mjs"), "utf8"),
       readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.ps1"), "utf8"),
+      readFile(path.resolve(process.cwd(), "scripts/stage-internet-search-sidecars.mjs"), "utf8"),
       readFile(path.resolve(process.cwd(), "src-tauri/README.md"), "utf8"),
       readFile(path.resolve(process.cwd(), "../internet_search/manifest.json"), "utf8"),
     ]);
 
-    expect(nodeStage).toContain("internetSearchRoot");
-    expect(nodeStage).toContain("outputRoot, \"internet_search\"");
-    expect(powershellStage).toContain("$InternetSearchRoot");
-    expect(powershellStage).toContain("internet_search");
+    expect(nodeStage).not.toContain("internetSearchRoot");
+    expect(nodeStage).not.toContain("\"internet_search\"");
+    expect(powershellStage).not.toContain("$InternetSearchRoot");
+    expect(powershellStage).not.toContain("internet_search");
+    expect(sidecarStage).toContain("desktop_windows_x64");
+    expect(sidecarStage).toContain("desktop_macos_universal");
     for (const stageScript of [nodeStage, powershellStage]) {
       expect(stageScript).not.toMatch(/Docker Desktop|docker compose|internet-search-searxng|BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL/i);
     }
@@ -103,6 +106,6 @@ describe("Docker and packaged desktop lifecycle parity", () => {
       "packaged_process",
       "packaged_process",
     ]);
-    expect(tauriReadme).toMatch(/SearXNG.*packaged_process/i);
+    expect(tauriReadme).toMatch(/catalog-installed package/i);
   });
 });
