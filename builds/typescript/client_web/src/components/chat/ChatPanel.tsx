@@ -274,7 +274,8 @@ export default function ChatPanel({
       append(message, { metadata: messageMetadata });
     },
     isStreaming: isWaitingForReply,
-    onStop: stop
+    onStop: stop,
+    draftKey: draftKey ? `${draftKey}:composer` : null,
   };
 
   const mobileComposer = typeof document === "undefined"

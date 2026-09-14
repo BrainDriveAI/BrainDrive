@@ -222,6 +222,7 @@ export default function AppChatWorkspace({
   const navButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const closedSessionIdsRef = useRef(new Set<string>());
   const cleanupTimerRef = useRef<{ sessionId: string; timer: number } | null>(null);
+  const intentionalDepartureRef = useRef(false);
   const exportStatusByIdRef = useRef(new Map<string, AppChatExportHandlingResult>());
   const inFlightExportIdsRef = useRef(new Set<string>());
   const launchRef = useRef(launch);
@@ -236,6 +237,13 @@ export default function AppChatWorkspace({
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
+
+  useEffect(() => {
+    intentionalDepartureRef.current = false;
+    return () => {
+      intentionalDepartureRef.current = true;
+    };
+  }, []);
 
   const activeItem = items.find((item) => item.key === activeItemKey) ?? items[0] ?? {
     key: "document:conversation",
@@ -284,9 +292,11 @@ export default function AppChatWorkspace({
   }, [items, launch, workspaceIdentity]);
 
   const recoverSession = useCallback(async (): Promise<string | null> => {
+    if (intentionalDepartureRef.current) return null;
     if (!onRenewSession) return null;
     try {
       const renewed = await onRenewSession(launchRef.current);
+      if (intentionalDepartureRef.current) return null;
       if (!renewed) return null;
       launchRef.current = renewed;
       setSessionState("ready");
@@ -352,6 +362,7 @@ export default function AppChatWorkspace({
   }, [activeItemKey]);
 
   function closeWorkspace() {
+    intentionalDepartureRef.current = true;
     setIsMobileNavOpen(false);
     if (cleanupTimerRef.current) {
       window.clearTimeout(cleanupTimerRef.current.timer);

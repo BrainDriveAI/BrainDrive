@@ -1288,6 +1288,32 @@ describe("AppChatWorkspace", () => {
     expect(onSessionClosed).toHaveBeenCalledTimes(1);
   });
 
+  it("does not renew a session after intentional Back to Apps departure", async () => {
+    const current = launch();
+    const onSessionClosed = vi.fn();
+    const onRenewSession = vi.fn(async () => launch({
+      session: {
+        ...current.session,
+        session_id: "00000000-0000-4000-8000-000000000211",
+      },
+    }));
+    let rejectSession!: (error: unknown) => void;
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockReturnValueOnce(new Promise((_, reject) => { rejectSession = reject; }));
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} onRenewSession={onRenewSession} />);
+
+    await user.click(await screen.findByRole("button", { name: "Back to Apps" }));
+    await act(async () => {
+      rejectSession(new Error("session closed after owner departure"));
+      await Promise.resolve();
+    });
+
+    expect(appsApi.closeAppSession).toHaveBeenCalledWith("test-builder", current.session.session_id);
+    expect(onSessionClosed).toHaveBeenCalledTimes(1);
+    expect(onRenewSession).not.toHaveBeenCalled();
+  });
+
   it("treats stale app-chat session close failures as best-effort cleanup", async () => {
     const current = launch();
     const onSessionClosed = vi.fn();

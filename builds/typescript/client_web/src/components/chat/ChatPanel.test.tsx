@@ -47,6 +47,7 @@ function makeHookState(overrides: Partial<{
 describe("ChatPanel typing indicator behavior", () => {
   beforeEach(() => {
     useGatewayChatMock.mockReset();
+    window.localStorage.clear();
   });
 
   it("shows typing indicator before first assistant delta", () => {
@@ -301,5 +302,32 @@ describe("ChatPanel typing indicator behavior", () => {
       expect.any(Object)
     );
     expect(hookState.append).toHaveBeenCalledWith("Use ordinary chat.", expect.any(Object));
+  });
+
+  it("stores app-chat drafts under a derived composer key without overwriting the conversation pointer", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+    const draftKey = "braindrive:app-chat-conversation:resume-builder:owner:install:workspace";
+    window.localStorage.setItem(draftKey, "conversation-123");
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        draftKey={draftKey}
+        isEmpty={false}
+      />
+    );
+
+    await user.type(screen.getAllByPlaceholderText("Message your BrainDrive...")[0]!, "Persist my unsent draft");
+
+    expect(window.localStorage.getItem(draftKey)).toBe("conversation-123");
+    expect(window.localStorage.getItem(`${draftKey}:composer`)).toBe("Persist my unsent draft");
+    expect(hookState.append).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    expect(hookState.append).toHaveBeenCalledWith("Persist my unsent draft", expect.any(Object));
+    expect(window.localStorage.getItem(`${draftKey}:composer`)).toBeNull();
   });
 });

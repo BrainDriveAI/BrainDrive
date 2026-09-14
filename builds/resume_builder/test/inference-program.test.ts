@@ -170,6 +170,42 @@ describe("Resume Builder-owned General draft inference program", () => {
     ]);
   });
 
+  it("runtime planner returns Career memory confirmation capability results without saved literals", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "career.fact.confirm",
+      action_input: {
+        decisions: [{
+          fact_record_id: crypto.randomUUID(),
+          fact_revision_id: crypto.randomUUID(),
+          expected_revision: 1,
+          decision: "accept",
+          edited_value: null,
+          review_note: null,
+        }],
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-confirm-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    expect(plan).toMatchObject({
+      action_id: "career.fact.confirm",
+      steps: [{ step_id: "confirm-career-facts", capability: "career.facts.confirm", owner_confirmation: "inherit" }],
+      final_result: { kind: "step_result", step_id: "confirm-career-facts" },
+    });
+    expect(JSON.stringify(plan.final_result)).not.toMatch(/saved|remembered/i);
+  });
+
   it("runtime planner ignores model-authored Resume markdown and creates from the Profile document", () => {
     const operationId = crypto.randomUUID();
     const profileMarkdown = "# Maya Ortiz\n\n## Professional Summary\nCustomer operations leader.\n\n## Experience\n- Improved gross retention from 86% to 93%.";
@@ -201,6 +237,54 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(documentWrite?.content).toContain("\n\n## Professional Summary");
     expect(documentWrite?.content).toContain("\n- Improved gross retention");
     expect(JSON.stringify(plan)).not.toContain("model-authored");
+  });
+
+  it("runtime planner blocks sparse Profile render with named missing essentials", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-sparse-plan-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.profile",
+        content: "# Resume Profile\n\n## Experience\n- [gap: employer and role]",
+      }],
+    });
+
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "capability.call", capability: "resume.definitions.write" }),
+      expect.objectContaining({ type: "document.write", document_id: "resume.document" }),
+    ]));
+    expect(plan.steps[0]).toMatchObject({
+      step_id: "write-missing-essentials-result",
+      type: "document.write",
+      document_id: "resume.action-result",
+      content: {
+        status: "missing_essentials",
+        missing_essentials: expect.arrayContaining([
+          expect.objectContaining({ field_id: "contact_identity", label: "Contact identity" }),
+          expect.objectContaining({ field_id: "experience", label: "Experience" }),
+          expect.objectContaining({ label: "Unresolved gap: employer and role" }),
+        ]),
+        choices: expect.arrayContaining([
+          expect.objectContaining({ choice: "provide" }),
+          expect.objectContaining({ choice: "omit" }),
+          expect.objectContaining({ choice: "mark_unknown" }),
+          expect.objectContaining({ choice: "proceed_with_limitations" }),
+        ]),
+      },
+    });
   });
 
   it("runtime planner preserves date ranges while splitting flattened bullets", () => {
