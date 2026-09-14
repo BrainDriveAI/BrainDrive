@@ -312,6 +312,37 @@ describe("SC-005 Internet Search proof provider package migration", () => {
     }
   });
 
+  it("starts without installing Internet Search when no catalog package manifest is present", async () => {
+    const root = await tempRoot();
+    const previousCwd = process.cwd();
+    let providerRuntime!: Awaited<ReturnType<typeof createInternetSearchProviderRuntime>>;
+    try {
+      process.chdir(root);
+      providerRuntime = await createInternetSearchProviderRuntime({
+        rootDir: root,
+        memoryRoot: path.join(root, "memory"),
+        stateRoot: path.join(root, "state"),
+        target: "desktop_macos_universal",
+        env: {},
+        searchExecutor: null,
+        readExecutor: null,
+      });
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    try {
+      expect(await providerRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID)).toBeNull();
+      expect(await providerRuntime.providerRegistry.discover("web.search@1", { authorized: true })).toMatchObject({
+        state: "unavailable",
+        callable: false,
+      });
+      expect(providerRuntime.migrationShim).toBeNull();
+    } finally {
+      await providerRuntime.close();
+    }
+  });
+
   it("routes web.search@1 through installed package records, provider registry, and package-scoped sidecar binding", async () => {
     const fetchCalls: string[] = [];
     const providerRuntime = await runtime({

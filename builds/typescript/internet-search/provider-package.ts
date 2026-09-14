@@ -92,12 +92,14 @@ export async function createInternetSearchProviderRuntime(input: {
   const target = input.target ?? "docker_linux_x64";
   const store = input.packageStore ?? new InstalledPackageStore(packageStoreRoot(input.memoryRoot, input.stateRoot));
   await store.initialize();
-  const manifest = await loadInternetSearchProviderManifest(input.rootDir, env);
-  await installProofPackageIfMissing(store, manifest);
+  const manifest = await tryLoadInternetSearchProviderManifest(input.rootDir, env);
+  if (manifest) await installProofPackageIfMissing(store, manifest);
 
-  const packageRuntimeSidecars = await readPackageRuntimeSidecars(env.BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE, manifest, target);
+  const packageRuntimeSidecars = manifest
+    ? await readPackageRuntimeSidecars(env.BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE, manifest, target)
+    : null;
   const shim = readLegacySearxngEnvShim(env);
-  const packagedProcessDriver = packageRuntimeSidecars || shim
+  const packagedProcessDriver = !manifest || packageRuntimeSidecars || shim
     ? null
     : await createDesktopPackagedProcessSidecarDriver({
       rootDir: input.rootDir,
@@ -177,9 +179,14 @@ export async function createInternetSearchProviderRuntime(input: {
 }
 
 export async function loadInternetSearchProviderManifest(rootDir: string, env: NodeJS.ProcessEnv = process.env): Promise<PackageComponentManifest> {
-  const manifestPath = manifestCandidates(rootDir, env).find((candidate) => existsSync(candidate));
+  const manifestPath = internetSearchProviderManifestPath(rootDir, env);
   if (!manifestPath) throw new Error("Internet Search provider package manifest is missing");
   return PackageComponentManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")));
+}
+
+async function tryLoadInternetSearchProviderManifest(rootDir: string, env: NodeJS.ProcessEnv = process.env): Promise<PackageComponentManifest | null> {
+  const manifestPath = internetSearchProviderManifestPath(rootDir, env);
+  return manifestPath ? PackageComponentManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8"))) : null;
 }
 
 export function digestInternetSearchProviderManifest(manifest: PackageComponentManifest): `sha256:${string}` {
@@ -428,7 +435,7 @@ async function installProofPackageIfMissing(store: InstalledPackageStore, manife
 }
 
 function internetSearchProviderPackageRoot(rootDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  const manifestPath = manifestCandidates(rootDir, env).find((candidate) => existsSync(candidate));
+  const manifestPath = internetSearchProviderManifestPath(rootDir, env);
   return manifestPath ? path.dirname(manifestPath) : null;
 }
 
@@ -587,6 +594,10 @@ function manifestCandidates(rootDir: string, env: NodeJS.ProcessEnv = process.en
     fileURLToPath(new URL("../../../internet_search/manifest.json", import.meta.url)),
     fileURLToPath(new URL("../../../../internet_search/manifest.json", import.meta.url)),
   ];
+}
+
+function internetSearchProviderManifestPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  return manifestCandidates(rootDir, env).find((candidate) => existsSync(candidate)) ?? null;
 }
 
 function readBooleanEnv(value: string | undefined, fallback: boolean): boolean {
