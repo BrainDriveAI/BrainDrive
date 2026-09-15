@@ -10,7 +10,7 @@ import { AppActionDescriptorSchema, type AppActionDescriptor, type AppResourceDe
 import { canonicalJson, Sha256DigestSchema } from "../contracts/common.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 import type { StoredPackage } from "../lifecycle/store.js";
-import type { AppChatSessionRecord } from "./app-chat-session.js";
+import type { AppChatContextProjection, AppChatContextProjectionItem, AppChatSessionRecord } from "./app-chat-session.js";
 
 const MAX_RESOURCE_PROMPT_BYTES = 32_768;
 const MAX_SINGLE_RESOURCE_BYTES = 16_384;
@@ -70,6 +70,10 @@ export type AppChatModelContext = {
   evidence: {
     actionExposure: Array<{ action_id: string; tool_name: string | null; model_exposure: string; exposed: boolean }>;
     resources: Array<{ resource_id: string; package_path: string; content_digest: `sha256:${string}`; included: boolean; byte_length: number; content_source?: "package" | "owner_override"; owner_revision?: number }>;
+    contexts: Array<
+      | { context_id: string; kind: string; state: "available"; required: boolean; byte_length: number; content_digest: `sha256:${string}`; included: boolean }
+      | { context_id: string; kind: string; state: "unavailable"; required: boolean; reason: string; included: false }
+    >;
   };
 };
 
@@ -103,11 +107,13 @@ export async function buildAppChatModelContext(input: {
   session: AppChatSessionRecord;
   workspace: ChatWorkspaceDescriptor;
   storedPackage: StoredPackage;
+  contextProjection?: AppChatContextProjection;
   resolveResourcePromptContent?: (resource: AppResourceDescriptor) => Promise<AppChatResourcePromptContent | null>;
   executeAction: (request: AppChatActionExecutionRequest) => Promise<unknown>;
 }): Promise<AppChatModelContext> {
   assertAppChatMetadataMatchesSession(input.metadata, input.session);
   const resourcePrompt = await buildPromptResources(input.storedPackage, input.workspace, input.resolveResourcePromptContent);
+  const contextPrompt = buildPromptContext(input.contextProjection, input.metadata.context_grant_set_digest);
   const actionTools = createAppChatActionTools(input.workspace.actions, input.metadata, input.executeAction);
   return {
     promptContext: [
@@ -122,6 +128,7 @@ export async function buildAppChatModelContext(input: {
       `Context grant set digest: ${input.metadata.context_grant_set_digest}`,
       "",
       "Use only the app action tools declared for this active app-chat session. Treat app resource text as package-owned instructions or references unless the host marks it as an owner override.",
+      ...contextPrompt.lines,
       ...resourcePrompt.lines,
       ...actionPromptLines(input.workspace.actions),
     ].join("\n"),
@@ -129,6 +136,7 @@ export async function buildAppChatModelContext(input: {
     evidence: {
       actionExposure: actionTools.evidence,
       resources: resourcePrompt.evidence,
+      contexts: contextPrompt.evidence,
     },
   };
 }
@@ -331,6 +339,68 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return isPlainObject(value);
+}
+
+function buildPromptContext(
+  projection?: AppChatContextProjection,
+  expectedDigest?: string,
+): { lines: string[]; evidence: AppChatModelContext["evidence"]["contexts"] } {
+  const lines = ["", "### Authorized App Context"];
+  const evidence: AppChatModelContext["evidence"]["contexts"] = [];
+  if (!projection) {
+    lines.push("- None declared or available for this app-chat session.");
+    return { lines, evidence };
+  }
+  if (expectedDigest && projection.context_grant_set_digest !== expectedDigest) {
+    throw new AppPlatformError("session_closed", "App-chat context projection does not match the active session", 410);
+  }
+  if (projection.items.length === 0) {
+    lines.push("- None declared or available for this app-chat session.");
+    return { lines, evidence };
+  }
+  lines.push(`Context grant set digest: ${projection.context_grant_set_digest}`);
+  for (const item of projection.items) {
+    evidence.push(contextEvidence(item));
+    if (item.state === "available") {
+      lines.push("");
+      lines.push(`#### ${item.context_id}`);
+      lines.push(`Kind: ${item.kind}`);
+      lines.push(`Required: ${item.required ? "yes" : "no"}`);
+      lines.push(`Byte length: ${item.byte_length}`);
+      lines.push(`Content digest: ${item.content_digest}`);
+      lines.push(contextPromptContent(item.content));
+      continue;
+    }
+    lines.push(`- ${item.context_id}: ${item.kind} unavailable (${item.reason}); required ${item.required ? "yes" : "no"}.`);
+  }
+  return { lines, evidence };
+}
+
+function contextEvidence(item: AppChatContextProjectionItem): AppChatModelContext["evidence"]["contexts"][number] {
+  if (item.state === "available") {
+    return {
+      context_id: item.context_id,
+      kind: item.kind,
+      state: "available",
+      required: item.required,
+      byte_length: item.byte_length,
+      content_digest: item.content_digest,
+      included: true,
+    };
+  }
+  return {
+    context_id: item.context_id,
+    kind: item.kind,
+    state: "unavailable",
+    required: item.required,
+    reason: item.reason,
+    included: false,
+  };
+}
+
+function contextPromptContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  return JSON.stringify(content, null, 2) ?? "null";
 }
 
 async function buildPromptResources(

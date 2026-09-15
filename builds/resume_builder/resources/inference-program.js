@@ -16,6 +16,7 @@ export function resumeCreateInputSchema() {
     properties: {
       locale: { type: "string", minLength: 2, maxLength: 35 },
       page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+      missing_essential_disposition: { type: "string", enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"] },
     },
     required: [],
   };
@@ -345,9 +346,16 @@ export function planResumeAction(request, options = {}) {
     const rawInput = isRecord(request.action_input) ? request.action_input : {};
     const profileMarkdown = currentDocumentText(request, "resume.profile");
     if (!profileMarkdown) throw new Error("resume_profile_required");
+    const readiness = analyzeResumeProfileReadiness(profileMarkdown);
+    if (readiness.missingEssentials.length > 0 && rawInput.missing_essential_disposition !== "proceed_with_limitations") {
+      return actionPlan(request.action_id, [
+        documentWriteStep("write-missing-essentials-result", "resume.action-result", buildMissingEssentialsResult(readiness), "application/json", "durable_operation_lookup"),
+      ], "write-missing-essentials-result");
+    }
     const input = {
       locale: rawInput.locale,
       page_intent: rawInput.page_intent,
+      missing_essential_disposition: rawInput.missing_essential_disposition,
       resume_markdown: profileMarkdown,
     };
     const capabilityInput = buildResumeCreateCapabilityInput(input, context);
@@ -502,6 +510,93 @@ function parseResumeChatContent(input, context) {
   }
   if (statements.length > 500) throw new Error("resume_create_statement_limit");
   return { title: title ?? "General Resume", statements, sectionOrder: sectionOrder.length > 0 ? sectionOrder : ["summary"] };
+}
+
+const MISSING_ESSENTIAL_CHOICES = Object.freeze([
+  {
+    choice: "provide",
+    description: "Add the missing Profile details before creating the resume.",
+  },
+  {
+    choice: "omit",
+    description: "Remove the unresolved item from the Profile before creating the resume.",
+  },
+  {
+    choice: "mark_unknown",
+    description: "Keep the item as an explicit unknown or gap marker in the Profile.",
+  },
+  {
+    choice: "proceed_with_limitations",
+    description: "Create the resume with the current Profile and visible limitations.",
+  },
+]);
+
+function analyzeResumeProfileReadiness(profileMarkdown) {
+  const normalized = normalizeResumeMarkdown(profileMarkdown);
+  const missingEssentials = [];
+  if (!hasResumeIdentity(normalized)) {
+    missingEssentials.push({
+      field_id: "contact_identity",
+      label: "Contact identity",
+      reason: "Profile needs a usable owner name or contact identity before resume creation.",
+    });
+  }
+  if (!hasUsableSection(normalized, /^(?:professional\s+)?(?:experience|work\s+experience|work\s+history|employment)\b/i)) {
+    missingEssentials.push({
+      field_id: "experience",
+      label: "Experience",
+      reason: "Profile needs at least one usable experience entry before resume creation.",
+    });
+  }
+  for (const [index, gapText] of extractGapMarkers(normalized).entries()) {
+    missingEssentials.push({
+      field_id: `gap_marker_${index + 1}`,
+      label: `Unresolved gap: ${gapText}`,
+      reason: "Profile contains a visible gap marker that must be resolved or explicitly accepted before resume creation.",
+    });
+  }
+  return { missingEssentials };
+}
+
+function hasResumeIdentity(profileMarkdown) {
+  const heading = profileMarkdown.split(/\r?\n/).find((line) => /^#\s+\S/.test(line.trim()))?.replace(/^#\s+/, "").trim();
+  if (heading && !/^(?:resume|resume\s+profile|profile)$/i.test(heading)) return true;
+  return hasUsableSection(profileMarkdown, /^(?:contact|contact\s+identity|personal\s+details)\b/i);
+}
+
+function hasUsableSection(profileMarkdown, headingPattern) {
+  let inSection = false;
+  for (const rawLine of profileMarkdown.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      inSection = headingPattern.test(heading[1]?.trim() ?? "");
+      continue;
+    }
+    if (inSection && isUsableProfileContentLine(line)) return true;
+  }
+  return false;
+}
+
+function isUsableProfileContentLine(line) {
+  const text = line.replace(/^[-*+]\s+/, "").trim();
+  if (!text) return false;
+  return !/^\[gap:\s*[^\]]+\]$/i.test(text);
+}
+
+function extractGapMarkers(profileMarkdown) {
+  return Array.from(profileMarkdown.matchAll(/\[gap:\s*([^\]]+)\]/gi), (match) => match[1]?.replace(/\s+/g, " ").trim() ?? "unspecified").filter(Boolean);
+}
+
+function buildMissingEssentialsResult(readiness) {
+  return {
+    result_version: 1,
+    status: "missing_essentials",
+    action_id: "resume.create",
+    message: "Resume creation is blocked until the owner chooses how to handle the named missing essentials.",
+    missing_essentials: readiness.missingEssentials,
+    choices: MISSING_ESSENTIAL_CHOICES,
+  };
 }
 
 function actionPlan(actionId, steps, finalStepId = steps.at(-1)?.step_id) {

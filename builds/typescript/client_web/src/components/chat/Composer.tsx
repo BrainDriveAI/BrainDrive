@@ -13,13 +13,48 @@ type ComposerProps = {
   isStreaming?: boolean;
   layout?: "inline" | "mobile-fixed";
   onHeightChange?: (height: number) => void;
+  draftKey?: string | null;
 };
 
 const MAX_TEXTAREA_HEIGHT = 120;
+const COMPOSER_DRAFT_CHANGE_EVENT = "braindrive:composer-draft-change";
+
+type DraftState = {
+  key: string | null;
+  message: string;
+};
+
+type ComposerDraftChangeEvent = CustomEvent<{
+  key: string;
+  value: string;
+}>;
 
 function resizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = "0px";
   element.style.height = `${Math.min(element.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+}
+
+function readStoredDraft(key: string | null): string {
+  if (!key || typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredDraft(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value.length > 0) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_CHANGE_EVENT, { detail: { key, value } }));
+  } catch {
+    // Draft text remains available in component state when browser storage is unavailable.
+  }
 }
 
 export default function Composer({
@@ -27,14 +62,64 @@ export default function Composer({
   onStop,
   isStreaming = false,
   layout = "inline",
-  onHeightChange
+  onHeightChange,
+  draftKey = null
 }: ComposerProps) {
-  const [message, setMessage] = useState("");
+  const normalizedDraftKey = draftKey ?? null;
+  const [draftState, setDraftState] = useState<DraftState>(() => ({
+    key: normalizedDraftKey,
+    message: readStoredDraft(normalizedDraftKey),
+  }));
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const wasStreamingRef = useRef(isStreaming);
+  const message = draftState.message;
   const trimmedMessage = message.trim();
   const hasContent = trimmedMessage.length > 0;
+
+  useEffect(() => {
+    setDraftState((current) => {
+      if (current.key === normalizedDraftKey) return current;
+      return {
+        key: normalizedDraftKey,
+        message: readStoredDraft(normalizedDraftKey),
+      };
+    });
+  }, [normalizedDraftKey]);
+
+  useEffect(() => {
+    if (draftState.key !== normalizedDraftKey || !normalizedDraftKey) return;
+    writeStoredDraft(normalizedDraftKey, draftState.message);
+  }, [draftState, normalizedDraftKey]);
+
+  useEffect(() => {
+    if (!normalizedDraftKey || typeof window === "undefined") return;
+
+    function handleDraftChange(event: Event) {
+      const detail = (event as ComposerDraftChangeEvent).detail;
+      if (!detail || detail.key !== normalizedDraftKey) return;
+      setDraftState((current) => {
+        if (current.key !== normalizedDraftKey || current.message === detail.value) return current;
+        return { key: normalizedDraftKey, message: detail.value };
+      });
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key !== normalizedDraftKey) return;
+      const nextValue = event.newValue ?? "";
+      setDraftState((current) => {
+        if (current.key !== normalizedDraftKey || current.message === nextValue) return current;
+        return { key: normalizedDraftKey, message: nextValue };
+      });
+    }
+
+    window.addEventListener(COMPOSER_DRAFT_CHANGE_EVENT, handleDraftChange);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(COMPOSER_DRAFT_CHANGE_EVENT, handleDraftChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [normalizedDraftKey]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -76,7 +161,10 @@ export default function Composer({
     if (!hasContent) return;
 
     onSend?.(trimmedMessage);
-    setMessage("");
+    setDraftState({ key: normalizedDraftKey, message: "" });
+    if (normalizedDraftKey) {
+      writeStoredDraft(normalizedDraftKey, "");
+    }
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "0px";
@@ -119,7 +207,7 @@ export default function Composer({
             ref={textareaRef}
             value={message}
             rows={1}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => setDraftState({ key: normalizedDraftKey, message: event.target.value })}
             onKeyDown={handleKeyDown}
             placeholder="Message your BrainDrive..."
             className="max-h-[120px] min-h-[36px] flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-2 text-base text-bd-text-primary outline-none placeholder:text-bd-text-muted md:text-[15px]"

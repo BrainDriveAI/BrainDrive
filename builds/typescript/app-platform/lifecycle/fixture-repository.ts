@@ -521,6 +521,7 @@ function resumeCreateInputSchema(): Record<string, unknown> {
     properties: {
       locale: { type: "string", minLength: 2, maxLength: 35 },
       page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+      missing_essential_disposition: { type: "string", enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"] },
     },
     required: [],
   };

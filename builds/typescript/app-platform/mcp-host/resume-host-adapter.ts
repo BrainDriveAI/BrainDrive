@@ -535,11 +535,19 @@ export class ResumeAppHostAdapter {
 
   async buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext> {
     const { session, descriptor, workspace } = await this.requireChatSessionForModel(request);
+    const contextGrantPlan = planAppChatContextGrants(workspace, descriptor.grant!);
+    if (contextGrantPlan.digest !== session.contextGrantSetDigest) {
+      throw new AppPlatformError("session_closed", "App-chat context grant digest is no longer current", 410);
+    }
+    const contextProjection = await projectAppChatContext(workspace, contextGrantPlan, {
+      career_context: async (contextRequest) => this.projectCareerContextForChat(session.viewId, descriptor.grant!, session.installationId, contextRequest.context_id),
+    });
     const context = await buildAppChatModelContext({
       metadata: request,
       session,
       workspace,
       storedPackage: descriptor.storedPackage!,
+      contextProjection,
       resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
       executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest(actionRequest),
     });
@@ -549,6 +557,7 @@ export class ResumeAppHostAdapter {
       evidence: {
         action_exposure: context.evidence.actionExposure,
         resources: context.evidence.resources,
+        contexts: context.evidence.contexts,
       },
     };
   }

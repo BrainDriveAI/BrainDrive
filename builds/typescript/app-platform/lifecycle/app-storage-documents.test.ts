@@ -418,4 +418,61 @@ describe("SCAF-002 app-owned durable document storage", () => {
       content: legacyProjection,
     });
   });
+
+  it("rebinds retained owner data to a fresh installation and preserves explicit delete", async () => {
+    const store = await temporaryStore();
+    const firstInstall = authority();
+    await store.bindActiveAuthority(firstInstall);
+    const marker = "LIFE-KEEP retained marker";
+    const created = await store.writeDocument(writeInput({
+      auth: firstInstall,
+      documentId: "agent.instructions",
+      bindingId: "agent.instructions.current",
+      role: "source_document",
+      retentionClass: "durable_owner_data",
+      content: marker,
+      idempotencyKey: "agent-instructions-marker-create",
+    }));
+
+    const secondInstall = authority({
+      installation_id: "80000000-0000-4000-8000-000000000003",
+      package_digest: `sha256:${"f".repeat(64)}`,
+      lifecycle_generation: 9,
+      grant_id: "80000000-0000-4000-8000-000000000004",
+    });
+    await store.bindActiveAuthority(secondInstall);
+    await expect(store.readDocument(secondInstall, "agent.instructions")).resolves.toMatchObject({
+      document_id: "agent.instructions",
+      content: marker,
+      content_digest: created.record.content_digest,
+      installation_id: secondInstall.installation_id,
+    });
+    await expect(store.writeDocument(writeInput({
+      auth: firstInstall,
+      documentId: "agent.instructions",
+      bindingId: "agent.instructions.current",
+      content: "stale installation write",
+      expectedRevision: created.record.revision,
+      idempotencyKey: "agent-instructions-stale-write",
+    }))).rejects.toMatchObject({ code: "denied" });
+
+    const rebound = await store.readDocument(secondInstall, "agent.instructions");
+    const deleted = await store.deleteDocument(deleteInput({
+      auth: secondInstall,
+      documentId: "agent.instructions",
+      expectedRevision: rebound!.revision,
+      idempotencyKey: "agent-instructions-delete",
+    }));
+    expect(deleted.tombstone.prior_content_digest).toBe(created.record.content_digest);
+
+    const thirdInstall = authority({
+      installation_id: "90000000-0000-4000-8000-000000000003",
+      package_digest: `sha256:${"1".repeat(64)}`,
+      lifecycle_generation: 10,
+      grant_id: "90000000-0000-4000-8000-000000000004",
+    });
+    await store.bindActiveAuthority(thirdInstall);
+    await expect(store.readDocument(thirdInstall, "agent.instructions")).resolves.toBeNull();
+    expect((await store.listDocuments(thirdInstall)).records).toEqual([]);
+  });
 });

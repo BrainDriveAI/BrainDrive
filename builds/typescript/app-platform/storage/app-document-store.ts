@@ -28,6 +28,7 @@ import { AppPlatformError } from "../lifecycle/errors.js";
 
 const DEFAULT_MAX_CONTENT_BYTES = 1_048_576;
 const PHYSICAL_DELETE_RETENTION_CLASSES = new Set(["disposable_preview_cache", "transient_abandoned_operation"]);
+const REINSTALL_RETAINED_CLASSES = new Set(["durable_owner_data", "durable_operation_lookup", "rollback_recovery_window"]);
 
 const IdempotencyInputDigestSchema = AppDocumentRecordSchema.shape.content_digest;
 const WriteIdempotencyRecordSchema = z.object({
@@ -103,7 +104,16 @@ export class AppDocumentStorageService {
 
   async bindActiveAuthority(authority: AppDocumentStorageAuthority): Promise<void> {
     const parsedAuthority = AppDocumentStorageAuthoritySchema.parse(authority);
+    const previous = await this.readOwnerAppActiveAuthority(parsedAuthority);
+    if (previous && canRebindRetainedStorage(previous, parsedAuthority)) {
+      await this.rebindRetainedDocuments(authorityFromBinding(previous), parsedAuthority);
+    }
     await this.writeAtomic(this.activeAuthorityPath(parsedAuthority), ActiveAuthorityBindingSchema.parse({
+      ...parsedAuthority,
+      binding_version: 1,
+      bound_at: this.now().toISOString(),
+    }));
+    await this.writeAtomic(this.ownerAppActiveAuthorityPath(parsedAuthority), ActiveAuthorityBindingSchema.parse({
       ...parsedAuthority,
       binding_version: 1,
       bound_at: this.now().toISOString(),
@@ -413,9 +423,11 @@ export class AppDocumentStorageService {
   }
 
   private async assertActiveMutationAuthority(authority: AppDocumentStorageAuthority): Promise<void> {
-    const active = await this.readActiveAuthority(authority);
-    if (!active) return;
-    if (!authoritiesEqual(active, authority)) {
+    const [active, ownerAppActive] = await Promise.all([
+      this.readActiveAuthority(authority),
+      this.readOwnerAppActiveAuthority(authority),
+    ]);
+    if ((active && !authoritiesEqual(active, authority)) || (ownerAppActive && !authoritiesEqual(ownerAppActive, authority))) {
       throw new AppPlatformError("denied", "App document mutation authority does not match the active storage binding", 403);
     }
   }
@@ -426,6 +438,55 @@ export class AppDocumentStorageService {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
+    }
+  }
+
+  private async readOwnerAppActiveAuthority(authority: AppDocumentStorageAuthority): Promise<ActiveAuthorityBinding | null> {
+    try {
+      return ActiveAuthorityBindingSchema.parse(JSON.parse(await readFile(this.ownerAppActiveAuthorityPath(authority), "utf8")));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  private async rebindRetainedDocuments(previous: AppDocumentStorageAuthority, current: AppDocumentStorageAuthority): Promise<void> {
+    const now = this.now().toISOString();
+    const [records, tombstones] = await Promise.all([
+      this.listAllRecords(previous),
+      this.listAllTombstones(previous),
+    ]);
+    for (const record of records.filter((candidate) => REINSTALL_RETAINED_CLASSES.has(candidate.retention_class))) {
+      await this.writeAtomic(this.documentPath(current, record.document_id), AppDocumentRecordSchema.parse({
+        ...record,
+        owner_id: current.owner_id,
+        actor_id: current.actor_id,
+        app_id: current.app_id,
+        publisher_id: current.publisher_id,
+        installation_id: current.installation_id,
+        package_digest: current.package_digest,
+        lifecycle_generation: current.lifecycle_generation,
+        grant_id: current.grant_id,
+        grant_revision: current.grant_revision,
+        revocation_generation: current.revocation_generation,
+        updated_at: now,
+        updated_by: current,
+      }));
+    }
+    for (const tombstone of tombstones.filter((candidate) => REINSTALL_RETAINED_CLASSES.has(candidate.retention_class))) {
+      await this.writeAtomic(this.tombstonePath(current, tombstone.document_id), AppDocumentTombstoneRecordSchema.parse({
+        ...tombstone,
+        owner_id: current.owner_id,
+        actor_id: current.actor_id,
+        app_id: current.app_id,
+        publisher_id: current.publisher_id,
+        installation_id: current.installation_id,
+        package_digest: current.package_digest,
+        lifecycle_generation: current.lifecycle_generation,
+        grant_id: current.grant_id,
+        grant_revision: current.grant_revision,
+        revocation_generation: current.revocation_generation,
+      }));
     }
   }
 
@@ -449,11 +510,23 @@ export class AppDocumentStorageService {
     return path.join(this.namespaceRoot(authority), "authority", "current.json");
   }
 
+  private ownerAppActiveAuthorityPath(authority: AppDocumentStorageAuthority): string {
+    return path.join(this.ownerAppRoot(authority), "authority", "current.json");
+  }
+
   private idempotencyPath(authority: AppDocumentStorageAuthority, idempotencyKey: string): string {
     return path.join(this.namespaceRoot(authority), "idempotency", `${hashSegment(idempotencyKey)}.json`);
   }
 
   private namespaceRoot(authority: AppDocumentStorageAuthority): string {
+    return path.join(
+      this.ownerAppRoot(authority),
+      "installations",
+      authority.installation_id,
+    );
+  }
+
+  private ownerAppRoot(authority: AppDocumentStorageAuthority): string {
     return path.join(
       this.root,
       "app-storage",
@@ -461,8 +534,6 @@ export class AppDocumentStorageService {
       hashSegment(authority.owner_id),
       "apps",
       authority.app_id,
-      "installations",
-      authority.installation_id,
     );
   }
 
@@ -599,6 +670,18 @@ function authoritiesEqual(left: AppDocumentStorageAuthority, right: AppDocumentS
     left.grant_id === right.grant_id &&
     left.grant_revision === right.grant_revision &&
     left.revocation_generation === right.revocation_generation;
+}
+
+function canRebindRetainedStorage(previous: AppDocumentStorageAuthority, current: AppDocumentStorageAuthority): boolean {
+  return previous.owner_id === current.owner_id &&
+    previous.app_id === current.app_id &&
+    previous.publisher_id === current.publisher_id &&
+    previous.installation_id !== current.installation_id;
+}
+
+function authorityFromBinding(binding: ActiveAuthorityBinding): AppDocumentStorageAuthority {
+  const { binding_version: _bindingVersion, bound_at: _boundAt, ...authority } = binding;
+  return AppDocumentStorageAuthoritySchema.parse(authority);
 }
 
 function compareAuditProjections(left: AppDocumentAuditProjection, right: AppDocumentAuditProjection): number {

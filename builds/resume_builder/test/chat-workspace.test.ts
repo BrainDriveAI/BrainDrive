@@ -417,10 +417,46 @@ describe("Resume Builder chat workspace contract", () => {
     ]);
   });
 
+  it("returns Career memory confirmation capability results without hardcoded saved claims", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "career.fact.confirm",
+      action_input: {
+        decisions: [{
+          fact_record_id: crypto.randomUUID(),
+          fact_revision_id: crypto.randomUUID(),
+          expected_revision: 1,
+          decision: "accept",
+          edited_value: null,
+          review_note: null,
+        }],
+      },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `confirm-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    });
+
+    expect(plan).toMatchObject({
+      action_id: "career.fact.confirm",
+      steps: [{ step_id: "confirm-career-facts", capability: "career.facts.confirm", owner_confirmation: "inherit" }],
+      final_result: { kind: "step_result", step_id: "confirm-career-facts" },
+    });
+    expect(JSON.stringify(plan.final_result)).not.toMatch(/saved|remembered/i);
+  });
+
   it("plans Resume chat actions into generic host-executable steps from the Profile document", () => {
     const sessionId = crypto.randomUUID();
     const operationId = crypto.randomUUID();
-    const profileMarkdown = "## Experience\n- Reduced launch slips by 38% across six product squads.";
+    const profileMarkdown = "# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.";
     const request = {
       action_id: "resume.create",
       action_input: {},
@@ -469,6 +505,112 @@ describe("Resume Builder chat workspace contract", () => {
       final_result: { kind: "step_result", step_id: "write-resume-capability" },
     });
     expect(JSON.stringify(first)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
+  });
+
+  it("blocks Create resume for sparse Profile and names missing essentials before render", () => {
+    const operationId = crypto.randomUUID();
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-sparse-create-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: [
+          "# Resume Profile",
+          "",
+          "## Summary",
+          "- Customer support leader.",
+          "## Experience",
+          "- [gap: prior role details]",
+        ].join("\n"),
+      }],
+    });
+
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "capability.call", capability: "resume.definitions.write" }),
+      expect.objectContaining({ type: "document.write", document_id: "resume.document" }),
+    ]));
+    expect(plan).toMatchObject({
+      action_id: "resume.create",
+      steps: [{
+        step_id: "write-missing-essentials-result",
+        type: "document.write",
+        document_id: "resume.action-result",
+        media_type: "application/json",
+        retention_class: "durable_operation_lookup",
+        content: {
+          status: "missing_essentials",
+          missing_essentials: expect.arrayContaining([
+            expect.objectContaining({ field_id: "contact_identity", label: "Contact identity" }),
+            expect.objectContaining({ field_id: "experience", label: "Experience" }),
+            expect.objectContaining({ label: "Unresolved gap: prior role details" }),
+          ]),
+          choices: expect.arrayContaining([
+            expect.objectContaining({ choice: "provide" }),
+            expect.objectContaining({ choice: "omit" }),
+            expect.objectContaining({ choice: "mark_unknown" }),
+            expect.objectContaining({ choice: "proceed_with_limitations" }),
+          ]),
+        },
+      }],
+      final_result: { kind: "step_result", step_id: "write-missing-essentials-result" },
+    });
+  });
+
+  it("renders sparse Profile only after explicit proceed-with-limitations disposition", () => {
+    const operationId = crypto.randomUUID();
+    const profileMarkdown = [
+      "# Resume Profile",
+      "",
+      "## Summary",
+      "- Customer support leader.",
+      "## Experience",
+      "- [gap: prior role details]",
+    ].join("\n");
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: { missing_essential_disposition: "proceed_with_limitations" },
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-sparse-proceed-${operationId}`,
+      occurred_at: "2026-08-27T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: profileMarkdown,
+      }],
+    });
+
+    const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown } | undefined;
+    expect(plan.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "capability.call", capability: "resume.definitions.write" }),
+      expect.objectContaining({ type: "document.write", document_id: "resume.document" }),
+    ]));
+    expect(documentWrite?.content).toContain("- [gap: prior role details]");
+    expect(JSON.stringify(plan)).not.toMatch(/Maya|Torres|email|phone/i);
   });
 
   it("ignores model-supplied Resume markdown and creates only from the Profile document", () => {
@@ -1036,6 +1178,9 @@ describe("Resume Builder chat workspace contract", () => {
     expect(agent).toContain("Never say the PDF is in the sidebar, in Your Resume, in this conversation, or anywhere else in BrainDrive");
     expect(agent).toContain("Run the declared `resume.state.read` action with an empty input, `{}`");
     expect(agent).toContain("A null receipt means no export has completed in this workspace");
+    expect(agent).toContain("propose it in that same turn with the declared `career.fact.propose` app action");
+    expect(agent).toContain("After a `career.fact.confirm` action result succeeds, announce the saved fact or preference in that same assistant response");
+    expect(agent).toContain("If confirmation fails, is denied, is unavailable, or has not returned a result, say it was not saved");
     expect(interview).toContain("Resume dates are absolute");
     expect(interview).toContain("An owner's hedge stays hedged");
     expect(interview).toContain("Do not use this as a checklist");

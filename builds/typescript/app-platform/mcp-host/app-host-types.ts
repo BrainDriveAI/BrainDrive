@@ -103,6 +103,10 @@ export type AppChatModelContext = {
   evidence: {
     action_exposure: Array<{ action_id: string; tool_name: string | null; model_exposure: string; exposed: boolean }>;
     resources: Array<{ resource_id: string; package_path: string; content_digest: `sha256:${string}`; included: boolean; byte_length: number; content_source?: "package" | "owner_override"; owner_revision?: number }>;
+    contexts: Array<
+      | { context_id: string; kind: string; state: "available"; required: boolean; byte_length: number; content_digest: `sha256:${string}`; included: boolean }
+      | { context_id: string; kind: string; state: "unavailable"; required: boolean; reason: string; included: false }
+    >;
   };
 };
 

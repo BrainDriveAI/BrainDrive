@@ -184,6 +184,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
             required: [],
             properties: {
               locale: { type: "string" },
+              missing_essential_disposition: { enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"], type: "string" },
               page_intent: { type: "string" },
             },
           },
@@ -218,7 +219,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         idempotency_key: `scaf-007-profile-action-${profileOperationId}`,
       })).resolves.toMatchObject({ status: "ok" });
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
-        action_input: {},
+        action_input: { missing_essential_disposition: "proceed_with_limitations" },
         operation_id: createOperationId,
         idempotency_key: `scaf-007-resume-create-${createOperationId}`,
       })).resolves.toMatchObject({

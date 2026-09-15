@@ -327,6 +327,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
       evidence: {
         action_exposure: context.evidence.actionExposure,
         resources: context.evidence.resources,
+        contexts: context.evidence.contexts,
       },
     };
   }

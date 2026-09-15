@@ -151,6 +151,7 @@ function resumeCreateInputSchema(): Record<string, unknown> {
     properties: {
       locale: { type: "string", minLength: 2, maxLength: 35 },
       page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
+      missing_essential_disposition: { type: "string", enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"] },
     },
     required: [],
   };
@@ -660,7 +661,7 @@ describe("app-chat workspace session authority", () => {
       auth: ownerAuth,
       correlationId: "rbjc-state-create",
     }, "app_action_resume_create", {
-      action_input: {},
+      action_input: { missing_essential_disposition: "proceed_with_limitations" },
       operation_id: randomUUID(),
       idempotency_key: `state-create-${randomUUID()}`,
     })).resolves.toMatchObject({ status: "ok" });
@@ -735,6 +736,183 @@ describe("app-chat workspace session authority", () => {
     } })).toThrow();
   });
 
+  it("includes only session-projected authorized context in app-chat model context", async () => {
+    const session = {
+      ownerId: randomUUID(),
+      accountId: randomUUID(),
+      actorId: "owner",
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+      installationId: randomUUID(),
+      packageDigest: digest("a"),
+      lifecycleGeneration: 2,
+      grantId: randomUUID(),
+      grantRevision: 1,
+      revocationGeneration: 0,
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      contextGrantSetDigest: digest("b"),
+      sessionId: randomUUID(),
+      viewId: randomUUID(),
+      operationId: randomUUID(),
+      sessionGeneration: 1,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const metadata: AppChatModelMetadata = {
+      metadata_version: 1,
+      app_id: session.appId,
+      installation_id: session.installationId,
+      package_digest: session.packageDigest,
+      session_id: session.sessionId,
+      view_id: session.viewId,
+      operation_id: session.operationId,
+      session_generation: session.sessionGeneration,
+      presentation_id: session.presentationId,
+      workspace_id: session.workspaceId,
+      context_grant_set_digest: session.contextGrantSetDigest,
+    };
+    const contextContent = {
+      profile_summary: "Maya Chen is a senior technical program manager.",
+      current_goal: "Target product operations leadership roles.",
+    };
+    const contextDigest = canonicalInputDigest(contextContent);
+    const model = await buildAppChatModelContext({
+      metadata,
+      session,
+      workspace: workspace([
+        {
+          context_version: 1,
+          context_id: "career.resume",
+          kind: "career_context",
+          title: "Career Context",
+          description: "Authorized Career context.",
+          required: false,
+          max_bytes: 4096,
+          freshness_policy: "session_snapshot",
+          required_capabilities: [{ name: "career.context.read", version: 1 }],
+        },
+      ]),
+      storedPackage: {
+        store_version: 1,
+        package_digest: session.packageDigest,
+        package_version: "1.0.0",
+        package_root: "/tmp/bd-synthetic-package",
+        entrypoint: "/tmp/bd-synthetic-package/index.js",
+        manifest: {} as never,
+        trust: {} as never,
+      },
+      contextProjection: {
+        context_projection_set_version: 1,
+        context_grant_set_digest: session.contextGrantSetDigest,
+        items: [
+          {
+            context_projection_version: 1,
+            context_id: "career.resume",
+            kind: "career_context",
+            state: "available",
+            required: false,
+            byte_length: Buffer.byteLength(JSON.stringify(contextContent), "utf8"),
+            content_digest: contextDigest,
+            content: contextContent,
+          },
+          {
+            context_projection_version: 1,
+            context_id: "owner.profile",
+            kind: "owner_profile",
+            state: "unavailable",
+            required: false,
+            reason: "unsupported",
+          },
+        ],
+      },
+      executeAction: async () => ({ ok: true }),
+    });
+
+    expect(model.promptContext).toContain("### Authorized App Context");
+    expect(model.promptContext).toContain("career.resume");
+    expect(model.promptContext).toContain("Maya Chen is a senior technical program manager.");
+    expect(model.promptContext).toContain(contextDigest);
+    expect(model.promptContext).toContain("owner.profile: owner_profile unavailable (unsupported)");
+    expect(model.promptContext).not.toContain("private-journal-outside-grant");
+    expect(model.evidence.contexts).toEqual([
+      {
+        context_id: "career.resume",
+        kind: "career_context",
+        state: "available",
+        required: false,
+        byte_length: Buffer.byteLength(JSON.stringify(contextContent), "utf8"),
+        content_digest: contextDigest,
+        included: true,
+      },
+      {
+        context_id: "owner.profile",
+        kind: "owner_profile",
+        state: "unavailable",
+        required: false,
+        reason: "unsupported",
+        included: false,
+      },
+    ]);
+  });
+
+  it("rejects context projections that do not match the active app-chat session digest", async () => {
+    const session = {
+      ownerId: randomUUID(),
+      accountId: randomUUID(),
+      actorId: "owner",
+      appId: "ai.braindrive.resume-builder",
+      publisherId: "ai.braindrive",
+      installationId: randomUUID(),
+      packageDigest: digest("a"),
+      lifecycleGeneration: 2,
+      grantId: randomUUID(),
+      grantRevision: 1,
+      revocationGeneration: 0,
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      contextGrantSetDigest: digest("b"),
+      sessionId: randomUUID(),
+      viewId: randomUUID(),
+      operationId: randomUUID(),
+      sessionGeneration: 1,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await expect(buildAppChatModelContext({
+      metadata: {
+        metadata_version: 1,
+        app_id: session.appId,
+        installation_id: session.installationId,
+        package_digest: session.packageDigest,
+        session_id: session.sessionId,
+        view_id: session.viewId,
+        operation_id: session.operationId,
+        session_generation: session.sessionGeneration,
+        presentation_id: session.presentationId,
+        workspace_id: session.workspaceId,
+        context_grant_set_digest: session.contextGrantSetDigest,
+      },
+      session,
+      workspace: workspace(),
+      storedPackage: {
+        store_version: 1,
+        package_digest: session.packageDigest,
+        package_version: "1.0.0",
+        package_root: "/tmp/bd-synthetic-package",
+        entrypoint: "/tmp/bd-synthetic-package/index.js",
+        manifest: {} as never,
+        trust: {} as never,
+      },
+      contextProjection: {
+        context_projection_set_version: 1,
+        context_grant_set_digest: digest("c"),
+        items: [],
+      },
+      executeAction: async () => ({ ok: true }),
+    })).rejects.toMatchObject({ code: "session_closed" });
+  });
+
   it("opens a chat workspace session bound to package, presentation, workspace, grant, lifecycle, and declared context", async () => {
     const router = fakeRouter();
     const { host } = await setup({
@@ -795,6 +973,52 @@ describe("app-chat workspace session authority", () => {
       { entry_point: "direct" },
       expect.objectContaining({ viewId: launch.session.view_id }),
     );
+  });
+
+  it("reprojects authorized Career context into the per-turn model prompt", async () => {
+    const router = fakeRouter({ sources: [{ reference: "career-context", state: "present", label: "Synthetic Career Profile" }] });
+    const { host } = await setup({
+      router,
+      requestedCapabilities: ["career.context.read"],
+      contextRequests: [
+        {
+          context_version: 1,
+          context_id: "career.resume",
+          kind: "career_context",
+          title: "Career Context",
+          description: "Bounded career context for resume work.",
+          required: false,
+          max_bytes: 65_536,
+          freshness_policy: "session_snapshot",
+          required_capabilities: [{ name: "career.context.read", version: 1 }],
+        },
+        {
+          context_version: 1,
+          context_id: "owner.profile",
+          kind: "owner_profile",
+          title: "Owner Profile",
+          description: "Unsupported owner profile context.",
+          required: false,
+          max_bytes: 16_384,
+          freshness_policy: "latest_available",
+          required_capabilities: [],
+        },
+      ],
+    });
+
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+
+    expect(model.prompt_context).toContain("### Authorized App Context");
+    expect(model.prompt_context).toContain("career.resume");
+    expect(model.prompt_context).toContain("Synthetic Career Profile");
+    expect(model.prompt_context).toContain("owner.profile: owner_profile unavailable (unsupported)");
+    expect(model.prompt_context).not.toContain("private-journal-outside-grant");
+    expect(model.evidence.contexts).toEqual([
+      expect.objectContaining({ context_id: "career.resume", kind: "career_context", state: "available", included: true }),
+      { context_id: "owner.profile", kind: "owner_profile", state: "unavailable", required: false, reason: "unsupported", included: false },
+    ]);
+    expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(2);
   });
 
   it("projects app-declared empty-state metadata in the workspace launch DTO", async () => {
@@ -1847,7 +2071,7 @@ describe("app-chat workspace session authority", () => {
       auth: ownerAuth,
       correlationId: "rbjc-dispatch",
     }, "app_action_resume_create", {
-      action_input: {},
+      action_input: { missing_essential_disposition: "proceed_with_limitations" },
       operation_id: createOperationId,
       idempotency_key: `rbjc-dispatch-${createOperationId}`,
     })).resolves.toMatchObject({ status: "ok" });
