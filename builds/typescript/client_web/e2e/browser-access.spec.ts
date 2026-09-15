@@ -108,7 +108,10 @@ test.describe("LAN browser access", () => {
     await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
 
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await page.getByRole("button", { name: "Reload app" }).click();
+    // The app-chat workspace has no "Reload app" control (that button belongs to the
+    // sandboxed-frame toolbar handled in the branch above). Reload the browser instead
+    // and require the workspace and Profile document to come back on non-loopback HTTP.
+    await page.reload();
     await expectAppWorkspaceReady(page, "Resume Builder");
     await page.getByRole("button", { name: "Your Resume Profile" }).click();
     await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
