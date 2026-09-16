@@ -6,6 +6,11 @@ import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-reposi
 import { createDockerAppLifecycle } from "../app-platform/lifecycle/bootstrap.js";
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
 import { ResumeAppHostAdapter } from "../app-platform/mcp-host/resume-host-adapter.js";
+import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
+import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
+import { CareerPlacementAdapter } from "../resume-domain/career.js";
+import { ResumeDomainService } from "../resume-domain/service.js";
+import { ResumeDataStore } from "../resume-domain/store.js";
 
 type AuditRow = { event: string; details: Record<string, unknown> };
 type WorkspaceResource = { resource_id: string; content_digest: string; prompt_inclusion: string };
@@ -28,8 +33,24 @@ try {
     idempotencyKey: "phase0-instrumentation-install",
     approveCapabilities: true,
   });
+  const descriptor = await lifecycle.ownerDescriptor();
+  if (!descriptor.grant) {
+    throw new Error("Installed Resume app did not receive a capability grant");
+  }
+  const resumeStore = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false);
+  await resumeStore.initialize(descriptor.grant.owner_id);
+  const capabilityRouter = new ResumeCapabilityRouter(
+    new ResumeDomainService(resumeStore),
+    new CareerPlacementAdapter(root),
+    new ResumeCapabilityPolicy(async () => {
+      const current = await lifecycle!.ownerDescriptor();
+      return current.record.state === "active" ? current.grant : null;
+    }),
+    (event, details) => audits.push({ event, details: sanitizeAudit(details) }),
+  );
 
   host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, {
+    capabilityRouter,
     audit: (event, details) => audits.push({ event, details: sanitizeAudit(details) }),
   }));
 
@@ -73,6 +94,19 @@ try {
   });
   if (requireResource && !modelContext.evidence.resources.some((resource) => resource.included)) {
     throw new Error("Expected at least one resource included in model context evidence");
+  }
+  const contextReadAudit = audits.find((row) =>
+    row.event === "app.capability.completed" &&
+    row.details.capability === "career.context.read" &&
+    row.details.resource_id === "career.resume_context"
+  );
+  if (!contextReadAudit) {
+    throw new Error("Expected career.context.read audit evidence");
+  }
+  for (const key of ["session_id", "view_id", "grant_id", "context_grant_set_digest", "context_projection_digest"]) {
+    if (typeof contextReadAudit.details[key] !== "string") {
+      throw new Error(`Expected context-read audit field ${key}`);
+    }
   }
 
   console.log(JSON.stringify({
@@ -126,8 +160,13 @@ function sanitizeAudit(details: Record<string, unknown>): Record<string, unknown
     "app_id",
     "installation_id",
     "package_digest",
+    "capability",
+    "context_projection_digest",
     "view_id",
+    "session_id",
     "operation_id",
+    "resource_id",
+    "grant_id",
     "presentation_id",
     "workspace_id",
     "lifecycle_generation",
