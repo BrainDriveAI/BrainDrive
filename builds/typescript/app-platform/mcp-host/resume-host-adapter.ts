@@ -351,7 +351,7 @@ export class ResumeAppHostAdapter {
       contextGrantSetDigest: contextGrantPlan.digest,
     }), input.resume);
     const context = await projectAppChatContext(selection.workspace, contextGrantPlan, this.capabilityRouter ? {
-      career_context: async (request) => this.projectCareerContextForChat(sessionPlan.viewId, descriptor.grant!, record.installation_id!, request.context_id),
+      career_context: async (request) => this.projectCareerContextForChat(sessionPlan.sessionId, sessionPlan.viewId, contextGrantPlan.digest, descriptor.grant!, record.installation_id!, request.context_id),
     } : {});
     const committed = this.chatSessions.commit(sessionPlan);
     this.audit("app.chat_workspace.session_opened", {
@@ -540,7 +540,7 @@ export class ResumeAppHostAdapter {
       throw new AppPlatformError("session_closed", "App-chat context grant digest is no longer current", 410);
     }
     const contextProjection = await projectAppChatContext(workspace, contextGrantPlan, {
-      career_context: async (contextRequest) => this.projectCareerContextForChat(session.viewId, descriptor.grant!, session.installationId, contextRequest.context_id),
+      career_context: async (contextRequest) => this.projectCareerContextForChat(session.sessionId, session.viewId, session.contextGrantSetDigest, descriptor.grant!, session.installationId, contextRequest.context_id),
     });
     const context = await buildAppChatModelContext({
       metadata: request,
@@ -776,7 +776,7 @@ export class ResumeAppHostAdapter {
         });
         const result = await this.executeDataCapability(parsedCapability.data, message.payload.input, {
           authority: restrictedAuthorityFromTokenClaims(claims), installationId: session.installationId,
-          connectionId: session.mcp.connectionId, viewId: session.viewId, operationId,
+          sessionId: session.sessionId, connectionId: session.mcp.connectionId, viewId: session.viewId, operationId,
           correlationId: message.message_id, idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
         });
         return { status: "capability_completed", result };
@@ -988,7 +988,7 @@ export class ResumeAppHostAdapter {
     }
     return this.executeDataCapability(entry.name as AppDataCapability, input, {
       authority: restrictedAuthorityFromTokenClaims(claims), installationId: claims.installation_id,
-      connectionId: claims.connection_id, viewId: null, operationId, correlationId: operationId,
+      sessionId: matchingSession.sessionId, connectionId: claims.connection_id, viewId: null, operationId, correlationId: operationId,
       idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.limits.maxDurationMs),
     });
   }
@@ -1302,7 +1302,7 @@ export class ResumeAppHostAdapter {
     };
   }
 
-  private async projectCareerContextForChat(viewId: string, grant: CapabilityGrant, installationId: string, resourceId: string): Promise<unknown> {
+  private async projectCareerContextForChat(sessionId: string, viewId: string, contextGrantSetDigest: `sha256:${string}`, grant: CapabilityGrant, installationId: string, resourceId: string): Promise<unknown> {
     const operationId = randomUUID();
     const idempotencyKey = `app-chat-context-${operationId}`;
     const issued = await this.lifecycle.issueSession({
@@ -1321,6 +1321,8 @@ export class ResumeAppHostAdapter {
     return this.executeDataCapability("career.context.read", { entry_point: "direct" }, {
       authority: restrictedAuthorityFromTokenClaims(claims),
       installationId,
+      sessionId,
+      contextGrantSetDigest,
       connectionId: claims.connection_id,
       viewId,
       operationId,
@@ -1424,11 +1426,13 @@ export class ResumeAppHostAdapter {
     return this.executeDataCapability(capability, input, {
       authority: this.restrictedAuthorityForRegisteredCapability(capability, context, connectionId),
       installationId: context.installationId,
+      sessionId: context.sessionId ?? null,
       connectionId,
       viewId: context.viewId,
       operationId: context.operationId,
       correlationId: context.operationId,
       idempotencyKey: context.idempotencyKey,
+      modelCallId: context.modelCallId ?? null,
       deadlineAt: context.deadlineAt,
       hostOwnerConfirmed: context.ownerConfirmation.confirmed,
       isCancelled: context.isCancelled,
@@ -1538,6 +1542,7 @@ export class ResumeAppHostAdapter {
           operationId: request.operationId,
           idempotencyKey: request.idempotencyKey,
           ownerConfirmed: request.ownerConfirmed,
+          modelCallId: request.modelCallId ?? null,
           now: this.now,
           capabilityDispatcher: this.capabilityDispatcher,
           documentStorage: this.documentStorage,
@@ -1567,6 +1572,7 @@ export class ResumeAppHostAdapter {
         grant: descriptor.grant!,
         operationId: request.operationId,
         idempotencyKey: request.idempotencyKey,
+        modelCallId: request.modelCallId ?? null,
         deadlineAt: this.now() + 120_000,
         ownerConfirmation: {
           confirmed: request.ownerConfirmed,

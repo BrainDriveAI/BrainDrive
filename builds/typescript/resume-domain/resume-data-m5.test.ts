@@ -320,11 +320,17 @@ describe("M5 scoped Resume Builder capability policy", () => {
     await expect(harness.router.execute("career.facts.propose", { ...proposalInput(), grant_id: crypto.randomUUID() }, harness.context("career.facts.propose"))).rejects.toMatchObject({ code: "invalid_input" });
     await expect(harness.router.execute("career.facts.propose", { oversized: "x".repeat(262_145) }, harness.context("career.facts.propose"))).rejects.toMatchObject({ code: "invalid_input", statusCode: 413 });
     await harness.router.execute("career.facts.propose", proposalInput(sentinel), harness.context("career.facts.propose"));
-    const event = harness.events.at(-1)!;
-    const fullEvent = { event_name: event.event, ...event.details };
-    expect(() => assertContentFreeAudit(fullEvent)).not.toThrow();
-    expect(AuditEventSchema.safeParse(fullEvent).success).toBe(true);
-    const serialized = JSON.stringify(event);
+    const emittedAudit = harness.events.filter(({ event }) => event === "app.capability.completed" || event === "app.owner_memory.lifecycle");
+    expect(emittedAudit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "app.capability.completed" }),
+      expect.objectContaining({ event: "app.owner_memory.lifecycle" }),
+    ]));
+    for (const event of emittedAudit) {
+      const fullEvent = { event_name: event.event, ...event.details };
+      expect(() => assertContentFreeAudit(fullEvent)).not.toThrow();
+      expect(AuditEventSchema.safeParse(fullEvent).success).toBe(true);
+    }
+    const serialized = JSON.stringify(emittedAudit);
     expect(serialized).not.toContain(sentinel);
     expect(serialized).not.toContain(harness.root);
     expect(serialized).not.toContain("permissions");
@@ -332,7 +338,9 @@ describe("M5 scoped Resume Builder capability policy", () => {
 
     configureAuditFileSink(harness.root);
     try {
-      auditLog(event.event, event.details);
+      for (const event of emittedAudit) {
+        auditLog(event.event, event.details);
+      }
     } finally {
       disableAuditFileSink();
     }
@@ -350,6 +358,7 @@ describe("M5 scoped Resume Builder capability policy", () => {
     const auditFile = path.join(extracted, "memory", "diagnostics", "audit", `${new Date().toISOString().slice(0, 10)}.jsonl`);
     const bundledAudit = await readFile(auditFile, "utf8");
     expect(bundledAudit).toContain("app.capability.completed");
+    expect(bundledAudit).toContain("app.owner_memory.lifecycle");
     expect(bundledAudit).not.toContain(sentinel);
     expect(bundledAudit).not.toContain(harness.root);
     expect(bundledAudit).not.toContain("permissions");

@@ -31,6 +31,7 @@ export type CapabilityDispatchContext = {
   };
   operationId: string;
   idempotencyKey: string;
+  modelCallId?: string | null;
   deadlineAt: number;
   ownerConfirmation?: { confirmed: boolean; proofId?: string };
 };
@@ -119,6 +120,7 @@ export class CapabilityDispatcher {
         connectionId: context.connectionId ?? null, viewId: context.viewId ?? null, sessionId: context.sessionId ?? null,
         lifecycleGeneration: context.lifecycleGeneration, grantId: context.grantId, grantRevision: context.grantRevision,
         revocationGeneration: context.revocationGeneration, operationId: context.operationId, idempotencyKey: context.idempotencyKey, signal: controller.signal,
+        modelCallId: context.modelCallId ?? null,
         deadlineAt: context.deadlineAt, requestedPurposes: context.requestedPurposes ?? [], grant,
         isCancelled: () => controller.signal.aborted, ownerConfirmation: context.ownerConfirmation ?? { confirmed: false },
       }),

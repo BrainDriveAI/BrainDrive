@@ -23,6 +23,7 @@ export type HostCapabilityContext = {
     app_id: string; installation_id: string; package_digest: string; capabilities: readonly string[];
     revoked_at: string | null; expires_at: string;
   };
+  modelCallId?: string | null;
   signal: AbortSignal;
   isCancelled: () => boolean;
   ownerConfirmation: { confirmed: boolean; proofId?: string };

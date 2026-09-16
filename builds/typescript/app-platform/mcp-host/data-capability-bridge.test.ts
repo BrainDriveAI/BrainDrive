@@ -341,12 +341,19 @@ describe("M4 capability bridge", () => {
       details.capability === "career.context.read" &&
       details.resource_id === "career.resume_context"
     );
+    const projectedContext = chatLaunch.context.items.find((item) =>
+      item.context_id === "career.resume_context" && item.state === "available"
+    );
     expect(contextReadAudit?.details).toMatchObject({
       owner_id: descriptor.grant!.owner_id,
       actor_id: descriptor.grant!.actor_id,
       app_id: "ai.braindrive.resume-builder",
       publisher_id: "ai.braindrive",
       installation_id: descriptor.grant!.installation_id,
+      session_id: chatLaunch.session.session_id,
+      view_id: chatLaunch.session.view_id,
+      context_grant_set_digest: chatLaunch.session.context_grant_set_digest,
+      context_projection_digest: projectedContext?.state === "available" ? projectedContext.content_digest : undefined,
       grant_id: descriptor.grant!.grant_id,
       grant_revision: descriptor.grant!.grant_revision,
       target_category: "career_context",
@@ -668,6 +675,40 @@ describe("M4 capability bridge", () => {
       },
       reused: false,
     });
+    expect(capabilityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: "app.owner_memory.lifecycle",
+        details: expect.objectContaining({
+          capability: "career.facts.propose",
+          target_category: "career_fact",
+          target_id: proposed.fact.metadata.record_id,
+          fact_revision_id: proposed.fact.metadata.revision_id,
+          owner_memory_transition: "propose",
+          owner_memory_outcome: "proposed",
+        }),
+      }),
+      expect.objectContaining({
+        event: "app.owner_memory.lifecycle",
+        details: expect.objectContaining({
+          capability: "career.facts.confirm",
+          target_category: "career_fact",
+          target_id: proposed.fact.metadata.record_id,
+          fact_revision_id: proposed.fact.metadata.revision_id,
+          owner_memory_transition: "owner_confirm",
+          owner_memory_outcome: "confirmed",
+        }),
+      }),
+      expect.objectContaining({
+        event: "app.owner_memory.lifecycle",
+        details: expect.objectContaining({
+          capability: "career.facts.confirm",
+          target_category: "career_fact",
+          target_id: proposed.fact.metadata.record_id,
+          owner_memory_transition: "durable_write",
+          owner_memory_outcome: "written",
+        }),
+      }),
+    ]));
     await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, "owner")).resolves.toMatchObject({ reused: true });
 
     const groupedProposals = await Promise.all([
@@ -690,6 +731,27 @@ describe("M4 capability bridge", () => {
       reused: false,
     });
     await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, "owner")).resolves.toMatchObject({ reused: true });
+    expect(capabilityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: "app.owner_memory.lifecycle",
+        details: expect.objectContaining({
+          capability: "career.facts.confirm",
+          target_id: groupedProposals[1]!.fact.metadata.record_id,
+          fact_revision_id: groupedProposals[1]!.fact.metadata.revision_id,
+          owner_memory_transition: "owner_confirm",
+          owner_memory_outcome: "confirmed",
+        }),
+      }),
+      expect.objectContaining({
+        event: "app.owner_memory.lifecycle",
+        details: expect.objectContaining({
+          capability: "career.facts.confirm",
+          target_id: groupedProposals[1]!.fact.metadata.record_id,
+          owner_memory_transition: "deny",
+          owner_memory_outcome: "denied",
+        }),
+      }),
+    ]));
     expect(capabilityEvents.filter(({ event }) => event === "app.resume_confirmation.grouped")).toEqual([
       expect.objectContaining({ details: expect.objectContaining({ confirmation_group_count: 1, confirmation_unit_count: 2, used_evidence_count: 1, item_count: 2, timing_class: "human" }) }),
     ]);

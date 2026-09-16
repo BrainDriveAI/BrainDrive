@@ -199,11 +199,11 @@ async function copyAuditDiagnostics(
 
 const SUPPORT_DETAIL_ALLOWLIST = new Set([
   "action", "actor_id", "app_id", "attempt", "attempt_outcome", "byte_count", "capability_diff", "capability_version", "checked_at", "connection_id", "decision",
-  "completion_mode", "deletion_class", "diagnostic_version", "duration_class", "elapsed_ms", "error_class", "error_code", "final_disposition", "finish_category", "generation", "grant_id", "installation_id",
-  "idempotency_decision", "item_count", "lifecycle_action", "next_state", "operation_id", "outcome", "owner_data_preserved", "owner_id",
-  "model_class", "output_schema_id", "output_schema_version", "package_digest", "package_version", "prior_state", "prompt_policy_id", "prompt_policy_version", "publisher_id", "purpose", "recovery", "recovery_class", "removed_classes",
+  "completion_mode", "context_grant_set_digest", "context_projection_digest", "deletion_class", "diagnostic_version", "duration_class", "elapsed_ms", "error_class", "error_code", "final_disposition", "finish_category", "generation", "grant_id", "installation_id",
+  "fact_revision_id", "idempotency_decision", "item_count", "lifecycle_action", "next_state", "operation_id", "outcome", "owner_data_preserved", "owner_id", "owner_memory_transition", "owner_memory_outcome",
+  "model_call_id", "model_class", "output_schema_id", "output_schema_version", "package_digest", "package_version", "prior_state", "prompt_policy_id", "prompt_policy_version", "publisher_id", "purpose", "recovery", "recovery_class", "removed_classes",
   "removed_item_count", "repair", "request_id", "result_state", "retained_classes", "retryable", "revocation_sequence", "schema_issue_ids", "stage", "step", "structural_failure_class",
-  "attempt_count", "revocation_generation", "grant_revision", "target_state", "timestamp", "transition_event", "usage_available", "validator_codes", "view_id",
+  "attempt_count", "revocation_generation", "grant_revision", "session_id", "target_category", "target_id", "target_state", "timestamp", "transition_event", "usage_available", "validator_codes", "view_id",
   "provider_validator_codes", "provider_validator_rule_ids", "local_candidate_classes", "targeted_fact_repair_validator_codes", "targeted_fact_repair_validator_rule_ids", "targeted_fact_repair_disposition", "full_general_constructor_validator_codes", "full_general_constructor_validator_rule_ids", "full_general_constructor_disposition", "original_failure_code", "recovery_disposition", "validator_rule_ids",
   "acknowledgement_timing_class", "conflict_class", "expected_revision", "idempotency_disposition", "initial_wait_class", "reconciliation_class", "reconciliation_count", "semantic_digest",
   "retry_relation_version", "retry_reason", "retry_prior_operation_id", "retry_new_operation_id", "retry_semantic_input_digest", "retry_strategy_revision_id", "retry_provider_profile_id", "retry_model_id", "retry_equivalent",

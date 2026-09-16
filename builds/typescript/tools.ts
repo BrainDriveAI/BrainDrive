@@ -140,10 +140,11 @@ function memoryExportTool(memoryRoot: string): ToolDefinition {
   };
 }
 
-export function buildToolContext(memoryRoot: string, auth: AuthContext, correlationId: string): ToolContext {
+export function buildToolContext(memoryRoot: string, auth: AuthContext, correlationId: string, modelCallId?: string): ToolContext {
   return {
     memoryRoot,
     auth,
     correlationId,
+    ...(modelCallId ? { modelCallId } : {}),
   };
 }

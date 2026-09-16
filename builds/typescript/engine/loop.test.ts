@@ -602,8 +602,9 @@ describe("runAgentLoop", () => {
   });
 
   it("records installed-app action audit provenance without app action content", async () => {
-    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number; modelCallId?: string }> = [];
     const ownerProfile = "# Resume Profile\n\nMaya Torres managed confidential payroll analytics.";
+    let observedModelCallId: string | undefined;
     let calls = 0;
     const adapter: ModelAdapter = {
       async complete() {
@@ -644,7 +645,10 @@ describe("runAgentLoop", () => {
           context_grant_set_digest: `sha256:${"b".repeat(64)}`,
           action_id: "resume.profile.update",
         },
-        execute: async () => ({ saved_profile_markdown: ownerProfile }),
+        execute: async (context) => {
+          observedModelCallId = context.modelCallId;
+          return { saved_profile_markdown: ownerProfile };
+        },
       },
     ]);
 
@@ -670,6 +674,7 @@ describe("runAgentLoop", () => {
 
     const toolCallAudit = auditEvents.find((entry) => entry.event === "prompt_audit.tool_call")?.details;
     const toolResultAudit = auditEvents.find((entry) => entry.event === "prompt_audit.tool_result")?.details;
+    const toolCallModelCallId = auditEvents.find((entry) => entry.event === "prompt_audit.tool_call")?.modelCallId;
 
     expect(toolCallAudit).toMatchObject({
       tool_call_id: "call-app-1",
@@ -693,6 +698,8 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify([toolCallAudit, toolResultAudit])).not.toContain(ownerProfile);
     expect(toolCallAudit).not.toHaveProperty("input");
     expect(toolResultAudit).not.toHaveProperty("output");
+    expect(observedModelCallId).toBe(toolCallModelCallId);
+    expect(observedModelCallId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 });
 
@@ -772,7 +779,7 @@ function streamSequenceAdapter(
 }
 
 function fakeRecorder(
-  events: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }>
+  events: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number; modelCallId?: string }>
 ): PromptAuditRecorder {
   return {
     traceId: "trace-1",
@@ -789,7 +796,7 @@ function fakeRecorder(
       include_source_snapshots: true,
     },
     append: async (event, details = {}, modelCall) => {
-      events.push({ event, details, modelCallIndex: modelCall?.model_call_index });
+      events.push({ event, details, modelCallIndex: modelCall?.model_call_index, modelCallId: modelCall?.model_call_id });
     },
   };
 }

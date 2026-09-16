@@ -55,8 +55,10 @@ describe("Spec 07 milestone 2 interaction contracts", () => {
     } as const;
     const coverage = AuditEventSchema.parse({ ...base, event_name: "app.resume_coverage.transitioned", job_revision_id: id(17), job_dimension: null, coverage_revision_id: id(18), coverage_state: "deferred", timing_class: "human" });
     const grouped = AuditEventSchema.parse({ ...base, event_id: id(19), event_name: "app.resume_confirmation.grouped", capability: "career.facts.confirm", confirmation_group_count: 1, confirmation_unit_count: 2, used_evidence_count: 1, timing_class: "human" });
+    const lifecycle = AuditEventSchema.parse({ ...base, event_id: id(20), event_name: "app.owner_memory.lifecycle", capability: "career.facts.confirm", target_category: "career_fact", target_id: id(21), model_call_id: id(22), fact_revision_id: id(23), owner_memory_transition: "durable_write", owner_memory_outcome: "written", item_count: 1 });
     expect(() => assertContentFreeAudit(coverage)).not.toThrow();
     expect(() => assertContentFreeAudit(grouped)).not.toThrow();
+    expect(() => assertContentFreeAudit(lifecycle)).not.toThrow();
     expect(AuditEventSchema.safeParse({ ...coverage, prompt: "private owner content" }).success).toBe(false);
   });
 
