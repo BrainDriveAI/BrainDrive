@@ -36,6 +36,7 @@
         "app.update.checkpoint_completed",
         "app.cleanup.completed",
         "app.capability.completed",
+        "app.owner_memory.lifecycle",
         "app.resume_recovery.save",
         "app.resume_recovery.restore",
         "app.resume_recovery.discard",
@@ -461,6 +462,38 @@
           "type": "string",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner_memory_transition": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "propose",
+            "owner_confirm",
+            "durable_write",
+            "deny"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner_memory_outcome": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "confirmed",
+            "written",
+            "denied"
+          ]
         },
         {
           "type": "null"

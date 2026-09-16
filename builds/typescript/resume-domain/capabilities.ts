@@ -23,6 +23,11 @@ import {
   type RestrictedCapabilityAuthority,
 } from "./capability-policy.js";
 
+type CapabilityAuditIdentity = Pick<
+  CapabilityGrant,
+  "actor_id" | "owner_id" | "app_id" | "publisher_id" | "package_digest" | "installation_id"
+>;
+
 const ContextInputSchema = z.object({ entry_point: z.enum(["direct", "career"]) }).strict();
 const ReadInputSchema = z.object({ record_id: z.string().uuid().optional() }).strict();
 const DefinitionReadInputSchema = z.union([
@@ -267,6 +272,8 @@ export class ResumeCapabilityRouter {
           result = await this.exportBroker.preview(input, authority);
           break;
       }
+      const durationMs = Date.now() - startedAt;
+      const idempotencyDecision = this.resultWasReused(result) ? "reused" : context.idempotencyDecision ?? "created";
       this.emitAudit(
         capability,
         context,
@@ -274,11 +281,12 @@ export class ResumeCapabilityRouter {
         input,
         this.isMutation(capability) ? "committed" : "allowed",
         null,
-        Date.now() - startedAt,
+        durationMs,
         Array.isArray(result) ? result.length : 1,
-        this.resultWasReused(result) ? "reused" : context.idempotencyDecision ?? "created",
+        idempotencyDecision,
         result,
       );
+      this.emitOwnerMemoryLifecycleAudits(capability, context, grant, durationMs, idempotencyDecision, result);
       return result;
     } catch (error) {
       const failure = error instanceof ResumeDomainError
@@ -544,7 +552,7 @@ export class ResumeCapabilityRouter {
   ): void {
     const binding = RestrictedCapabilityAuthoritySchema.safeParse(context.authority);
     if (!binding.success || !OpaqueIdSchema.safeParse(context.correlationId).success) return;
-    const source = grant ?? binding.data.context;
+    const source: CapabilityAuditIdentity = grant ?? binding.data.context;
     const target = this.auditTarget(capability, input);
     const resourceId = this.auditResourceId(context);
     const eventName = this.recoveryAuditEvent(capability, input, outcome, result);
@@ -607,6 +615,120 @@ export class ResumeCapabilityRouter {
       context_grant_set_digest: context.contextGrantSetDigest ?? null,
       context_projection_digest: result === undefined ? null : canonicalInputDigest(result),
     };
+  }
+
+  private emitOwnerMemoryLifecycleAudits(
+    capability: Exclude<z.infer<typeof CapabilityNameSchema>, "app.inference.request">,
+    context: CapabilityExecutionContext,
+    grant: CapabilityGrant | null,
+    durationMs: number,
+    idempotencyDecision: "created" | "resumed" | "reused" | "conflict",
+    result: unknown,
+  ): void {
+    if (idempotencyDecision === "reused") return;
+    const binding = RestrictedCapabilityAuthoritySchema.safeParse(context.authority);
+    if (!binding.success || !OpaqueIdSchema.safeParse(context.correlationId).success) return;
+    const source = grant ?? binding.data.context;
+    const facts = this.ownerMemoryFacts(capability, result);
+    for (const fact of facts) {
+      if (capability === "career.facts.propose") {
+        this.emitOwnerMemoryLifecycleAudit({
+          source, binding: binding.data, context, capability, durationMs, idempotencyDecision, fact,
+          transition: "propose", memoryOutcome: "proposed", factRevisionId: fact.revisionId,
+        });
+        continue;
+      }
+      if (capability === "career.facts.confirm") {
+        this.emitOwnerMemoryLifecycleAudit({
+          source, binding: binding.data, context, capability, durationMs, idempotencyDecision, fact,
+          transition: "owner_confirm", memoryOutcome: "confirmed", factRevisionId: fact.inputRevisionId ?? fact.revisionId,
+        });
+        this.emitOwnerMemoryLifecycleAudit({
+          source, binding: binding.data, context, capability, durationMs, idempotencyDecision, fact,
+          transition: fact.state === "rejected" ? "deny" : "durable_write",
+          memoryOutcome: fact.state === "rejected" ? "denied" : "written",
+          factRevisionId: fact.revisionId,
+        });
+      }
+    }
+  }
+
+  private emitOwnerMemoryLifecycleAudit(input: {
+    source: CapabilityAuditIdentity;
+    binding: z.infer<typeof RestrictedCapabilityAuthoritySchema>;
+    context: CapabilityExecutionContext;
+    capability: Exclude<z.infer<typeof CapabilityNameSchema>, "app.inference.request">;
+    durationMs: number;
+    idempotencyDecision: "created" | "resumed" | "reused" | "conflict";
+    fact: { recordId: string; revisionId: string; revision: number; state: string; inputRevisionId: string | null };
+    transition: "propose" | "owner_confirm" | "durable_write" | "deny";
+    memoryOutcome: "proposed" | "confirmed" | "written" | "denied";
+    factRevisionId: string;
+  }): void {
+    const event = AuditEventSchema.parse({
+      event_version: 1,
+      event_id: randomUUID(),
+      event_name: "app.owner_memory.lifecycle",
+      occurred_at: new Date().toISOString(),
+      correlation_id: input.context.correlationId,
+      actor_id: input.source.actor_id,
+      owner_id: input.source.owner_id,
+      app_id: input.source.app_id,
+      publisher_id: input.source.publisher_id,
+      package_digest: input.source.package_digest,
+      installation_id: input.source.installation_id,
+      session_id: input.context.sessionId ?? null,
+      connection_id: input.binding.connection_id,
+      view_id: input.binding.view_id,
+      operation_id: input.context.operationId,
+      capability: input.capability,
+      capability_version: 1,
+      grant_id: input.binding.context.grant_id,
+      grant_revision: input.binding.grant_revision,
+      revocation_generation: input.binding.revocation_generation,
+      idempotency_decision: input.idempotencyDecision,
+      target_category: "career_fact",
+      target_id: input.fact.recordId,
+      input_revision: input.fact.revision,
+      outcome: "committed",
+      error_code: null,
+      schema_version: 1,
+      duration_ms: Math.max(0, Math.floor(input.durationMs)),
+      item_count: 1,
+      fact_revision_id: input.factRevisionId,
+      owner_memory_transition: input.transition,
+      owner_memory_outcome: input.memoryOutcome,
+    });
+    assertContentFreeAudit(event);
+    const { event_name: eventName, ...details } = event;
+    this.audit(eventName, details);
+  }
+
+  private ownerMemoryFacts(
+    capability: string,
+    result: unknown,
+  ): Array<{ recordId: string; revisionId: string; revision: number; state: string; inputRevisionId: string | null }> {
+    if (capability !== "career.facts.propose" && capability !== "career.facts.confirm") return [];
+    const container = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+    const candidates = Array.isArray(container.facts) ? container.facts : container.fact ? [container.fact] : [];
+    return candidates.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+      const fact = candidate as Record<string, unknown>;
+      const metadata = fact.metadata && typeof fact.metadata === "object" && !Array.isArray(fact.metadata) ? fact.metadata as Record<string, unknown> : {};
+      const recordId = OpaqueIdSchema.safeParse(metadata.record_id);
+      const revisionId = OpaqueIdSchema.safeParse(metadata.revision_id);
+      const revision = metadata.revision;
+      const confirmation = fact.confirmation && typeof fact.confirmation === "object" && !Array.isArray(fact.confirmation) ? fact.confirmation as Record<string, unknown> : {};
+      const inputRevisionId = OpaqueIdSchema.safeParse(confirmation.input_revision_id);
+      if (!recordId.success || !revisionId.success || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision <= 0 || typeof fact.state !== "string") return [];
+      return [{
+        recordId: recordId.data,
+        revisionId: revisionId.data,
+        revision,
+        state: fact.state,
+        inputRevisionId: inputRevisionId.success ? inputRevisionId.data : null,
+      }];
+    });
   }
 
   private auditTarget(capability: string, input: unknown): { category: string; id: string | null; inputRevision: number | null } {

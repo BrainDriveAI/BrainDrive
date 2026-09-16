@@ -437,9 +437,23 @@ describe("named Resume Builder data capabilities", () => {
     expect(serialized).not.toContain(sentinel);
     expect(serialized).not.toContain(root);
     expect(serialized).not.toContain("content_digest");
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "created" } });
-    expect(events[1]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "reused" } });
+    const capabilityEvents = events.filter(({ event }) => event === "app.capability.completed");
+    const lifecycleEvents = events.filter(({ event }) => event === "app.owner_memory.lifecycle");
+    expect(capabilityEvents).toHaveLength(2);
+    expect(lifecycleEvents).toHaveLength(1);
+    expect(capabilityEvents[0]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "created" } });
+    expect(capabilityEvents[1]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "reused" } });
+    expect(lifecycleEvents[0]).toMatchObject({
+      event: "app.owner_memory.lifecycle",
+      details: {
+        capability: "career.facts.propose",
+        target_category: "career_fact",
+        owner_memory_transition: "propose",
+        owner_memory_outcome: "proposed",
+        outcome: "committed",
+        idempotency_decision: "created",
+      },
+    });
   });
 
   it("emits a content-free remembered-match diagnostic without persisting the owner description", async () => {
