@@ -134,6 +134,7 @@ export type CapabilityExecutionContext = {
   idempotencyKey: string;
   sessionId?: string | null;
   contextGrantSetDigest?: `sha256:${string}` | null;
+  modelCallId?: string | null;
   connectionId?: string;
   viewId?: string | null;
   ownerDecision?: HostOwnerDecisionEvidence;
@@ -695,6 +696,7 @@ export class ResumeCapabilityRouter {
       schema_version: 1,
       duration_ms: Math.max(0, Math.floor(input.durationMs)),
       item_count: 1,
+      model_call_id: input.context.modelCallId ?? null,
       fact_revision_id: input.factRevisionId,
       owner_memory_transition: input.transition,
       owner_memory_outcome: input.memoryOutcome,

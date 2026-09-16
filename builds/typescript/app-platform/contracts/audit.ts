@@ -84,6 +84,7 @@ export const AuditEventSchema = z
     package_digest: Sha256DigestSchema.nullable(),
     installation_id: OpaqueIdSchema.nullable(),
     session_id: OpaqueIdSchema.nullable().optional(),
+    model_call_id: OpaqueIdSchema.nullable().optional(),
     connection_id: OpaqueIdSchema.nullable().optional(),
     view_id: OpaqueIdSchema.nullable().optional(),
     operation_id: OpaqueIdSchema.nullable(),

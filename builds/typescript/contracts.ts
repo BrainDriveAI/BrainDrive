@@ -154,6 +154,7 @@ export type ToolContext = {
   memoryRoot: string;
   auth: AuthContext;
   correlationId: string;
+  modelCallId?: string;
 };
 
 export type ToolCallRequest = {

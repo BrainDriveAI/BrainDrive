@@ -463,7 +463,7 @@ export async function* runAgentLoop(
 
       const result = await toolExecutor.execute(
         auth,
-        buildToolContext(options.memoryRoot, auth, request.metadata.correlation_id),
+        buildToolContext(options.memoryRoot, auth, request.metadata.correlation_id, modelCall.model_call_id),
         toolCall.name,
         toolCall.input
       );

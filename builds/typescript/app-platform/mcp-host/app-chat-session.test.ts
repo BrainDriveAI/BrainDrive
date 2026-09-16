@@ -1908,6 +1908,25 @@ describe("app-chat workspace session authority", () => {
     })).resolves.toMatchObject({ status: "ok" });
   });
 
+  it("passes the model call id into model-visible app action execution", async () => {
+    const executeAction = vi.fn(async () => validAcceptedActionPayload());
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: acceptedActionJsonSchema(),
+      resultSchema: acceptedActionJsonSchema(),
+      executeAction,
+    });
+    const modelCallId = randomUUID();
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "schema-model-call-id",
+      modelCallId,
+    }, "app_action_validate_schema", {
+      action_input: validAcceptedActionPayload(),
+    })).resolves.toMatchObject({ status: "ok" });
+    expect(executeAction).toHaveBeenCalledWith(expect.objectContaining({ modelCallId }));
+  });
+
   it("denies model-visible actions whose capability is requested by the manifest but not granted", async () => {
     const router = fakeRouter({ record: null, results: [], reused: false });
     const { harness, host } = await setup({

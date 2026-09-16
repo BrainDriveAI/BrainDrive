@@ -48,6 +48,7 @@ export type AppChatActionExecutionRequest = {
   operationId: string;
   idempotencyKey: string;
   ownerConfirmed: boolean;
+  modelCallId?: string | null;
 };
 
 export type AppChatActionExecutionResult = {
@@ -213,6 +214,7 @@ function createAppChatActionTools(
             operationId,
             idempotencyKey,
             ownerConfirmed: descriptor.confirmation !== "none",
+            modelCallId: context.modelCallId ?? null,
           });
           const resultValidationErrors = validateJsonValueAgainstActionSchema(result, descriptor.result_schema.schema);
           if (resultValidationErrors.length > 0) {

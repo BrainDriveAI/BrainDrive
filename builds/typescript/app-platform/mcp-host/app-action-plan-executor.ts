@@ -33,6 +33,7 @@ export async function executeAppActionPlan(input: {
   operationId: string;
   idempotencyKey: string;
   ownerConfirmed: boolean;
+  modelCallId?: string | null;
   now: () => number;
   capabilityDispatcher: CapabilityDispatcher;
   documentStorage: AppDocumentStorageService;
@@ -74,6 +75,7 @@ export async function executeAppActionPlan(input: {
         grant: input.grant,
         operationId: input.operationId,
         idempotencyKey: childIdempotencyKey(input.idempotencyKey, step.step_id),
+        modelCallId: input.modelCallId ?? null,
         deadlineAt: input.now() + 120_000,
         ownerConfirmation: {
           confirmed: step.owner_confirmation === "none" ? false : input.ownerConfirmed,

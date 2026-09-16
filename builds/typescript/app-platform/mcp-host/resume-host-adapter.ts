@@ -1432,6 +1432,7 @@ export class ResumeAppHostAdapter {
       operationId: context.operationId,
       correlationId: context.operationId,
       idempotencyKey: context.idempotencyKey,
+      modelCallId: context.modelCallId ?? null,
       deadlineAt: context.deadlineAt,
       hostOwnerConfirmed: context.ownerConfirmation.confirmed,
       isCancelled: context.isCancelled,
@@ -1541,6 +1542,7 @@ export class ResumeAppHostAdapter {
           operationId: request.operationId,
           idempotencyKey: request.idempotencyKey,
           ownerConfirmed: request.ownerConfirmed,
+          modelCallId: request.modelCallId ?? null,
           now: this.now,
           capabilityDispatcher: this.capabilityDispatcher,
           documentStorage: this.documentStorage,
@@ -1570,6 +1572,7 @@ export class ResumeAppHostAdapter {
         grant: descriptor.grant!,
         operationId: request.operationId,
         idempotencyKey: request.idempotencyKey,
+        modelCallId: request.modelCallId ?? null,
         deadlineAt: this.now() + 120_000,
         ownerConfirmation: {
           confirmed: request.ownerConfirmed,

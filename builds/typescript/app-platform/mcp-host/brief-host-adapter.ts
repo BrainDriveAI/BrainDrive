@@ -456,6 +456,7 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
         grant: descriptor.grant!,
         operationId: request.operationId,
         idempotencyKey: request.idempotencyKey,
+        modelCallId: request.modelCallId ?? null,
         deadlineAt: this.now() + 30_000,
         ownerConfirmation: {
           confirmed: request.ownerConfirmed,
