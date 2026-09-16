@@ -441,6 +441,73 @@ describe("live signed modern MCP Apps fixture", () => {
     }
   });
 
+  it("returns a missing-essentials action result for sparse Resume chat Profile create", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-create-missing-essentials-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    try {
+      await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-create-missing-essentials-install", approveCapabilities: true });
+      const capabilityRouter = {
+        domain: { store: { recoveryLifecycleEvidence: () => null } },
+        execute: vi.fn(async () => ({ status: "ok" })),
+      } as unknown as NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>["capabilityRouter"];
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { capabilityRouter }));
+      const launch = await host.launchChatWorkspace();
+      await host.readAppDocument(launch.session.session_id, "resume.profile");
+      await host.writeAppDocument(launch.session.session_id, "resume.profile", {
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-create-missing-essentials-profile-write",
+        expected_revision: 1,
+        content: [
+          "# Resume Profile",
+          "",
+          "## Summary",
+          "- Customer support leader.",
+          "## Experience",
+          "- [gap: prior role details]",
+        ].join("\n"),
+      });
+
+      const created = await host.executeAppChatAction(launch.session.session_id, "resume.create", {
+        action_input: {},
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-create-missing-essentials-create",
+        owner_confirmed: true,
+      }, "owner");
+
+      expect(created).toMatchObject({
+        action_id: "resume.create",
+        result: {
+          result_version: 1,
+          record: {
+            document_id: "resume.action-result",
+            document_binding_id: "resume.action-result.latest",
+            role: "action_result_document",
+            retention_class: "durable_operation_lookup",
+            content: {
+              result_version: 1,
+              status: "missing_essentials",
+              action_id: "resume.create",
+            },
+          },
+        },
+      });
+      await expect(host.readAppDocument(launch.session.session_id, "resume.action-result")).resolves.toMatchObject({
+        state: "current",
+        document_id: "resume.action-result",
+        record: {
+          role: "action_result_document",
+          retention_class: "durable_operation_lookup",
+          content: {
+            status: "missing_essentials",
+          },
+        },
+      });
+      expect(vi.mocked(capabilityRouter.execute)).not.toHaveBeenCalledWith("resume.definitions.write", expect.anything(), expect.anything());
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  });
+
   it("returns a bounded error for Resume PDF export when no formatted resume exists", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-export-missing-resume-")); roots.push(root);
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });

@@ -800,6 +800,43 @@ describe("AppChatWorkspace", () => {
     }
   });
 
+  it("shows a safe direct Export PDF failure when the app reports no formatted resume", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValueOnce({
+      action_id: "resume.export.pdf.request",
+      operation_id: "00000000-0000-4000-8000-000000000641",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000641",
+      result: {
+        result_version: 1,
+        status: "failed",
+        code: "formatted_resume_required",
+        message: "Create a formatted resume before exporting a PDF.",
+        recoverable: true,
+      },
+    });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    try {
+      render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+      await screen.findByText("Conversation transcript");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      await user.click(await screen.findByRole("button", { name: "Export PDF" }));
+
+      await waitFor(() => expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume.export.pdf.request", {
+        actionInput: { format: "pdf", destination_intent: "new_download" },
+        ownerConfirmed: true,
+      }));
+      expect(await screen.findByText("Export PDF could not complete safely.")).toBeInTheDocument();
+      expect(anchorClick).not.toHaveBeenCalled();
+      expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please export"))).toBe(false);
+    } finally {
+      anchorClick.mockRestore();
+    }
+  });
+
   it("records a durable host message after direct Export PDF completes", async () => {
     const current = withDirectResumeActions(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
