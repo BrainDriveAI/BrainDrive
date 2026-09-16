@@ -381,9 +381,10 @@ describe("live signed modern MCP Apps fixture", () => {
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
     try {
       await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-export-reference-install", approveCapabilities: true });
+      const capabilityExecute = vi.fn(async () => ({ status: "ok" }));
       const capabilityRouter = {
         domain: { store: { recoveryLifecycleEvidence: () => null } },
-        execute: vi.fn(async () => ({ status: "ok" })),
+        execute: capabilityExecute,
       } as unknown as NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>["capabilityRouter"];
       const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { capabilityRouter }));
       const launch = await host.launchChatWorkspace();
@@ -446,9 +447,10 @@ describe("live signed modern MCP Apps fixture", () => {
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
     try {
       await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-create-missing-essentials-install", approveCapabilities: true });
+      const capabilityExecute = vi.fn(async () => ({ status: "ok" }));
       const capabilityRouter = {
         domain: { store: { recoveryLifecycleEvidence: () => null } },
-        execute: vi.fn(async () => ({ status: "ok" })),
+        execute: capabilityExecute,
       } as unknown as NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>["capabilityRouter"];
       const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { capabilityRouter }));
       const launch = await host.launchChatWorkspace();
@@ -502,7 +504,7 @@ describe("live signed modern MCP Apps fixture", () => {
           },
         },
       });
-      expect(vi.mocked(capabilityRouter.execute)).not.toHaveBeenCalledWith("resume.definitions.write", expect.anything(), expect.anything());
+      expect(capabilityExecute).not.toHaveBeenCalledWith("resume.definitions.write", expect.anything(), expect.anything());
     } finally {
       await lifecycle.dependencies.supervisor.close();
     }
