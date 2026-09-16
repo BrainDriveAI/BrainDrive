@@ -127,6 +127,7 @@ export type CapabilityExecutionContext = {
   operationId: string;
   correlationId: string;
   idempotencyKey: string;
+  sessionId?: string | null;
   connectionId?: string;
   viewId?: string | null;
   ownerDecision?: HostOwnerDecisionEvidence;
@@ -559,6 +560,7 @@ export class ResumeCapabilityRouter {
       publisher_id: source.publisher_id,
       package_digest: source.package_digest,
       installation_id: source.installation_id,
+      session_id: context.sessionId ?? null,
       connection_id: binding.data.connection_id,
       view_id: binding.data.view_id,
       operation_id: context.operationId,

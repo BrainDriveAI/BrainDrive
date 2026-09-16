@@ -347,6 +347,8 @@ describe("M4 capability bridge", () => {
       app_id: "ai.braindrive.resume-builder",
       publisher_id: "ai.braindrive",
       installation_id: descriptor.grant!.installation_id,
+      session_id: chatLaunch.session.session_id,
+      view_id: chatLaunch.session.view_id,
       grant_id: descriptor.grant!.grant_id,
       grant_revision: descriptor.grant!.grant_revision,
       target_category: "career_context",
