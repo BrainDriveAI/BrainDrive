@@ -199,7 +199,7 @@ async function copyAuditDiagnostics(
 
 const SUPPORT_DETAIL_ALLOWLIST = new Set([
   "action", "actor_id", "app_id", "attempt", "attempt_outcome", "byte_count", "capability_diff", "capability_version", "checked_at", "connection_id", "decision",
-  "completion_mode", "deletion_class", "diagnostic_version", "duration_class", "elapsed_ms", "error_class", "error_code", "final_disposition", "finish_category", "generation", "grant_id", "installation_id",
+  "completion_mode", "context_grant_set_digest", "context_projection_digest", "deletion_class", "diagnostic_version", "duration_class", "elapsed_ms", "error_class", "error_code", "final_disposition", "finish_category", "generation", "grant_id", "installation_id",
   "idempotency_decision", "item_count", "lifecycle_action", "next_state", "operation_id", "outcome", "owner_data_preserved", "owner_id",
   "model_class", "output_schema_id", "output_schema_version", "package_digest", "package_version", "prior_state", "prompt_policy_id", "prompt_policy_version", "publisher_id", "purpose", "recovery", "recovery_class", "removed_classes",
   "removed_item_count", "repair", "request_id", "result_state", "retained_classes", "retryable", "revocation_sequence", "schema_issue_ids", "stage", "step", "structural_failure_class",

@@ -341,6 +341,9 @@ describe("M4 capability bridge", () => {
       details.capability === "career.context.read" &&
       details.resource_id === "career.resume_context"
     );
+    const projectedContext = chatLaunch.context.items.find((item) =>
+      item.context_id === "career.resume_context" && item.state === "available"
+    );
     expect(contextReadAudit?.details).toMatchObject({
       owner_id: descriptor.grant!.owner_id,
       actor_id: descriptor.grant!.actor_id,
@@ -349,6 +352,8 @@ describe("M4 capability bridge", () => {
       installation_id: descriptor.grant!.installation_id,
       session_id: chatLaunch.session.session_id,
       view_id: chatLaunch.session.view_id,
+      context_grant_set_digest: chatLaunch.session.context_grant_set_digest,
+      context_projection_digest: projectedContext?.state === "available" ? projectedContext.content_digest : undefined,
       grant_id: descriptor.grant!.grant_id,
       grant_revision: descriptor.grant!.grant_revision,
       target_category: "career_context",

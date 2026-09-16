@@ -158,6 +158,8 @@ export const AuditEventSchema = z
     source_report_revision_id: OpaqueIdSchema.nullable().optional(),
     successor_definition_revision_id: OpaqueIdSchema.nullable().optional(),
     successor_report_revision_id: OpaqueIdSchema.nullable().optional(),
+    context_grant_set_digest: Sha256DigestSchema.nullable().optional(),
+    context_projection_digest: Sha256DigestSchema.nullable().optional(),
     input_digest: Sha256DigestSchema.nullable().optional(),
     output_digest: Sha256DigestSchema.nullable().optional(),
     confirmation_group_count: z.number().int().nonnegative().nullable().optional(),

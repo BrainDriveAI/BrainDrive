@@ -1148,6 +1148,28 @@
         }
       ]
     },
+    "context_grant_set_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "context_projection_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "input_digest": {
       "anyOf": [
         {

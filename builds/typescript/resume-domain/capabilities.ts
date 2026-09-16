@@ -128,6 +128,7 @@ export type CapabilityExecutionContext = {
   correlationId: string;
   idempotencyKey: string;
   sessionId?: string | null;
+  contextGrantSetDigest?: `sha256:${string}` | null;
   connectionId?: string;
   viewId?: string | null;
   ownerDecision?: HostOwnerDecisionEvidence;
@@ -579,6 +580,7 @@ export class ResumeCapabilityRouter {
       schema_version: 1,
       duration_ms: Math.max(0, Math.floor(durationMs)),
       item_count: itemCount,
+      ...this.contextReadAuditDetails(capability, context, result),
       ...this.interviewAuditDetails(eventName, input, result),
     });
     assertContentFreeAudit(event);
@@ -593,6 +595,18 @@ export class ResumeCapabilityRouter {
 
   private resultWasReused(result: unknown): boolean {
     return Boolean(result && typeof result === "object" && !Array.isArray(result) && (result as { reused?: unknown }).reused === true);
+  }
+
+  private contextReadAuditDetails(
+    capability: string,
+    context: CapabilityExecutionContext,
+    result: unknown,
+  ): Record<string, unknown> {
+    if (capability !== "career.context.read") return {};
+    return {
+      context_grant_set_digest: context.contextGrantSetDigest ?? null,
+      context_projection_digest: result === undefined ? null : canonicalInputDigest(result),
+    };
   }
 
   private auditTarget(capability: string, input: unknown): { category: string; id: string | null; inputRevision: number | null } {
