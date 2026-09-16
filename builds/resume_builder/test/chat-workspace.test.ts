@@ -1119,7 +1119,7 @@ describe("Resume Builder chat workspace contract", () => {
 
   it("blocks PDF export of the empty Resume placeholder", () => {
     const operationId = crypto.randomUUID();
-    expect(() => planResumeAction({
+    const plan = planResumeAction({
       action_id: "resume.export.pdf.request",
       action_input: { format: "pdf", destination_intent: "new_download" },
       owner_confirmed: true,
@@ -1140,7 +1140,21 @@ describe("Resume Builder chat workspace contract", () => {
         revision_id: crypto.randomUUID(),
         content: "# Resume\n\nYour finished resume will appear here after you create it from your Resume Profile.",
       }],
-    })).toThrow("formatted_resume_required");
+    });
+
+    expect(plan).toMatchObject({
+      action_id: "resume.export.pdf.request",
+      steps: [{ step_id: "read-resume-document", type: "document.read", document_id: "resume.document" }],
+      final_result: {
+        kind: "literal",
+        value: {
+          result_version: 1,
+          status: "failed",
+          code: "formatted_resume_required",
+          recoverable: true,
+        },
+      },
+    });
   });
 
   it("declares package resources for workspace start, action request, and recovery reference", () => {

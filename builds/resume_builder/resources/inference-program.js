@@ -367,7 +367,14 @@ export function planResumeAction(request, options = {}) {
   if (request.action_id === "resume.export.pdf.request") {
     const input = request.action_input ?? {};
     const markdown = currentDocumentText(request, "resume.document");
-    if (!isExportableResumeMarkdown(markdown)) throw new Error("formatted_resume_required");
+    if (!isExportableResumeMarkdown(markdown)) {
+      return {
+        action_plan_version: 1,
+        action_id: request.action_id,
+        steps: [documentReadStep("read-resume-document", "resume.document")],
+        final_result: { kind: "literal", value: buildFormattedResumeRequiredResult() },
+      };
+    }
     const bytes = renderResumeMarkdownPdf(markdown);
     const filename = normalizePdfFilename(input.safe_filename);
     const contentDigest = digestBytes(bytes);
@@ -596,6 +603,16 @@ function buildMissingEssentialsResult(readiness) {
     message: "Resume creation is blocked until the owner chooses how to handle the named missing essentials.",
     missing_essentials: readiness.missingEssentials,
     choices: MISSING_ESSENTIAL_CHOICES,
+  };
+}
+
+function buildFormattedResumeRequiredResult() {
+  return {
+    result_version: 1,
+    status: "failed",
+    code: "formatted_resume_required",
+    message: "Create a formatted resume before exporting a PDF.",
+    recoverable: true,
   };
 }
 

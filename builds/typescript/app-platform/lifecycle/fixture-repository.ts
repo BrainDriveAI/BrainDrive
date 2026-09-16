@@ -548,7 +548,10 @@ function exportPreparedResultSchema(): Record<string, unknown> {
     additionalProperties: false,
     properties: {
       result_version: { type: "number", enum: [1] },
-      status: { type: "string", enum: ["prepared"] },
+      status: { type: "string", enum: ["prepared", "failed"] },
+      code: { type: "string", enum: ["formatted_resume_required"] },
+      message: { type: "string", minLength: 1, maxLength: 256 },
+      recoverable: { type: "boolean" },
       artifact: {
         type: "object",
         additionalProperties: true,
@@ -567,7 +570,7 @@ function exportPreparedResultSchema(): Record<string, unknown> {
       safe_destination_label: { type: "string", minLength: 1, maxLength: 256 },
       replayed: { type: "boolean" },
     },
-    required: ["result_version", "status", "artifact", "filename", "media_type", "bytes_base64", "safe_destination_label", "replayed"],
+    required: ["result_version", "status"],
   };
 }
 
@@ -653,6 +656,18 @@ function capabilityResultSchema(): Record<string, unknown> {
       variant: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
     },
     required: [],
+  };
+}
+
+function resumeCreateResultSchema(): Record<string, unknown> {
+  const base = capabilityResultSchema();
+  return {
+    ...base,
+    properties: {
+      ...(base.properties as Record<string, unknown>),
+      result_version: { type: "number", enum: [1] },
+      audit: { type: "object", additionalProperties: true, properties: {}, required: [] },
+    },
   };
 }
 
@@ -783,6 +798,19 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
             ],
           },
         },
+        {
+          document_version: 1,
+          document_id: "resume.action-result",
+          role: "action_result_document",
+          title: "Resume Action Result",
+          description: "Latest Resume Builder action result.",
+          editable: false,
+          default_visibility: "secondary",
+          model_access: "action_result",
+          resource_id: null,
+          data_binding_id: "resume.action-result.latest",
+          presentation: null,
+        },
         ...RESUME_CHAT_RESOURCE_FILES.map((resource) => ({
           document_version: 1 as const,
           document_id: resource.resourceId,
@@ -903,7 +931,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           kind: "render",
           title: "Create Resume",
           description: "Create the current general Resume from the reviewed Resume Profile state.",
-          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema(), resumeCreateResultSchema()),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",

@@ -441,6 +441,37 @@ describe("live signed modern MCP Apps fixture", () => {
     }
   });
 
+  it("returns a bounded error for Resume PDF export when no formatted resume exists", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-export-missing-resume-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    try {
+      await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-export-missing-resume-install", approveCapabilities: true });
+      const capabilityRouter = {
+        domain: { store: { recoveryLifecycleEvidence: () => null } },
+        execute: vi.fn(async () => ({ status: "ok" })),
+      } as unknown as NonNullable<ConstructorParameters<typeof ResumeAppHostAdapter>[1]>["capabilityRouter"];
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { capabilityRouter }));
+      const launch = await host.launchChatWorkspace();
+
+      await expect(host.executeAppChatAction(launch.session.session_id, "resume.export.pdf.request", {
+        action_input: { format: "pdf", safe_filename: "missing-resume", destination_intent: "new_download" },
+        operation_id: crypto.randomUUID(),
+        idempotency_key: "modern-export-missing-resume-export-pdf",
+        owner_confirmed: true,
+      }, "owner")).resolves.toMatchObject({
+        action_id: "resume.export.pdf.request",
+        result: {
+          result_version: 1,
+          status: "failed",
+          code: "formatted_resume_required",
+          recoverable: true,
+        },
+      });
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  }, 5_000);
+
   it("executes the Resume-owned General program inside the signed app process while hiding its private tools", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-program-")); roots.push(root);
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
