@@ -153,6 +153,7 @@ function lockfileMetadata(target, build) {
     runtime: "braindrive-internet-search-sidecar",
     package: "ai.braindrive.internet-search.searxng",
     target: target.platform,
+    sidecar_runtime: "self-contained-rust-searxng-compatible-search",
   };
   if (target.platform === "desktop_windows_x64") return base;
   return {
@@ -167,6 +168,7 @@ function provenanceMetadata(target, build) {
     builder: target.builder,
     target: target.platform,
     source: "builds/internet_search/sidecar-runtime",
+    runtime_role: "self-contained-searxng-compatible-search-sidecar",
   };
   if (target.platform === "desktop_windows_x64") return base;
   return {

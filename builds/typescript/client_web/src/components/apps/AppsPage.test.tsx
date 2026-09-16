@@ -3,12 +3,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
+import { GatewayError } from "@/api/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppsPage from "./AppsPage";
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, getAppCatalog: vi.fn(), getApp: vi.fn(), mutateApp: vi.fn(), launchApp: vi.fn(), launchAppChatWorkspace: vi.fn(), readAppChatWorkspaceSession: vi.fn(), closeAppSession: vi.fn(), sendAppBridgeMessage: vi.fn(), callAppCapability: vi.fn() };
+  return { ...actual, getAppCatalog: vi.fn(), getApp: vi.fn(), mutateApp: vi.fn(), installPackage: vi.fn(), mutatePackage: vi.fn(), launchApp: vi.fn(), launchAppChatWorkspace: vi.fn(), readAppChatWorkspaceSession: vi.fn(), closeAppSession: vi.fn(), sendAppBridgeMessage: vi.fn(), callAppCapability: vi.fn() };
 });
 
 function renderApps(ui: ReactElement) {
@@ -216,7 +217,7 @@ const runtimeSummary: appsApi.RuntimeSummary = {
   },
   os_security: {
     classification: "review_required",
-    safe_message: "OS security review may be required before first start. BrainDrive will show a safe blocked state if the desktop denies execution.",
+    safe_message: "Desktop security will be checked when this runtime starts. If Windows or macOS blocks execution, BrainDrive will report that separately.",
   },
 };
 
@@ -253,7 +254,7 @@ function providerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}
     package_kind: ["capability_provider"],
     state: "enabled",
     generation: 1,
-    version: { installed: "1.0.0", previous_package_digest: null },
+    version: { installed: "1.0.0", available: "1.0.0", previous_package_digest: null },
     trust: { status: "verified", policy_version: 1, checked_at: "2026-09-01T12:00:00.000Z" },
     source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
     components: [
@@ -359,7 +360,7 @@ function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = 
     },
     package_kind: ["dependency_service"],
     state: "disabled",
-    version: { installed: "0.4.0", previous_package_digest: null },
+    version: { installed: "0.4.0", available: "0.4.0", previous_package_digest: null },
     source: { kind: "repository_fixture", label: "Shared service package fixture" },
     components: [{
       component_id: "index.service",
@@ -395,8 +396,8 @@ function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = 
         target_support: "unsupported",
         target_message: "This package does not declare a runtime for this desktop target.",
         os_security: {
-          classification: "blocked",
-          safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls.",
+          classification: "review_required",
+          safe_message: "Desktop security will be checked when this runtime starts. If Windows or macOS blocks execution, BrainDrive will report that separately.",
         },
       },
     }],
@@ -424,13 +425,45 @@ function dependencyPackage(overrides: Partial<appsApi.InstalledPackageStatus> = 
       target_support: "unsupported",
       target_message: "This package does not declare a runtime for this desktop target.",
       os_security: {
-        classification: "blocked",
-        safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls.",
+        classification: "review_required",
+        safe_message: "Desktop security will be checked when this runtime starts. If Windows or macOS blocks execution, BrainDrive will report that separately.",
       },
     },
     updated_at: "2026-09-01T12:30:00.000Z",
     ...overrides,
   };
+}
+
+function availableProviderPackage(): appsApi.InstalledPackageStatus {
+  return providerPackage({
+    identity: {
+      package_id: "ai.braindrive.internet-search.searxng",
+      display_name: "Internet Search Provider",
+      publisher_id: "ai.braindrive",
+      installation_id: null,
+      package_digest: null,
+    },
+    state: "not_installed",
+    generation: 0,
+    version: { installed: null, available: "1.0.0", previous_package_digest: null },
+    components: providerPackage().components.map((component) => ({
+      ...component,
+      state: "unavailable",
+      health: component.component_kind === "sidecar" ? "unknown" : "not_applicable",
+      owner_visible_actions: [],
+    })),
+    runtime_summary: {
+      ...providerPackage().runtime_summary,
+      target_support: "supported",
+      target_labels: ["Desktop Windows x64"],
+      target_message: "This package declares a runtime for this desktop target.",
+      os_security: {
+        classification: "review_required",
+        safe_message: "Desktop security will be checked when this runtime starts. If Windows or macOS blocks execution, BrainDrive will report that separately.",
+      },
+    },
+    available_actions: ["install"],
+  });
 }
 
 function consumerPackage(overrides: Partial<appsApi.InstalledPackageStatus> = {}): appsApi.InstalledPackageStatus {
@@ -545,7 +578,7 @@ describe("manifest-driven Apps surface", () => {
     expect(briefCard).not.toBeNull();
     expect(briefCard).toHaveClass("flex", "h-full", "flex-col");
     expect(briefCard?.querySelector(".lucide-app-window")?.parentElement).toHaveClass("size-12", "items-center", "justify-center");
-    expect(within(briefCard as HTMLElement).getByText("Not installed")).toHaveClass("whitespace-nowrap");
+    expect(within(briefCard as HTMLElement).getByText("Not installed").parentElement).toHaveClass("min-w-0", "sm:max-w-48");
     expect(briefCard?.querySelector('[aria-label="Brief Builder controls"]')).toHaveClass("mt-auto", "pt-6");
   });
 
@@ -710,17 +743,19 @@ describe("manifest-driven Apps surface", () => {
     expect(screen.getByText(/Operations: web\.search@1, web\.read@1/)).toBeInTheDocument();
     expect(screen.getAllByText(/Docker Linux x64/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Desktop macOS universal/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Unsupported target").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Not compatible with this device").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Large install:/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Lengthy first start:/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/OS security or Host policy blocked this runtime/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("alert", { name: "Shared Index Service package health" })).toHaveTextContent("Unhealthy or unavailable");
+    expect(screen.getAllByText(/Desktop security will be checked/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("alert", { name: "Shared Index Service package health" })).toHaveTextContent("Package roles need owner review");
     expect(screen.getByRole("status", { name: "Shared Index Service dependency readiness" })).toHaveTextContent("Optional dependency degraded: web.search@1");
 
     expect(screen.queryByRole("button", { name: "Launch Internet Search Provider" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Launch Shared Index Service" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Disable Internet Search Provider" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Start Search Runtime" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Disable Internet Search Provider" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update Internet Search Provider" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Uninstall Internet Search Provider" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Search Runtime" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Show detailed cards" }));
     expect(screen.getAllByText(/bounded redacted diagnostics/)).toHaveLength(2);
@@ -735,6 +770,32 @@ describe("manifest-driven Apps surface", () => {
     alertSpy.mockRestore();
     confirmSpy.mockRestore();
     promptSpy.mockRestore();
+  });
+
+  it("renders a catalog-available provider package as not installed and installs it on owner action", async () => {
+    const available = availableProviderPackage();
+    const installedProvider = providerPackage();
+    vi.mocked(appsApi.getAppCatalog)
+      .mockResolvedValueOnce({ catalog_version: 1, apps: [base, brief], packages: [available] })
+      .mockResolvedValueOnce({ catalog_version: 1, apps: [base, brief], packages: [installedProvider] });
+    vi.mocked(appsApi.mutatePackage).mockResolvedValue(installedProvider);
+
+    const user = userEvent.setup();
+    renderApps(<AppsPage />);
+
+    const heading = await screen.findByRole("heading", { name: "Internet Search Provider" });
+    const card = heading.closest("article") as HTMLElement;
+    expect(card).toHaveTextContent("Not installed");
+    expect(card).toHaveTextContent("Version 1.0.0");
+    expect(card).toHaveTextContent("Ready to install on this device");
+    expect(card).toHaveTextContent("Will be installed");
+    expect(within(card).queryByRole("alert", { name: "Internet Search Provider package health" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Launch Internet Search Provider" })).not.toBeInTheDocument();
+
+    await user.click(within(card).getByRole("button", { name: "Install Internet Search Provider" }));
+
+    expect(appsApi.mutatePackage).toHaveBeenCalledWith("ai.braindrive.internet-search.searxng", "install", available);
+    expect(await screen.findByText("Enabled")).toBeInTheDocument();
   });
 
   it("shows required generic dependency blocks without offering start or provider install actions", async () => {
@@ -903,10 +964,24 @@ describe("manifest-driven Apps surface", () => {
     expect(await screen.findByText(/Quarantined because package trust changed/)).toBeInTheDocument();
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "failed_recoverable", version: { installed: "3.0.2", available: "3.1.0" }, available_actions: ["update", "recover", "uninstall"], recovery: { available: true, action: "retry_recovery_or_reinstall" } })] });
     await userEvent.click(screen.getByRole("button", { name: "Refresh app catalog" }));
+    expect(await screen.findByText("Needs recovery")).toBeInTheDocument();
+    expect(screen.getByText("Recovery required — your saved data is retained.").closest('[role="alert"]')).not.toBeNull();
     const controls = await screen.findByLabelText("Resume Builder controls");
     expect(controls).toHaveTextContent(/^UpdateRetry recoveryUninstall$/);
     expect(screen.getByRole("button", { name: "Update Resume Builder" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Retry recovery Resume Builder" })).toBeInTheDocument();
+  });
+
+  it("shows lifecycle safe messages after refreshing a failed mutation", async () => {
+    const current = installed({ state: "failed_recoverable", available_actions: ["update", "recover", "uninstall"], recovery: { available: true, action: "retry_recovery_or_reinstall" } });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    vi.mocked(appsApi.getApp).mockResolvedValue(current);
+    vi.mocked(appsApi.mutateApp).mockRejectedValue(new GatewayError("The saved app package is missing. Use Update if a verified package is available; saved data remains retained.", 409, "package_cache_missing"));
+    const user = userEvent.setup(); renderApps(<AppsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Retry recovery Resume Builder" }));
+
+    expect(await screen.findByText(/The saved app package is missing/)).toHaveTextContent(/BrainDrive refreshed this app's status/);
   });
 
   it("reports transport ambiguity only after authoritative refresh evidence", async () => {

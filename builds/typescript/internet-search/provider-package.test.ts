@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createInternetSearchProviderRuntime,
+  digestInternetSearchProviderManifest,
   INTERNET_SEARCH_LEGACY_ENV_SHIM,
   INTERNET_SEARCH_PROVIDER_COMPONENT_ID,
   INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
@@ -14,6 +16,9 @@ import {
 } from "./provider-package.js";
 import { dependencyResolverFromCapabilityProviderRegistry } from "../app-capabilities/provider-router.js";
 import type { PackageComponentManifest } from "../app-platform/contracts/package-components.js";
+import { createCatalogPackageService } from "../app-platform/lifecycle/catalog-package-service.js";
+import { InstalledPackageStore } from "../app-platform/lifecycle/installed-package-store.js";
+import { createStoredZip } from "../app-platform/lifecycle/zip.js";
 import type { WebReadExecutor } from "./read-adapter.js";
 
 const roots: string[] = [];
@@ -42,11 +47,15 @@ async function runtime(input: {
   readExecutor?: WebReadExecutor | null;
 } = {}) {
   const root = await tempRoot();
+  const memoryRoot = path.join(root, "memory");
+  const stateRoot = path.join(root, "state");
+  const packageStore = await seedInstalledInternetSearchPackage({ stateRoot });
   return createInternetSearchProviderRuntime({
     rootDir: process.cwd(),
-    memoryRoot: path.join(root, "memory"),
-    stateRoot: path.join(root, "state"),
+    memoryRoot,
+    stateRoot,
     env: shimEnv(),
+    packageStore,
     fetchImpl: input.fetchImpl ?? (async () => new Response("ok", { status: 200 })),
     readExecutor: input.readExecutor ?? null,
   });
@@ -57,6 +66,9 @@ async function descriptorRuntime(input: {
   readExecutor?: WebReadExecutor | null;
 } = {}) {
   const root = await tempRoot();
+  const memoryRoot = path.join(root, "memory");
+  const stateRoot = path.join(root, "state");
+  const packageStore = await seedInstalledInternetSearchPackage({ stateRoot });
   const descriptorPath = path.join(root, "runtime-descriptors.json");
   await writeFile(descriptorPath, JSON.stringify({
     descriptor_version: 1,
@@ -74,20 +86,41 @@ async function descriptorRuntime(input: {
   }), "utf8");
   return createInternetSearchProviderRuntime({
     rootDir: process.cwd(),
-    memoryRoot: path.join(root, "memory"),
-    stateRoot: path.join(root, "state"),
+    memoryRoot,
+    stateRoot,
     env: {
       BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE: descriptorPath,
       BRAINDRIVE_SIDECAR_STARTUP_TIMEOUT_MS: "25",
       BRAINDRIVE_SIDECAR_READINESS_POLL_MS: "1",
     },
+    packageStore,
     fetchImpl: input.fetchImpl ?? (async () => new Response("ok", { status: 200 })),
     readExecutor: input.readExecutor ?? null,
   });
 }
 
+async function seedInstalledInternetSearchPackage(input: {
+  stateRoot: string;
+  manifest?: PackageComponentManifest;
+}): Promise<InstalledPackageStore> {
+  const store = new InstalledPackageStore(path.join(input.stateRoot, "state", "packages"));
+  await store.initialize();
+  const manifest = input.manifest ?? await loadInternetSearchProviderManifest(process.cwd());
+  await store.installPackage({
+    manifest,
+    packageDigest: digestInternetSearchProviderManifest(manifest),
+    source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
+    installedAt: "2026-09-01T00:00:00.000Z",
+  });
+  return store;
+}
+
 function noLeak(value: unknown): void {
   expect(JSON.stringify(value)).not.toMatch(/internet-search-searxng|localhost|127\.|0\.0\.0\.0|\bport\b|credential|secret|vault|authorization|cookie|\/home\/|raw_response|CANARY_/i);
+}
+
+function digest(value: Buffer | string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 async function packageComponentFixture(fixtureId: string): Promise<PackageComponentManifest> {
@@ -120,6 +153,151 @@ function withSearchDependency(
       : component),
     capability_dependencies: [dependency],
   };
+}
+
+async function writeInternetSearchCatalogPackage(root: string): Promise<{
+  catalogPath: string;
+  archiveDigest: `sha256:${string}`;
+}> {
+  const sourceRoot = path.join(root, "catalog-source");
+  const artifactRoot = path.join(sourceRoot, "artifacts", "internet-search", "0.1.0", "local-dev", "desktop-windows-x64");
+  const sourceIndexPath = path.join(sourceRoot, "source-indexes", "internet-search", "0.1.0", "local-dev", "source-index.json");
+  const trustRootPath = path.join(sourceRoot, "trust-roots", "internet-search", "local-dev", "trust-root.json");
+  const revocationPath = path.join(sourceRoot, "revocations", "internet-search", "local-dev", "revocation-list.json");
+  await Promise.all([
+    mkdir(artifactRoot, { recursive: true }),
+    mkdir(path.dirname(sourceIndexPath), { recursive: true }),
+    mkdir(path.dirname(trustRootPath), { recursive: true }),
+    mkdir(path.dirname(revocationPath), { recursive: true }),
+  ]);
+
+  const manifest = await loadInternetSearchProviderManifest(process.cwd());
+  const packageManifest = JSON.parse(JSON.stringify(manifest)) as PackageComponentManifest;
+  const packageEntries = packageManifest.files.map((file) => {
+    const bytes = Buffer.from(`catalog fixture content for ${file.path}\n`, "utf8");
+    file.size_bytes = bytes.byteLength;
+    file.digest = digest(bytes);
+    return { name: file.path, bytes, executable: file.mode === "executable" };
+  });
+  const filesByPath = new Map(packageManifest.files.map((file) => [file.path, file]));
+  for (const target of packageManifest.sidecars.flatMap((sidecar) => sidecar.targets)) {
+    if (target.runtime_kind !== "packaged_process") continue;
+    target.dependency_bundle.bundle_digest = filesByPath.get(target.artifact_path)!.digest;
+    target.dependency_bundle.lockfile_digest = filesByPath.get(target.dependency_bundle.lockfile_path)!.digest;
+    target.dependency_bundle.provenance_digest = filesByPath.get(target.dependency_bundle.provenance_path)!.digest;
+    target.dependency_bundle.sbom_digest = filesByPath.get(target.dependency_bundle.sbom_path)!.digest;
+  }
+  const manifestBytes = Buffer.from(`${JSON.stringify(packageManifest, null, 2)}\n`, "utf8");
+  const archiveBytes = createStoredZip([
+    { name: "manifest.json", bytes: manifestBytes, executable: false },
+    ...packageEntries,
+  ]);
+  const archiveDigest = digest(archiveBytes);
+  const descriptor = {
+    descriptor_version: 1,
+    package_id: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+    publisher_id: "ai.braindrive",
+    package_version: "0.1.0",
+    manifest_package_version: packageManifest.package_version,
+    package_kind: ["capability_provider"],
+    release_channel: "local-dev",
+    target: "desktop_windows_x64",
+    archive: { format: "zip", profile: "braindrive-package-v2", digest: archiveDigest, manifest_path: "manifest.json" },
+    safe_presentation: packageManifest.catalog,
+    relationship_projection: {
+      launchable_app: false,
+      provides_operations: ["web.search@1", "web.read@1"],
+      requires_operations: [],
+      depends_on_packages: [],
+    },
+    authority_boundary: "host_verifies_registers_supervises_and_preserves_owner_data",
+  };
+  const descriptorBytes = Buffer.from(`${JSON.stringify(descriptor, null, 2)}\n`, "utf8");
+  const sourceIndexBytes = Buffer.from("{\"source_index_version\":1}\n", "utf8");
+  const trustRootBytes = Buffer.from("{\"trust_root_version\":1}\n", "utf8");
+  const revocationBytes = Buffer.from("{\"revocation_list_version\":1}\n", "utf8");
+  const archiveName = "braindrive-internet-search-0.1.0-local.dev-desktop-windows-x64.bdcap";
+  await writeFile(path.join(artifactRoot, "descriptor.json"), descriptorBytes);
+  await writeFile(path.join(artifactRoot, archiveName), archiveBytes);
+  await writeFile(sourceIndexPath, sourceIndexBytes);
+  await writeFile(trustRootPath, trustRootBytes);
+  await writeFile(revocationPath, revocationBytes);
+
+  const catalog = {
+    catalog_version: 1,
+    catalog_id: "ai.braindrive.stage1.local-dev",
+    publisher_id: "ai.braindrive",
+    release_channel: "local-dev",
+    generated_at: "2026-09-09T00:00:00.000Z",
+    authority_boundary: {
+      catalog_role: "discovery_and_retrieval_metadata_only",
+      package_scope: "braindrive_built_and_reviewed",
+      host_retains_authority: [
+        "package_verification",
+        "trust_evaluation",
+        "compatibility_filtering",
+        "revocation_checking",
+        "reviewed_registration_joins",
+        "install_update_decisions",
+        "lifecycle_state",
+        "runtime_supervision",
+        "owner_data_preservation",
+      ],
+      stage1_exclusions: [
+        "public_marketplace",
+        "third_party_publishing",
+        "arbitrary_local_package_installation",
+        "source_neutral_registry",
+        "owner_added_production_trust_roots",
+        "open_registry",
+        "federation_claim",
+        "catalog_runtime_authority",
+      ],
+    },
+    entries: [{
+      package_identity: {
+        package_id: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+        publisher_id: "ai.braindrive",
+        package_kind: ["capability_provider"],
+        version: "0.1.0",
+      },
+      release: { channel: "local-dev", artifact_name: archiveName, status: "local_dev_verified" },
+      target_artifacts: [{
+        target: "desktop_windows_x64",
+        descriptor: { reference: "artifacts/internet-search/0.1.0/local-dev/desktop-windows-x64/descriptor.json", digest: digest(descriptorBytes) },
+        archive: { reference: `artifacts/internet-search/0.1.0/local-dev/desktop-windows-x64/${archiveName}`, digest: archiveDigest },
+        source_index: { reference: "source-indexes/internet-search/0.1.0/local-dev/source-index.json", digest: digest(sourceIndexBytes) },
+        trust_root: { reference: "trust-roots/internet-search/local-dev/trust-root.json", digest: digest(trustRootBytes) },
+        revocation: { reference: "revocations/internet-search/local-dev/revocation-list.json", digest: digest(revocationBytes) },
+      }],
+      compatibility: {
+        manifest_version: 2,
+        package_profile: "braindrive-package-v2",
+        host_min_version: "0.1.0",
+        mcp_protocol: "2026-07-28",
+        mcp_apps_extension: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" },
+        targets: ["desktop_windows_x64"],
+      },
+      safe_presentation: packageManifest.catalog,
+      relationship_projection: {
+        launchable_app: false,
+        provides_operations: ["web.search@1", "web.read@1"],
+        requires_operations: [],
+        depends_on_packages: [],
+      },
+      security_projection: {
+        catalog_role: "discovery_and_retrieval_metadata_only",
+        runtime_authority: false,
+        install_decision: false,
+        owner_trust_roots: false,
+        private_binding_projection: "never",
+      },
+    }],
+  };
+  const catalogPath = path.join(sourceRoot, "catalog", "stage1", "catalog.json");
+  await mkdir(path.dirname(catalogPath), { recursive: true });
+  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  return { catalogPath, archiveDigest };
 }
 
 describe("SC-005 Internet Search proof provider package migration", () => {
@@ -179,8 +357,9 @@ describe("SC-005 Internet Search proof provider package migration", () => {
             mutable_global_fallback: false,
           },
           dependencies: expect.arrayContaining([
-            expect.objectContaining({ name: "searxng.application", kind: "language_package", version: "2026.9.0", license_id: "AGPL-3.0-or-later" }),
-            expect.objectContaining({ name: "python.runtime", kind: "runtime", version: "3.12.6", license_id: "Python-2.0" }),
+            expect.objectContaining({ name: "self-contained-searxng-compatible-search", kind: "runtime", version: "1.0.0", license_id: "MIT" }),
+            expect.objectContaining({ name: "reqwest-rust-client", kind: "language_package", version: "0.12.28", license_id: "MIT+Apache-2.0" }),
+            expect.objectContaining({ name: "rustls-tls-stack", kind: "native_library", version: "0.23.45", license_id: "MIT+Apache-2.0" }),
           ]),
         },
         resources: {
@@ -232,7 +411,98 @@ describe("SC-005 Internet Search proof provider package migration", () => {
     expect(manifest.package_kind).toEqual(["capability_provider"]);
   });
 
-  it("updates the installed proof package when the staged manifest digest changes", async () => {
+  it("does not install the provider package merely because the Stage 1 catalog lists it", async () => {
+    const root = await tempRoot();
+    const { catalogPath } = await writeInternetSearchCatalogPackage(root);
+
+    const providerRuntime = await createInternetSearchProviderRuntime({
+      rootDir: path.join(root, "missing-host-fixtures"),
+      memoryRoot: path.join(root, "memory"),
+      stateRoot: path.join(root, "state"),
+      hostVersion: "26.7.23",
+      target: "desktop_windows_x64",
+      catalogSource: { kind: "local_file", catalogPath },
+      env: {
+        BRAINDRIVE_INTERNET_SEARCH_STARTUP_TIMEOUT_MS: "25",
+        BRAINDRIVE_INTERNET_SEARCH_READINESS_POLL_MS: "1",
+      },
+      fetchImpl: async () => new Response("not ready", { status: 503 }),
+    });
+
+    try {
+      const installed = await providerRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      expect(installed).toBeNull();
+      expect(await providerRuntime.providerRegistry.discover("web.search@1", { authorized: true })).toMatchObject({
+        state: "unavailable",
+        callable: false,
+        provider_count: 0,
+      });
+      expect(await providerRuntime.packageStore.ownerSafeCatalog({ currentTarget: "desktop_windows_x64" })).toEqual([]);
+      const catalogPackageService = createCatalogPackageService({
+        catalogSource: { kind: "local_file", catalogPath },
+        packageStore: providerRuntime.packageStore,
+        memoryRoot: path.join(root, "memory"),
+        stateRoot: path.join(root, "state"),
+        target: "desktop_windows_x64",
+      });
+      const availablePackages = await catalogPackageService.availablePackages();
+      expect(availablePackages).toHaveLength(1);
+      expect(availablePackages[0]).toMatchObject({
+        identity: {
+          package_id: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+          installation_id: null,
+          package_digest: null,
+        },
+        state: "not_installed",
+        version: { installed: null, available: "1.0.0" },
+        available_actions: ["install"],
+      });
+    } finally {
+      await providerRuntime.close();
+    }
+  });
+
+  it("can explicitly install the provider package from the Stage 1 catalog", async () => {
+    const root = await tempRoot();
+    const { catalogPath, archiveDigest } = await writeInternetSearchCatalogPackage(root);
+
+    const providerRuntime = await createInternetSearchProviderRuntime({
+      rootDir: path.join(root, "missing-host-fixtures"),
+      memoryRoot: path.join(root, "memory"),
+      stateRoot: path.join(root, "state"),
+      hostVersion: "26.7.23",
+      target: "desktop_windows_x64",
+      catalogSource: { kind: "local_file", catalogPath },
+      env: {
+        BRAINDRIVE_INTERNET_SEARCH_STARTUP_TIMEOUT_MS: "25",
+        BRAINDRIVE_INTERNET_SEARCH_READINESS_POLL_MS: "1",
+      },
+      fetchImpl: async () => new Response("not ready", { status: 503 }),
+    });
+
+    try {
+      const catalogPackageService = createCatalogPackageService({
+        catalogSource: { kind: "local_file", catalogPath },
+        packageStore: providerRuntime.packageStore,
+        memoryRoot: path.join(root, "memory"),
+        stateRoot: path.join(root, "state"),
+        target: "desktop_windows_x64",
+      });
+      await catalogPackageService.installPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      const installed = await providerRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      expect(installed).toMatchObject({
+        package_id: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+        package_digest: archiveDigest,
+        source: { kind: "local_package", label: "BrainDrive Stage 1 catalog" },
+      });
+      expect(await readFile(path.join(root, "state", "state", "packages", "catalog-extracted", archiveDigest.slice("sha256:".length), "manifest.json"), "utf8"))
+        .toContain(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+    } finally {
+      await providerRuntime.close();
+    }
+  });
+
+  it("does not install or update the provider package from host manifest environment variables", async () => {
     const root = await tempRoot();
     const externalRoot = path.join(root, "braindrive-internet-search");
     const memoryRoot = path.join(root, "memory");
@@ -241,6 +511,7 @@ describe("SC-005 Internet Search proof provider package migration", () => {
     const rawManifest = await readFile(path.resolve(process.cwd(), "../internet_search/manifest.json"), "utf8");
     const firstManifest = JSON.parse(rawManifest) as PackageComponentManifest;
     firstManifest.package_version = "0.9.0";
+    const seededStore = await seedInstalledInternetSearchPackage({ stateRoot, manifest: firstManifest });
     await writeFile(path.join(externalRoot, "manifest.json"), `${JSON.stringify(firstManifest, null, 2)}\n`, "utf8");
 
     const firstRuntime = await createInternetSearchProviderRuntime({
@@ -249,6 +520,7 @@ describe("SC-005 Internet Search proof provider package migration", () => {
       stateRoot,
       target: "docker_linux_x64",
       env: { BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: externalRoot },
+      packageStore: seededStore,
       searchExecutor: null,
       readExecutor: null,
     });
@@ -262,16 +534,17 @@ describe("SC-005 Internet Search proof provider package migration", () => {
       stateRoot,
       target: "docker_linux_x64",
       env: { BRAINDRIVE_INTERNET_SEARCH_PACKAGE_ROOT: externalRoot },
+      packageStore: seededStore,
       searchExecutor: null,
       readExecutor: null,
     });
 
     try {
       const secondRecord = await secondRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
-      expect(secondRecord?.generation).toBe(2);
-      expect(secondRecord?.package_version).toBe("1.0.0");
-      expect(secondRecord?.package_digest).not.toBe(firstRecord?.package_digest);
-      expect(secondRecord?.previous_package_digest).toBe(firstRecord?.package_digest);
+      expect(secondRecord?.generation).toBe(1);
+      expect(secondRecord?.package_version).toBe("0.9.0");
+      expect(secondRecord?.package_digest).toBe(firstRecord?.package_digest);
+      expect(secondRecord?.previous_package_digest).toBeNull();
       expect(await secondRuntime.packageStore.readComponent(INTERNET_SEARCH_PROVIDER_PACKAGE_ID, INTERNET_SEARCH_SIDECAR_COMPONENT_ID))
         .toMatchObject({ state: "stopped", health: "unknown" });
     } finally {
@@ -281,12 +554,16 @@ describe("SC-005 Internet Search proof provider package migration", () => {
 
   it("keeps desktop packaged-process targets as admission-only metadata instead of Docker fallback", async () => {
     const root = await tempRoot();
+    const memoryRoot = path.join(root, "memory");
+    const stateRoot = path.join(root, "state");
+    const packageStore = await seedInstalledInternetSearchPackage({ stateRoot });
     const providerRuntime = await createInternetSearchProviderRuntime({
-      rootDir: process.cwd(),
-      memoryRoot: path.join(root, "memory"),
-      stateRoot: path.join(root, "state"),
+      rootDir: path.join(root, "missing-host-fixtures"),
+      memoryRoot,
+      stateRoot,
       target: "desktop_windows_x64",
       env: {},
+      packageStore,
       searchExecutor: null,
       readExecutor: null,
     });
@@ -338,6 +615,102 @@ describe("SC-005 Internet Search proof provider package migration", () => {
         callable: false,
       });
       expect(providerRuntime.migrationShim).toBeNull();
+    } finally {
+      await providerRuntime.close();
+    }
+  });
+
+  it("does not auto-install Internet Search from the host source manifest", async () => {
+    const root = await tempRoot();
+    const providerRuntime = await createInternetSearchProviderRuntime({
+      rootDir: process.cwd(),
+      memoryRoot: path.join(root, "memory"),
+      stateRoot: path.join(root, "state"),
+      target: "docker_linux_x64",
+      env: {},
+      searchExecutor: null,
+      readExecutor: null,
+    });
+
+    try {
+      expect(await providerRuntime.packageStore.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID)).toBeNull();
+      expect(await providerRuntime.providerRegistry.discover("web.search@1", { authorized: true })).toMatchObject({
+        state: "unavailable",
+        callable: false,
+      });
+    } finally {
+      await providerRuntime.close();
+    }
+  });
+
+  it("does not report stale desktop search availability when no live sidecar binding can be rebuilt", async () => {
+    const root = await tempRoot();
+    const memoryRoot = path.join(root, "memory");
+    const stateRoot = path.join(root, "state");
+    const packageStore = await seedInstalledInternetSearchPackage({ stateRoot });
+    const seedRuntime = await createInternetSearchProviderRuntime({
+      rootDir: process.cwd(),
+      memoryRoot,
+      stateRoot,
+      target: "docker_linux_x64",
+      env: {},
+      packageStore,
+      searchExecutor: null,
+      readExecutor: null,
+      now: () => "2026-09-15T16:08:29.000Z",
+    });
+    await seedRuntime.packageStore.setSidecarRuntimeState(
+      INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+      INTERNET_SEARCH_SIDECAR_COMPONENT_ID,
+      "running",
+      "healthy",
+      "2026-09-15T16:08:29.000Z",
+    );
+    await seedRuntime.close();
+
+    const previousCwd = process.cwd();
+    let providerRuntime!: Awaited<ReturnType<typeof createInternetSearchProviderRuntime>>;
+    try {
+      process.chdir(root);
+      providerRuntime = await createInternetSearchProviderRuntime({
+        rootDir: root,
+        memoryRoot,
+        stateRoot,
+        target: "desktop_windows_x64",
+        env: {},
+        packageStore,
+        searchExecutor: null,
+        readExecutor: null,
+        now: () => "2026-09-15T16:08:30.000Z",
+      });
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    try {
+      if (!providerRuntime.capabilityRegistry.refresh) throw new Error("provider runtime must expose refresh");
+      await providerRuntime.capabilityRegistry.refresh();
+      const discovery = await providerRuntime.capabilityRegistry.discover("web.search@1", { authorized: true });
+      expect(discovery).toMatchObject({
+        state: "unavailable",
+        callable: false,
+        health: { state: "unknown" },
+      });
+      expect(await providerRuntime.packageStore.readComponent(INTERNET_SEARCH_PROVIDER_PACKAGE_ID, INTERNET_SEARCH_SIDECAR_COMPONENT_ID))
+        .toMatchObject({ state: "stopped", health: "unknown", updated_at: "2026-09-15T16:08:30.000Z" });
+
+      const envelope = await providerRuntime.operationRouter.call("web.search@1", {
+        request_id: "00000000-0000-4000-8000-000000005014",
+        run_id: "00000000-0000-4000-8000-000000005015",
+        input: { query: "Qwen 27b", max_results: 1 },
+      }, { authorized: true, signal: new AbortController().signal });
+      expect(envelope).toMatchObject({
+        status: "unavailable",
+        provider: null,
+        failure: { code: "provider_unavailable", retryable: true },
+      });
+      noLeak(discovery);
+      noLeak(envelope);
     } finally {
       await providerRuntime.close();
     }

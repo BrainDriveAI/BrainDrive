@@ -3,13 +3,13 @@ import { z } from "zod";
 
 import { GrantedCapabilityNameSchema } from "../contracts/package.js";
 import { AppRouteKeySchema } from "../contracts/app-registry.js";
-import type { CapabilityDependency } from "../contracts/package-components.js";
+import { PackageIdSchema, type CapabilityDependency } from "../contracts/package-components.js";
 import { AppPlatformError } from "./errors.js";
 import { MODERN_FIXTURE_VERSION } from "./fixture-repository.js";
 import { manifestCapabilities, manifestDataCompatibility, type RuntimePackageManifest } from "./package-verifier.js";
 import type { AppLifecycleService, LifecycleResponse } from "./service.js";
 import { safeSidecarOperation, type HostSidecarLifecycleService, type SidecarLifecycleResponse } from "./sidecar-lifecycle-authority.js";
-import type { CapabilityDependencyAvailability, CapabilityDependencyReadiness, CapabilityDependencyResolution, CapabilityDependencyResolver, InstalledPackageStore } from "./installed-package-store.js";
+import type { CapabilityDependencyAvailability, CapabilityDependencyReadiness, CapabilityDependencyResolution, CapabilityDependencyResolver, InstalledPackageStore, OwnerSafeInstalledPackage } from "./installed-package-store.js";
 
 const bindingSchema = z.object({
   operation_id: z.string().uuid(),
@@ -43,8 +43,13 @@ const sidecarActionSchema = z.object({
   idempotency_key: z.string().min(16).max(256),
   expected_generation: z.number().int().nonnegative().optional(),
 }).strict();
+const packageActionSchema = z.object({
+  operation_id: z.string().uuid(),
+  idempotency_key: z.string().min(16).max(256),
+  expected_generation: z.number().int().nonnegative().optional(),
+}).strict();
 const sidecarParamsSchema = z.object({
-  packageId: z.string().min(3).max(128),
+  packageId: PackageIdSchema,
   componentId: z.string().min(3).max(128),
 }).strict();
 
@@ -60,6 +65,9 @@ export type AppLifecycleRouteEntry = {
 export type AppLifecycleRouteOptions = {
   packageStore?: InstalledPackageStore;
   capabilityDependencyResolver?: CapabilityDependencyResolver | null;
+  availablePackages?: readonly OwnerSafeInstalledPackage[];
+  listAvailablePackages?: () => Promise<readonly OwnerSafeInstalledPackage[]>;
+  installAvailablePackage?: (packageId: string) => Promise<void>;
 };
 export type AppDependencyRouteGate = {
   capability_dependency_status: CapabilityDependencyAvailability[];
@@ -79,6 +87,9 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
   const byRouteKey = new Map(entries.map((entry) => [entry.routeKey, entry]));
   const packageStore = options.packageStore ?? null;
   const capabilityDependencyResolver = options.capabilityDependencyResolver ?? null;
+  const availablePackages = options.availablePackages ?? [];
+  const listAvailablePackages = options.listAvailablePackages ?? (async () => availablePackages);
+  const installAvailablePackage = options.installAvailablePackage ?? null;
   let admissionTail = Promise.resolve();
   return Object.freeze({
     entries: Object.freeze(entries),
@@ -108,6 +119,9 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
     },
     packageStore,
     capabilityDependencyResolver,
+    availablePackages,
+    listAvailablePackages,
+    installAvailablePackage,
   });
 }
 
@@ -118,12 +132,83 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
   app.get("/apps", async (request, reply) => {
     if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
     const apps = await Promise.all(platform.entries.map((entry) => ownerSafeDescriptor(entry, platform)));
-    const packages = platform.packageStore ? await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver }) : [];
+    const installedPackages = platform.packageStore ? (await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver })).filter((pack) => pack.state !== "uninstalled") : [];
+    const catalogPackages = await platform.listAvailablePackages();
+    const installedIds = new Set(installedPackages.map((pack) => pack.identity.package_id));
+    const packages = [...installedPackages, ...catalogPackages.filter((pack) => !installedIds.has(pack.identity.package_id))]
+      .sort((left, right) => left.identity.package_id.localeCompare(right.identity.package_id));
     platform.entries.forEach((entry, index) => {
       const descriptor = apps[index]!;
       auditRouteDecision(entry, "app.catalog.projection", descriptor.version.installed ?? descriptor.version.available, "included", null, descriptor.identity.package_digest);
     });
     return reply.send({ catalog_version: 1, apps, packages });
+  });
+
+  app.post("/packages/:packageId/install", async (request, reply) => {
+    if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
+    if (!platform.installAvailablePackage) return reply.code(404).send({ error: "package_not_found" });
+    const params = z.object({ packageId: PackageIdSchema }).safeParse(request.params);
+    const body = sidecarActionSchema.omit({ expected_generation: true }).safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      await platform.installAvailablePackage(params.data.packageId);
+      const installedPackages = platform.packageStore ? await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver }) : [];
+      const installed = installedPackages.find((pack) => pack.identity.package_id === params.data.packageId);
+      if (!installed) throw new AppPlatformError("package_not_found", "Package install did not produce an installed package record", 404);
+      return reply.send(installed);
+    } catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/packages/:packageId/update", async (request, reply) => {
+    if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
+    if (!platform.packageStore || !platform.installAvailablePackage) return reply.code(404).send({ error: "package_not_found" });
+    const params = z.object({ packageId: PackageIdSchema }).safeParse(request.params);
+    const body = packageActionSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      await assertPackageGeneration(platform.packageStore, params.data.packageId, body.data.expected_generation);
+      await platform.installAvailablePackage(params.data.packageId);
+      return reply.send(await ownerSafePackageDescriptor(platform, params.data.packageId));
+    } catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/packages/:packageId/disable", async (request, reply) => {
+    if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
+    if (!platform.packageStore) return reply.code(404).send({ error: "package_not_found" });
+    const params = z.object({ packageId: PackageIdSchema }).safeParse(request.params);
+    const body = packageActionSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      await assertPackageGeneration(platform.packageStore, params.data.packageId, body.data.expected_generation);
+      await platform.packageStore.disablePackage(params.data.packageId);
+      return reply.send(await ownerSafePackageDescriptor(platform, params.data.packageId));
+    } catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/packages/:packageId/enable", async (request, reply) => {
+    if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
+    if (!platform.packageStore) return reply.code(404).send({ error: "package_not_found" });
+    const params = z.object({ packageId: PackageIdSchema }).safeParse(request.params);
+    const body = packageActionSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      await assertPackageGeneration(platform.packageStore, params.data.packageId, body.data.expected_generation);
+      await platform.packageStore.enablePackage(params.data.packageId);
+      return reply.send(await ownerSafePackageDescriptor(platform, params.data.packageId));
+    } catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/packages/:packageId/uninstall", async (request, reply) => {
+    if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
+    if (!platform.packageStore) return reply.code(404).send({ error: "package_not_found" });
+    const params = z.object({ packageId: PackageIdSchema }).safeParse(request.params);
+    const body = packageActionSchema.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      await assertPackageGeneration(platform.packageStore, params.data.packageId, body.data.expected_generation);
+      await platform.packageStore.uninstallPackage(params.data.packageId, body.data.operation_id as `${string}-${string}-${string}-${string}-${string}`);
+      return reply.send(await ownerSafePackageDescriptor(platform, params.data.packageId));
+    } catch (error) { return sendSafeError(reply, error); }
   });
 
   for (const route of ["/apps/:appKey", "/apps/:appKey/status", "/apps/:appKey/inspect"]) {
@@ -276,6 +361,25 @@ export function registerSidecarLifecycleRoutes(app: FastifyInstance, service: Ho
       return sendSafeSidecarError(reply, error);
     }
   });
+}
+
+async function assertPackageGeneration(packageStore: InstalledPackageStore, packageId: string, expectedGeneration: number | undefined): Promise<void> {
+  if (expectedGeneration === undefined) {
+    await packageStore.requirePackage(packageId);
+    return;
+  }
+  const record = await packageStore.requirePackage(packageId);
+  if (record.generation !== expectedGeneration) {
+    throw new AppPlatformError("conflict", "Package state changed before the requested lifecycle action could be confirmed", 409);
+  }
+}
+
+async function ownerSafePackageDescriptor(platform: AppLifecycleRoutePlatform, packageId: string): Promise<OwnerSafeInstalledPackage> {
+  if (!platform.packageStore) throw new AppPlatformError("package_not_found", "Installed package record is unavailable", 404);
+  const packages = await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver });
+  const pack = packages.find((candidate) => candidate.identity.package_id === packageId);
+  if (!pack) throw new AppPlatformError("package_not_found", "Installed package record is unavailable", 404);
+  return pack;
 }
 
 function resolveEntry(request: FastifyRequest, reply: FastifyReply, platform: AppLifecycleRoutePlatform): AppLifecycleRouteEntry | null {
@@ -665,8 +769,11 @@ function sendSafeError(reply: FastifyReply, error: unknown) {
     conflict: "App status changed. Refresh and retry from the current state.",
     denied: "This request does not match the authorized owner or installation.",
     package_revoked: "This app version is revoked and cannot run.",
+    package_archive_digest_mismatch: "The saved app package no longer matches the verified package source. Use Update if a verified package is available; saved data remains retained.",
+    package_cache_missing: "The saved app package is missing. Use Update if a verified package is available; saved data remains retained.",
     incompatible_schema: "Retained data is preserved but requires a compatible app version.",
     readiness_failed: "The app did not become ready. The last safe state was preserved.",
+    recoverable_internal_failure: "BrainDrive could not safely prepare this app. Saved data remains retained.",
     active_app_limit_reached: "Disable another active app before starting this one.",
   };
   return reply.code(failure.statusCode).send({ error: failure.code, safe_message: safeMessage[failure.code] ?? "The lifecycle action could not be completed safely.", retryable: failure.statusCode >= 500 || failure.code === "conflict" });

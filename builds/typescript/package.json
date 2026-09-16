@@ -50,6 +50,7 @@
     "desktop:prepare-dev": "node scripts/desktop-prepare-dev.mjs",
     "desktop:stage-runtime": "node scripts/desktop-stage-runtime.mjs",
     "desktop:stage-runtime:powershell": "powershell -ExecutionPolicy Bypass -File scripts/desktop-stage-runtime.ps1",
+    "desktop:reset-app-installs:windows": "powershell -ExecutionPolicy Bypass -File scripts/desktop-reset-app-installs.ps1",
     "desktop:dev": "tauri dev",
     "desktop:release-aliases": "node scripts/desktop-release-aliases.mjs",
     "desktop:build": "tauri build && npm run desktop:release-aliases",

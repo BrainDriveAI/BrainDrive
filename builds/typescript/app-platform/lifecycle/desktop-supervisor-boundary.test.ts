@@ -6,12 +6,13 @@ import { describe, expect, it } from "vitest";
 const TAURI_ROOT = path.resolve(process.cwd(), "src-tauri");
 
 describe("Spec 05 M6 packaged-desktop supervisor boundary", () => {
-  it("stages packaged Node, both first-party apps, and compiled gateway JavaScript and selects the native desktop loopback adapter", async () => {
-    const [configuration, main, stage, powershellStage] = await Promise.all([
+  it("stages packaged Node and compiled gateway JavaScript without extracted app payloads and selects the native desktop loopback adapter", async () => {
+    const [configuration, main, stage, powershellStage, resetInstalls] = await Promise.all([
       readFile(path.join(TAURI_ROOT, "tauri.conf.json"), "utf8"),
       readFile(path.join(TAURI_ROOT, "src", "main.rs"), "utf8"),
       readFile(path.resolve(process.cwd(), "scripts", "desktop-stage-runtime.mjs"), "utf8"),
       readFile(path.resolve(process.cwd(), "scripts", "desktop-stage-runtime.ps1"), "utf8"),
+      readFile(path.resolve(process.cwd(), "scripts", "desktop-reset-app-installs.ps1"), "utf8"),
     ]);
 
     expect(configuration).toContain('"desktop-runtime/": "desktop-runtime"');
@@ -19,14 +20,21 @@ describe("Spec 05 M6 packaged-desktop supervisor boundary", () => {
     expect(main).toContain('PathBuf::from("dist").join("gateway").join("server.js")');
     expect(main).toContain('const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64"');
     expect(main).toContain('const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_macos_universal"');
+    expect(main).toContain("DEFAULT_STAGE1_CATALOG_URL");
+    expect(main).toContain("BrainDriveAI/BrainDrive-Marketplace/main/catalog/stage1/catalog.json");
     expect(main).toMatch(/\.env\(\s*"BRAINDRIVE_APP_PLATFORM_TARGET",\s*DESKTOP_APP_PLATFORM_TARGET,?\s*\)/);
+    expect(main).toContain('.env("BRAINDRIVE_STAGE1_CATALOG_REQUIRED", "true")');
+    expect(main).toContain('"BRAINDRIVE_STAGE1_CATALOG_URL"');
+    expect(main).toContain('"BRAINDRIVE_STAGE1_CATALOG_PATH"');
     expect(main).toContain('format!("http://127.0.0.1:{gateway_port}")');
     expect(stage).toMatch(/node|desktop-runtime/);
     expect(stage).toMatch(/dist|typescript/);
-    expect(stage).toContain("briefBuilderRoot");
-    expect(stage).toContain('path.join(outputRoot, "brief_builder", "resources")');
-    expect(powershellStage).toContain("$BriefBuilderRoot");
-    expect(powershellStage).toContain('Join-Path $OutputRoot "brief_builder\\resources"');
+    expect(stage).not.toMatch(/briefBuilderRoot|resumeBuilderRoot|brief_builder|resume_builder/);
+    expect(powershellStage).not.toMatch(/\$BriefBuilderRoot|\$ResumeBuilderRoot|brief_builder|resume_builder/);
+    expect(resetInstalls).toContain("reset-backups");
+    expect(resetInstalls).toContain("state\\packages");
+    expect(resetInstalls).toContain("state\\apps");
+    expect(resetInstalls).toContain("memory\\apps was preserved");
   });
 
   it("contains descendants in the native Tauri process boundary while granting no iframe shell/process authority", async () => {

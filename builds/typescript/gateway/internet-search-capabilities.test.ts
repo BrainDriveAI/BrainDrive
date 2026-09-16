@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { PermissionSet } from "../contracts.js";
 import {
   createInternetSearchProviderRuntime,
+  digestInternetSearchProviderManifest,
   INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+  loadInternetSearchProviderManifest,
   type InternetSearchProviderRuntime,
 } from "../internet-search/provider-package.js";
 import { registerInternetSearchCapabilityRoutes } from "../internet-search/routes.js";
@@ -17,6 +19,7 @@ import { InternetSearchOperationCoordinator } from "../internet-search/operation
 import type { InternetSearchRouteCapabilityRegistry } from "../internet-search/routes.js";
 import type { WebReadExecutor } from "../internet-search/read-adapter.js";
 import type { WebSearchExecutor } from "../internet-search/search-adapter.js";
+import { InstalledPackageStore } from "../app-platform/lifecycle/installed-package-store.js";
 
 const basePermissions: PermissionSet = {
   memory_access: true,
@@ -42,20 +45,27 @@ async function createApp(options: {
   diagnosticsSink?: ReturnType<typeof createMemoryInternetSearchDiagnosticSink>;
   afterRuntime?: (runtime: InternetSearchProviderRuntime) => Promise<void>;
   withShim?: boolean;
+  installProvider?: boolean;
 }) {
   const app = Fastify({ logger: false });
   const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc005-gateway-"));
   roots.push(root);
+  const memoryRoot = path.join(root, "memory");
+  const stateRoot = path.join(root, "state");
+  const packageStore = options.installProvider === false
+    ? undefined
+    : await seedInstalledInternetSearchPackage(stateRoot);
   const runtime = await createInternetSearchProviderRuntime({
     rootDir: process.cwd(),
-    memoryRoot: path.join(root, "memory"),
-    stateRoot: path.join(root, "state"),
+    memoryRoot,
+    stateRoot,
     env: options.withShim === false ? {} : {
       BRAINDRIVE_INTERNET_SEARCH_SIDECAR_URL: "http://internet-search-searxng:8080",
       BRAINDRIVE_INTERNET_SEARCH_HEALTH_TIMEOUT_MS: "25",
       BRAINDRIVE_INTERNET_SEARCH_STARTUP_TIMEOUT_MS: "25",
       BRAINDRIVE_INTERNET_SEARCH_READINESS_POLL_MS: "1",
     },
+    packageStore,
     fetchImpl: async () => new Response("ok", { status: 200 }),
     searchExecutor: options.searchExecutor ?? null,
     readExecutor: options.readExecutor ?? null,
@@ -79,6 +89,19 @@ async function createApp(options: {
     },
   );
   return app;
+}
+
+async function seedInstalledInternetSearchPackage(stateRoot: string): Promise<InstalledPackageStore> {
+  const packageStore = new InstalledPackageStore(path.join(stateRoot, "state", "packages"));
+  await packageStore.initialize();
+  const manifest = await loadInternetSearchProviderManifest(process.cwd());
+  await packageStore.installPackage({
+    manifest,
+    packageDigest: digestInternetSearchProviderManifest(manifest),
+    source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
+    installedAt: "2026-09-01T00:00:00.000Z",
+  });
+  return packageStore;
 }
 
 describe("Internet Search capability discovery gateway route", () => {

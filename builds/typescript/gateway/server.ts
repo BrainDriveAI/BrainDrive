@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { BRIEF_BUILDER_VERSION, createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
 import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
+import { createCatalogPackageService } from "../app-platform/lifecycle/catalog-package-service.js";
 import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
 import type { Stage1CatalogSourceConfig } from "../app-platform/lifecycle/stage1-catalog-source.js";
@@ -40,6 +41,7 @@ import {
   createInternetSearchProviderRuntime,
   type InternetSearchProviderRuntime,
 } from "../internet-search/provider-package.js";
+import type { InternetSearchDiagnosticSink } from "../internet-search/diagnostics.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -485,6 +487,10 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
   const appLifecycleTarget = readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET);
   const appStateRoot = process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined;
   const stage1CatalogSource = readStage1CatalogSourceEnv();
+  const requireStage1CatalogSource = readBooleanEnv(
+    process.env.BRAINDRIVE_STAGE1_CATALOG_REQUIRED,
+    appLifecycleTarget !== "docker_linux_x64"
+  );
   const appLifecycleService = readBooleanEnv(process.env.BRAINDRIVE_APP_PLATFORM_ENABLED, false)
     ? await createAppLifecycle({
         memoryRoot: runtimeConfig.memory_root,
@@ -494,6 +500,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
         catalogSource: stage1CatalogSource,
+        requireCatalogSource: requireStage1CatalogSource,
       })
     : null;
   const briefLifecycleService = appLifecycleService
@@ -505,6 +512,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
         catalogSource: stage1CatalogSource,
+        requireCatalogSource: requireStage1CatalogSource,
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
@@ -558,6 +566,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     auditLog("app_platform.lifecycle.enabled", {
       app_id: "ai.braindrive.resume-builder",
       fixture_source: stage1CatalogSource ? "stage1_catalog" : "repository_fixture",
+      catalog_required: requireStage1CatalogSource,
       supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "docker_linux_x64" ? "docker_process" : "desktop_packaged_node",
     });
     app.addHook("onClose", async () => {
@@ -629,8 +638,24 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     rootDir,
     memoryRoot: runtimeConfig.memory_root,
     stateRoot: appStateRoot,
+    hostVersion: appVersion,
     target: appLifecycleTarget,
+    catalogSource: stage1CatalogSource,
     env: process.env,
+  });
+  const internetSearchDiagnosticsSink: InternetSearchDiagnosticSink = {
+    record(event) {
+      auditLog("internet_search.operation", event);
+    },
+  };
+  const packageDependencyResolver = dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry);
+  const catalogPackageService = createCatalogPackageService({
+    catalogSource: stage1CatalogSource,
+    packageStore: internetSearchRuntime.packageStore,
+    memoryRoot: runtimeConfig.memory_root,
+    stateRoot: appStateRoot,
+    target: appLifecycleTarget,
+    dependencyResolver: packageDependencyResolver,
   });
   app.addHook("onClose", async () => {
     await internetSearchRuntime.close();
@@ -855,20 +880,26 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     ];
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform(lifecycleEntries, 2, {
       packageStore: internetSearchRuntime.packageStore,
-      capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
+      capabilityDependencyResolver: packageDependencyResolver,
+      listAvailablePackages: () => catalogPackageService.availablePackages(),
+      installAvailablePackage: async (packageId) => {
+        await catalogPackageService.installPackage(packageId);
+        await internetSearchRuntime.activateInstalledPackage(packageId);
+      },
     }));
     appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
       { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost!, service: appLifecycleService },
       ...(briefMcpHost && briefLifecycleService ? [{ appId: briefMcpHost.appId, routeKey: briefMcpHost.routeKey, host: briefMcpHost, service: briefLifecycleService, capabilityDependencies: briefLifecycleService.dependencies.catalogPackageSource?.capabilityDependencies }] : []),
     ], {
       packageStore: internetSearchRuntime.packageStore,
-      capabilityDependencyResolver: dependencyResolverFromCapabilityProviderRegistry(internetSearchRuntime.providerRegistry),
+      capabilityDependencyResolver: packageDependencyResolver,
       appCapabilityRouter: internetSearchRuntime.operationRouter,
     });
     registerAppMcpHostRoutes(app, appMcpHostRoutePlatform);
   }
   registerInternetSearchCapabilityRoutes(app, internetSearchRuntime.capabilityRegistry, {
     operationRouter: internetSearchRuntime.operationRouter,
+    diagnosticsSink: internetSearchDiagnosticsSink,
   });
 
   app.post("/message", async (request, reply) => {

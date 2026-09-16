@@ -4,6 +4,7 @@ import { hasInternetSearchDependency, isInternetSearchOperationId } from "@/api/
 import type { CapabilityDependencyStatus, InstalledPackageComponentKind, InstalledPackageComponentStatus, InstalledPackageStatus } from "@/api/apps-adapter";
 
 const packageStateCopy: Record<string, string> = {
+  not_installed: "Not installed",
   enabled: "Enabled",
   disabled: "Disabled",
   updating: "Updating",
@@ -40,6 +41,7 @@ const actionLabel: Record<string, string> = {
   rollback: "Roll back",
   uninstall: "Uninstall",
   launch: "Launch",
+  install: "Install",
 };
 
 const targetCopy: Record<string, string> = {
@@ -68,17 +70,20 @@ const readinessCopy: Record<InstalledPackageStatus["dependency_readiness"]["stat
 };
 
 const targetSupportCopy: Record<InstalledPackageStatus["runtime_summary"]["target_support"], string> = {
-  supported: "Supported target",
-  unsupported: "Unsupported target",
-  unknown: "Target support not checked",
+  supported: "Compatible with this device",
+  unsupported: "Not compatible with this device",
+  unknown: "Compatibility not checked yet",
 };
 
 const osSecurityCopy: Record<InstalledPackageStatus["runtime_summary"]["os_security"]["classification"], string> = {
-  not_applicable: "OS security review not required",
-  review_required: "OS security review may be required",
+  not_applicable: "Desktop security",
+  review_required: "Desktop security",
   blocked: "OS security blocked",
-  unknown: "OS security status unknown",
+  unknown: "Desktop security",
 };
+
+const setupWarningClass = "mt-4 rounded-lg border border-bd-amber px-4 py-3 text-sm text-bd-text-primary";
+const dangerWarningClass = "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary";
 
 function primaryKind(pack: InstalledPackageStatus): string {
   if (pack.package_kind.includes("capability_provider")) return "Capability provider";
@@ -102,6 +107,7 @@ function roleSummary(pack: InstalledPackageStatus): string {
 }
 
 function hasUnsafeState(pack: InstalledPackageStatus): boolean {
+  if (pack.state === "not_installed") return false;
   return pack.state === "failed" || pack.state === "quarantined"
     || pack.dependency_readiness.status === "blocked"
     || pack.components.some((component) => component.health === "unhealthy" || component.state === "unavailable" || component.state === "failed" || component.dependency_readiness.status === "blocked");
@@ -113,7 +119,8 @@ function packageActions(pack: InstalledPackageStatus): string[] {
 }
 
 function componentActions(component: InstalledPackageComponentStatus): string[] {
-  return safeActions(component.owner_visible_actions, component.launchable, component.dependency_readiness.status);
+  void component;
+  return [];
 }
 
 function safeActions(actions: string[], launchable: boolean, readiness: InstalledPackageStatus["dependency_readiness"]["status"]): string[] {
@@ -145,6 +152,9 @@ function readinessGuidance(statuses: CapabilityDependencyStatus[], readiness: In
     return "Refresh Apps or ask an owner/admin to check provider readiness before dependent apps rely on this package.";
   }
   if (readiness.status === "blocked") {
+    if (hasInternetSearchDependency(statuses)) {
+      return "Install Internet Search Provider from Packages before dependent apps use Search/Read.";
+    }
     return "A required capability is unavailable for this package.";
   }
   return "All declared dependencies are available for this package.";
@@ -153,15 +163,77 @@ function readinessGuidance(statuses: CapabilityDependencyStatus[], readiness: In
 function dependencyDetail(statuses: CapabilityDependencyStatus[]): string | null {
   const unavailable = statuses.filter((status) => !status.callable);
   if (unavailable.length === 0) return null;
-  return unavailable.map((status) => status.safe_message || `${status.operation_id} is ${formatValue(status.state)}.`).join(" ");
+  if (hasInternetSearchDependency(unavailable) && unavailable.some((status) => status.failure_code === "provider_unhealthy" || status.state === "unhealthy")) {
+    return "Internet Search Provider is installed, but its runtime is not ready. Review the provider setup, then refresh Apps. BrainDrive will not install or switch providers silently.";
+  }
+  if (hasInternetSearchDependency(unavailable) && unavailable.every((status) => status.failure_code === "provider_unavailable" || status.state === "missing" || status.state === "unavailable")) {
+    return "Install Internet Search Provider, then refresh Apps. BrainDrive will not install or switch providers silently.";
+  }
+  return [...new Set(unavailable.map((status) => status.safe_message || `${status.operation_id} is ${formatValue(status.state)}.`))].join(" ");
+}
+
+function needsSetup(pack: InstalledPackageStatus): boolean {
+  return pack.state !== "not_installed" && pack.state !== "failed" && pack.state !== "quarantined"
+    && pack.components.some((component) => component.component_kind === "sidecar" && (component.health === "unhealthy" || component.state === "unavailable"));
+}
+
+function packageStateLabel(pack: InstalledPackageStatus): string {
+  if (needsSetup(pack) && pack.state === "enabled") return "Installed — setup needed";
+  return packageStateCopy[pack.state] ?? pack.state;
+}
+
+function componentStateLabel(component: InstalledPackageComponentStatus, pack: InstalledPackageStatus): string {
+  if (pack.state === "not_installed" && component.state === "unavailable") return "Will be installed";
+  if (component.component_kind === "sidecar" && component.state === "unavailable") return "Needs setup";
+  return componentStateCopy[component.state] ?? component.state;
+}
+
+function componentHealthLabel(component: InstalledPackageComponentStatus, pack: InstalledPackageStatus): string | null {
+  if (pack.state === "not_installed") return null;
+  if (component.component_kind === "sidecar" && component.health === "unhealthy") return "Not ready";
+  return healthCopy[component.health] ?? component.health;
+}
+
+function packageRuntimeTitle(pack: InstalledPackageStatus): string {
+  if (pack.state === "not_installed" && pack.runtime_summary.target_support === "supported") return "Ready to install on this device";
+  return targetSupportCopy[pack.runtime_summary.target_support];
+}
+
+function packageRuntimeMessage(pack: InstalledPackageStatus): string {
+  if (pack.state === "not_installed" && pack.runtime_summary.target_support === "supported") {
+    return "BrainDrive will verify and stage this package only after you choose Install.";
+  }
+  if (needsSetup(pack)) {
+    return "This package is installed, but its runtime is not ready yet. Configure or repair the provider setup, then refresh Apps.";
+  }
+  return pack.runtime_summary.target_message;
+}
+
+function searchDisclosureCopy(pack: InstalledPackageStatus): { first: string; second: string } {
+  if (pack.state === "not_installed" && pack.operations.some((operation) => isInternetSearchOperationId(operation.operation_id))) {
+    return {
+      first: "This package adds Search/Read capability for apps such as Brief Builder. Installing it does not send queries by itself.",
+      second: "Queries and URLs are sent only when an app uses Search/Read through this provider. Provider costs are owner-managed outside BrainDrive.",
+    };
+  }
+  return {
+    first: "Apps using these operations may send queries and URLs to the selected provider. Provider keys and unrelated owner data are not sent.",
+    second: "Owner-managed provider costs are handled outside BrainDrive. This package is not a launchable app unless the Host projection includes a launchable app component.",
+  };
 }
 
 export default function PackageLifecycleCard({
   pack,
   compact = false,
+  busy = null,
+  error,
+  onAction,
 }: {
   pack: InstalledPackageStatus;
   compact?: boolean;
+  busy?: string | null;
+  error?: string | null;
+  onAction?: (action: string) => void;
 }) {
   const titleId = `package-${pack.identity.package_id}-title`;
   const unsafe = hasUnsafeState(pack);
@@ -174,7 +246,12 @@ export default function PackageLifecycleCard({
     || operations.some(isInternetSearchOperationId)
     || pack.components.some((component) => component.provided_operations.some(isInternetSearchOperationId) || hasInternetSearchDependency(component.capability_dependency_status));
   const actions = packageActions(pack);
-  const runtimeUnsafe = pack.runtime_summary.target_support === "unsupported" || pack.runtime_summary.os_security.classification === "blocked";
+  const runtimeUnsafe = pack.state !== "not_installed" && (pack.runtime_summary.target_support === "unsupported" || pack.runtime_summary.os_security.classification === "blocked");
+  const searchDisclosure = searchDisclosureCopy(pack);
+  const setupNeeded = needsSetup(pack);
+  const packageHealthWarning = setupNeeded
+    ? "This package is installed, but its runtime is not ready. Dependent apps will stay blocked until the provider reports healthy."
+    : "Package roles need owner review before dependent apps rely on this package.";
 
   return (
     <article className="flex h-full flex-col rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-package-id={pack.identity.package_id}>
@@ -189,8 +266,8 @@ export default function PackageLifecycleCard({
           </div>
         </div>
         <div className="shrink-0 whitespace-nowrap text-left sm:text-right">
-          <p className="whitespace-nowrap font-medium text-bd-text-primary">{packageStateCopy[pack.state] ?? pack.state}</p>
-          <p className="text-xs text-bd-text-muted">Version {pack.version.installed}</p>
+          <p className="whitespace-nowrap font-medium text-bd-text-primary">{packageStateLabel(pack)}</p>
+          <p className="text-xs text-bd-text-muted">Version {pack.version.installed ?? pack.version.available}</p>
         </div>
       </div>
 
@@ -202,7 +279,7 @@ export default function PackageLifecycleCard({
       </div>
 
       {showReadiness ? (
-        <div role={pack.dependency_readiness.status === "blocked" ? "alert" : "status"} aria-label={`${pack.identity.display_name} dependency readiness`} className={pack.dependency_readiness.status === "blocked" ? "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary" : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}>
+        <div role={pack.dependency_readiness.status === "blocked" ? "alert" : "status"} aria-label={`${pack.identity.display_name} dependency readiness`} className={pack.dependency_readiness.status === "blocked" ? setupWarningClass : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}>
           {readinessCopy[pack.dependency_readiness.status]}
           {dependencyIds.length ? `: ${dependencyIds.join(", ")}` : ""}
           <span className="block pt-1 text-xs text-bd-text-secondary">{readinessGuidance(pack.capability_dependency_status, pack.dependency_readiness)}</span>
@@ -211,25 +288,25 @@ export default function PackageLifecycleCard({
       ) : null}
 
       {unsafe && pack.dependency_readiness.status !== "blocked" ? (
-        <div role="alert" aria-label={`${pack.identity.display_name} package health`} className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">
-          Unhealthy or unavailable package roles need owner review before dependent apps rely on this package.
+        <div role="alert" aria-label={`${pack.identity.display_name} package health`} className={setupNeeded ? setupWarningClass : dangerWarningClass}>
+          {packageHealthWarning}
         </div>
       ) : null}
       {showSearchDisclosure ? (
         <section aria-labelledby={`${titleId}-search-disclosure`} className="mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary">
           <h3 id={`${titleId}-search-disclosure`} className="font-heading text-sm font-semibold text-bd-text-heading">Search/Read data handling</h3>
-          <p className="mt-1 text-xs text-bd-text-secondary">Apps using these operations may send queries and URLs to the selected provider. Provider keys and unrelated owner data are not sent.</p>
-          <p className="mt-1 text-xs text-bd-text-secondary">Owner-managed provider costs are handled outside BrainDrive. This package is not a launchable app unless the Host projection includes a launchable app component.</p>
+          <p className="mt-1 text-xs text-bd-text-secondary">{searchDisclosure.first}</p>
+          <p className="mt-1 text-xs text-bd-text-secondary">{searchDisclosure.second}</p>
         </section>
       ) : null}
 
       <section
         role={runtimeUnsafe ? "alert" : "status"}
         aria-label={`${pack.identity.display_name} runtime summary`}
-        className={runtimeUnsafe ? "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary" : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}
+        className={runtimeUnsafe ? setupWarningClass : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}
       >
-        <p className="font-medium text-bd-text-heading">{targetSupportCopy[pack.runtime_summary.target_support]}</p>
-        <p className="mt-1 text-xs text-bd-text-secondary">{pack.runtime_summary.target_message}</p>
+        <p className="font-medium text-bd-text-heading">{packageRuntimeTitle(pack)}</p>
+        <p className="mt-1 text-xs text-bd-text-secondary">{packageRuntimeMessage(pack)}</p>
         {pack.runtime_summary.target_labels.length ? <p className="mt-1 text-xs text-bd-text-secondary">Targets: {pack.runtime_summary.target_labels.join(", ")}</p> : null}
         <p className="mt-2 text-xs text-bd-text-secondary">{pack.runtime_summary.install_size.safe_message}</p>
         <p className="mt-1 text-xs text-bd-text-secondary">{pack.runtime_summary.first_start.safe_message}</p>
@@ -246,7 +323,7 @@ export default function PackageLifecycleCard({
                   <p className="font-medium text-bd-text-primary">{component.display_name}</p>
                   <p className="text-xs text-bd-text-secondary">{kindCopy[component.component_kind]}</p>
                 </div>
-                <p className="text-xs text-bd-text-secondary">{componentStateCopy[component.state] ?? component.state} · {healthCopy[component.health] ?? component.health}</p>
+                <p className="text-xs text-bd-text-secondary">{componentStateLabel(component, pack)}{componentHealthLabel(component, pack) ? ` · ${componentHealthLabel(component, pack)}` : ""}</p>
               </div>
               {component.provided_operations.length ? <p className="mt-2 break-words text-xs text-bd-text-secondary">Operations: {component.provided_operations.join(", ")}</p> : null}
               {component.capability_dependency_status.length ? <p className="mt-2 break-words text-xs text-bd-text-secondary">Dependencies: {component.capability_dependency_status.map(dependencyStatusText).join(", ")}</p> : null}
@@ -313,15 +390,17 @@ export default function PackageLifecycleCard({
       ) : null}
 
       <div className="mt-auto flex flex-wrap gap-2 pt-6" aria-label={`${pack.identity.display_name} package actions`}>
+        {error ? <p role="alert" className="w-full text-sm text-bd-danger">{error}</p> : null}
         {actions.map((action) => (
           <button
             key={action}
             type="button"
             aria-label={`${actionLabel[action] ?? formatValue(action)} ${pack.identity.display_name}`}
-            disabled
-            className={action === "uninstall" ? "rounded-lg border border-bd-danger px-4 py-2 text-bd-text-primary opacity-70" : "rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary opacity-70"}
+            disabled={Boolean(busy)}
+            onClick={() => onAction?.(action)}
+            className={action === "install" ? "rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary disabled:opacity-70" : action === "uninstall" ? "rounded-lg border border-bd-danger px-4 py-2 text-bd-text-primary disabled:opacity-70" : "rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary disabled:opacity-70"}
           >
-            {actionLabel[action] ?? formatValue(action)}
+            {busy === action ? `${actionLabel[action] ?? formatValue(action)}…` : actionLabel[action] ?? formatValue(action)}
           </button>
         ))}
       </div>

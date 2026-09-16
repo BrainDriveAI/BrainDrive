@@ -3,10 +3,12 @@
   "package_id": "ai.braindrive.internet-search.searxng",
   "publisher_id": "ai.braindrive",
   "package_version": "1.0.0",
-  "package_kind": ["capability_provider"],
+  "package_kind": [
+    "capability_provider"
+  ],
   "catalog": {
     "display_name": "Internet Search Provider",
-    "summary": "Provider package with a private search sidecar.",
+    "summary": "Provider package with a private self-contained Rust sidecar that performs web search and returns SearXNG-compatible JSON.",
     "icon": null,
     "retention_summary": "Provider cache is deleted by default on uninstall."
   },
@@ -20,29 +22,115 @@
     "links_and_device_nodes": "reject"
   },
   "files": [
-    { "path": "payload/provider/read.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
-    { "path": "payload/provider/search.js", "kind": "file", "mode": "read_only", "size_bytes": 128, "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
-    { "path": "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe", "kind": "file", "mode": "executable", "size_bytes": 1048576, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    { "path": "payload/dependencies/searxng/windows-x64/lock.json", "kind": "file", "mode": "read_only", "size_bytes": 4096, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-    { "path": "provenance/searxng-windows.intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 2048, "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
-    { "path": "sbom/searxng-windows.cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 8192, "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
-    { "path": "payload/sidecars/search-runtime/macos-universal/searxng-runtime", "kind": "file", "mode": "executable", "size_bytes": 1048576, "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
-    { "path": "payload/dependencies/searxng/macos-universal/lock.json", "kind": "file", "mode": "read_only", "size_bytes": 4096, "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
-    { "path": "provenance/searxng-macos.intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 2048, "digest": "sha256:abababababababababababababababababababababababababababababababab" },
-    { "path": "sbom/searxng-macos.cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 8192, "digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" },
-    { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
-    { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 64, "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
+    {
+      "path": "payload/provider/read.js",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 52,
+      "digest": "sha256:bd55527adddd9accceb51d5c30acc40bb39d9ed38ef1b7cc928d0295e41b2e82"
+    },
+    {
+      "path": "payload/provider/search.js",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 54,
+      "digest": "sha256:5a8e150a059d07163ceda311c0978ee4ba002341aad468ff7297f261f6a52bc5"
+    },
+    {
+      "path": "payload/sidecars/search-runtime/windows-x64/searxng-runtime.exe",
+      "kind": "file",
+      "mode": "executable",
+      "size_bytes": 3452416,
+      "digest": "sha256:c7d40c79b77a91d8fd26d22e71baacc1df5b7d3135e2ffa8b1c8e70c48e0293c"
+    },
+    {
+      "path": "payload/dependencies/searxng/windows-x64/lock.json",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 395,
+      "digest": "sha256:db7d07a86dd18963cb7aca89d44217347467a6063edf92b6f630cb4005ca49ba"
+    },
+    {
+      "path": "provenance/searxng-windows.intoto.jsonl",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 189,
+      "digest": "sha256:148b5d4bad4d507f7889a4be8c93aee152365924b36821f40a4aae0a7133b530"
+    },
+    {
+      "path": "sbom/searxng-windows.cyclonedx.json",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 349,
+      "digest": "sha256:732dad64f976610e11d81e9f2158fcc72a34b9228b19bac78f02872b4d73d136"
+    },
+    {
+      "path": "payload/sidecars/search-runtime/macos-universal/searxng-runtime",
+      "kind": "file",
+      "mode": "executable",
+      "size_bytes": 85,
+      "digest": "sha256:8bef67b2efe93cbf3edf754ffdf4a4931765ab076ae3758c63bfb6a40320a2db"
+    },
+    {
+      "path": "payload/dependencies/searxng/macos-universal/lock.json",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 488,
+      "digest": "sha256:4b1aded48fc25e0fe0d4bcfc4e69cd56948e6cd803ebaac8a4bb676a1a2f7ef0"
+    },
+    {
+      "path": "provenance/searxng-macos.intoto.jsonl",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 199,
+      "digest": "sha256:558d718fabd36cab509ad0b049e4e3b65be92dbbe96462e8737e2faab3dd5ce7"
+    },
+    {
+      "path": "sbom/searxng-macos.cyclonedx.json",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 349,
+      "digest": "sha256:732dad64f976610e11d81e9f2158fcc72a34b9228b19bac78f02872b4d73d136"
+    },
+    {
+      "path": "provenance/intoto.jsonl",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 121,
+      "digest": "sha256:d0d0dff9cc2b68334ecfebe86aded0b581653199232bf05f75abac14db2e642b"
+    },
+    {
+      "path": "sbom/cyclonedx.json",
+      "kind": "file",
+      "mode": "read_only",
+      "size_bytes": 161,
+      "digest": "sha256:61b0a0350c9bd7d19cb9f8c9f409e9c8103e1ac9bdca9e586b25ec0fdd81d3f6"
+    }
   ],
   "components": [
     {
       "component_id": "search.provider",
       "component_kind": "capability_provider",
       "display_name": "Internet Search Provider",
-      "lifecycle_actions": ["enable", "disable", "start", "stop", "restart", "update", "uninstall", "health"],
-      "sidecars": ["search.runtime"],
+      "lifecycle_actions": [
+        "enable",
+        "disable",
+        "start",
+        "stop",
+        "restart",
+        "update",
+        "uninstall",
+        "health"
+      ],
+      "sidecars": [
+        "search.runtime"
+      ],
       "provider_id": "ai.braindrive.internet-search.searxng.provider",
       "launchable": false,
-      "provides": ["web.search@1", "web.read@1"]
+      "provides": [
+        "web.search@1",
+        "web.read@1"
+      ]
     }
   ],
   "sidecars": [
@@ -76,17 +164,43 @@
           "dependency_bundle": {
             "bundle_id": "search.runtime.windows.bundle",
             "platform": "desktop_windows_x64",
-            "bundle_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bundle_digest": "sha256:c7d40c79b77a91d8fd26d22e71baacc1df5b7d3135e2ffa8b1c8e70c48e0293c",
             "lockfile_path": "payload/dependencies/searxng/windows-x64/lock.json",
-            "lockfile_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "lockfile_digest": "sha256:db7d07a86dd18963cb7aca89d44217347467a6063edf92b6f630cb4005ca49ba",
             "provenance_path": "provenance/searxng-windows.intoto.jsonl",
-            "provenance_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "provenance_digest": "sha256:148b5d4bad4d507f7889a4be8c93aee152365924b36821f40a4aae0a7133b530",
             "sbom_path": "sbom/searxng-windows.cyclonedx.json",
-            "sbom_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-            "cache": { "strategy": "package_version_isolated", "content_address": null, "mutable_global_fallback": false },
+            "sbom_digest": "sha256:732dad64f976610e11d81e9f2158fcc72a34b9228b19bac78f02872b4d73d136",
+            "cache": {
+              "strategy": "package_version_isolated",
+              "content_address": null,
+              "mutable_global_fallback": false
+            },
             "dependencies": [
-              { "name": "python.runtime", "kind": "runtime", "version": "3.12.6", "digest": "sha256:1212121212121212121212121212121212121212121212121212121212121212", "license_id": "Python-2.0", "provenance_id": "python.runtime.provenance" },
-              { "name": "searxng.application", "kind": "language_package", "version": "2026.9.0", "digest": "sha256:3434343434343434343434343434343434343434343434343434343434343434", "license_id": "AGPL-3.0-or-later", "provenance_id": "searxng.source.provenance" }
+              {
+                "name": "self-contained-searxng-compatible-search",
+                "kind": "runtime",
+                "version": "1.0.0",
+                "digest": "sha256:f295a089e3d351276483053ceb554860a56616a4248ed4729c9d33dbc2cbfbe3",
+                "license_id": "MIT",
+                "provenance_id": "braindrive.runtime.search"
+              },
+              {
+                "name": "reqwest-rust-client",
+                "kind": "language_package",
+                "version": "0.12.28",
+                "digest": "sha256:e78002bed1ed0abe2d13f2180b91b91c831ad8243b7b1fc46f3ea7f050c2e42e",
+                "license_id": "MIT+Apache-2.0",
+                "provenance_id": "cargo.lock.reqwest"
+              },
+              {
+                "name": "rustls-tls-stack",
+                "kind": "native_library",
+                "version": "0.23.45",
+                "digest": "sha256:1bfaad21b182352672d93affb904577e58075a52995227c3aa879f58b57a39cc",
+                "license_id": "MIT+Apache-2.0",
+                "provenance_id": "cargo.lock.rustls"
+              }
             ]
           },
           "resources": {
@@ -105,7 +219,9 @@
           "network_policy": {
             "network_policy_version": 1,
             "binding": "private_random_loopback",
-            "outbound": ["provider_upstream_https"],
+            "outbound": [
+              "provider_upstream_https"
+            ],
             "public_inbound": false,
             "local_network": "deny_by_default",
             "proxy": "inherit_host_proxy",
@@ -115,9 +231,28 @@
           "evidence": {
             "evidence_version": 1,
             "support_claim": "admission_only",
-            "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
-            "signing": { "platform_signature": "windows_authenticode_required", "signature_state": "declared_required_not_yet_qualified" },
-            "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+            "required_evidence": [
+              "dependency_lock_digest",
+              "resource_budget_declared",
+              "network_policy_declared",
+              "signing_metadata",
+              "license_provenance"
+            ],
+            "signing": {
+              "platform_signature": "windows_authenticode_required",
+              "signature_state": "declared_required_not_yet_qualified"
+            },
+            "stale_on": [
+              "manifest_change",
+              "sidecar_target_change",
+              "dependency_bundle_change",
+              "lockfile_change",
+              "resource_budget_change",
+              "network_policy_change",
+              "signing_evidence_change",
+              "license_provenance_change",
+              "security_boundary_change"
+            ]
           }
         },
         {
@@ -130,17 +265,43 @@
           "dependency_bundle": {
             "bundle_id": "search.runtime.macos.bundle",
             "platform": "desktop_macos_universal",
-            "bundle_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "bundle_digest": "sha256:8bef67b2efe93cbf3edf754ffdf4a4931765ab076ae3758c63bfb6a40320a2db",
             "lockfile_path": "payload/dependencies/searxng/macos-universal/lock.json",
-            "lockfile_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "lockfile_digest": "sha256:4b1aded48fc25e0fe0d4bcfc4e69cd56948e6cd803ebaac8a4bb676a1a2f7ef0",
             "provenance_path": "provenance/searxng-macos.intoto.jsonl",
-            "provenance_digest": "sha256:abababababababababababababababababababababababababababababababab",
+            "provenance_digest": "sha256:558d718fabd36cab509ad0b049e4e3b65be92dbbe96462e8737e2faab3dd5ce7",
             "sbom_path": "sbom/searxng-macos.cyclonedx.json",
-            "sbom_digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-            "cache": { "strategy": "package_version_isolated", "content_address": null, "mutable_global_fallback": false },
+            "sbom_digest": "sha256:732dad64f976610e11d81e9f2158fcc72a34b9228b19bac78f02872b4d73d136",
+            "cache": {
+              "strategy": "package_version_isolated",
+              "content_address": null,
+              "mutable_global_fallback": false
+            },
             "dependencies": [
-              { "name": "python.runtime", "kind": "runtime", "version": "3.12.6", "digest": "sha256:5656565656565656565656565656565656565656565656565656565656565656", "license_id": "Python-2.0", "provenance_id": "python.runtime.provenance" },
-              { "name": "searxng.application", "kind": "language_package", "version": "2026.9.0", "digest": "sha256:7878787878787878787878787878787878787878787878787878787878787878", "license_id": "AGPL-3.0-or-later", "provenance_id": "searxng.source.provenance" }
+              {
+                "name": "self-contained-searxng-compatible-search",
+                "kind": "runtime",
+                "version": "1.0.0",
+                "digest": "sha256:f295a089e3d351276483053ceb554860a56616a4248ed4729c9d33dbc2cbfbe3",
+                "license_id": "MIT",
+                "provenance_id": "braindrive.runtime.search"
+              },
+              {
+                "name": "reqwest-rust-client",
+                "kind": "language_package",
+                "version": "0.12.28",
+                "digest": "sha256:e78002bed1ed0abe2d13f2180b91b91c831ad8243b7b1fc46f3ea7f050c2e42e",
+                "license_id": "MIT+Apache-2.0",
+                "provenance_id": "cargo.lock.reqwest"
+              },
+              {
+                "name": "rustls-tls-stack",
+                "kind": "native_library",
+                "version": "0.23.45",
+                "digest": "sha256:1bfaad21b182352672d93affb904577e58075a52995227c3aa879f58b57a39cc",
+                "license_id": "MIT+Apache-2.0",
+                "provenance_id": "cargo.lock.rustls"
+              }
             ]
           },
           "resources": {
@@ -159,7 +320,9 @@
           "network_policy": {
             "network_policy_version": 1,
             "binding": "private_random_loopback",
-            "outbound": ["provider_upstream_https"],
+            "outbound": [
+              "provider_upstream_https"
+            ],
             "public_inbound": false,
             "local_network": "deny_by_default",
             "proxy": "inherit_host_proxy",
@@ -169,13 +332,37 @@
           "evidence": {
             "evidence_version": 1,
             "support_claim": "admission_only",
-            "required_evidence": ["dependency_lock_digest", "resource_budget_declared", "network_policy_declared", "signing_metadata", "license_provenance"],
-            "signing": { "platform_signature": "macos_codesign_notarization_required", "signature_state": "declared_required_not_yet_qualified" },
-            "stale_on": ["manifest_change", "sidecar_target_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "network_policy_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change"]
+            "required_evidence": [
+              "dependency_lock_digest",
+              "resource_budget_declared",
+              "network_policy_declared",
+              "signing_metadata",
+              "license_provenance"
+            ],
+            "signing": {
+              "platform_signature": "macos_codesign_notarization_required",
+              "signature_state": "declared_required_not_yet_qualified"
+            },
+            "stale_on": [
+              "manifest_change",
+              "sidecar_target_change",
+              "dependency_bundle_change",
+              "lockfile_change",
+              "resource_budget_change",
+              "network_policy_change",
+              "signing_evidence_change",
+              "license_provenance_change",
+              "security_boundary_change"
+            ]
           }
         }
       ],
-      "health": { "kind": "http_path", "path": "/healthz", "interval_ms": 30000, "timeout_ms": 5000 },
+      "health": {
+        "kind": "http_path",
+        "path": "/healthz",
+        "interval_ms": 30000,
+        "timeout_ms": 5000
+      },
       "lifecycle": {
         "start_policy": "owner_explicit",
         "restart_policy": "bounded",
@@ -203,7 +390,9 @@
         "schema_version": 1,
         "content_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
       },
-      "required_sidecars": ["search.runtime"],
+      "required_sidecars": [
+        "search.runtime"
+      ],
       "result_classification": "generic_envelope"
     },
     {
@@ -229,12 +418,25 @@
     }
   ],
   "capability_dependencies": [],
-  "configuration": { "configuration_version": 1, "non_secret_settings_schema": null, "secrets": [] },
+  "configuration": {
+    "configuration_version": 1,
+    "non_secret_settings_schema": null,
+    "secrets": []
+  },
   "permissions": {
     "permission_policy_version": 1,
-    "network": ["public_https", "loopback_to_own_sidecars", "provider_upstream_https"],
-    "filesystem": ["package_read", "declared_cache"],
-    "process": ["supervised_sidecar"],
+    "network": [
+      "public_https",
+      "loopback_to_own_sidecars",
+      "provider_upstream_https"
+    ],
+    "filesystem": [
+      "package_read",
+      "declared_cache"
+    ],
+    "process": [
+      "supervised_sidecar"
+    ],
     "credentials": []
   },
   "retention_policy": {
@@ -255,8 +457,30 @@
   },
   "evidence": {
     "evidence_policy_version": 1,
-    "required_evidence": ["schema_conformance", "negative_manifest_cases", "unsafe_binding_denial", "secret_redaction_scan"],
-    "stale_on": ["manifest_change", "adapter_change", "sidecar_target_change", "runtime_target_change", "network_policy_change", "permission_change", "operation_contract_change", "provider_version_change", "dependency_bundle_change", "lockfile_change", "resource_budget_change", "signing_evidence_change", "license_provenance_change", "security_boundary_change", "retention_policy_change", "diagnostics_policy_change"],
+    "required_evidence": [
+      "schema_conformance",
+      "negative_manifest_cases",
+      "unsafe_binding_denial",
+      "secret_redaction_scan"
+    ],
+    "stale_on": [
+      "manifest_change",
+      "adapter_change",
+      "sidecar_target_change",
+      "runtime_target_change",
+      "network_policy_change",
+      "permission_change",
+      "operation_contract_change",
+      "provider_version_change",
+      "dependency_bundle_change",
+      "lockfile_change",
+      "resource_budget_change",
+      "signing_evidence_change",
+      "license_provenance_change",
+      "security_boundary_change",
+      "retention_policy_change",
+      "diagnostics_policy_change"
+    ],
     "durable_evidence_content": "content_free_no_endpoints_no_secrets"
   }
 }

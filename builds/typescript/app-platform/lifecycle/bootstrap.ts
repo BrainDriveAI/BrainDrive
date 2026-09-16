@@ -17,15 +17,28 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
+type CreateLifecycleInput = {
+  memoryRoot: string;
+  hostVersion: string;
+  stateRoot?: string;
+  target?: AppLifecycleRuntimeTarget;
+  ownerActorId?: string;
+  isMemoryMigrationInProgress?: () => boolean;
+  catalogSource?: Stage1CatalogSourceConfig | null;
+  requireCatalogSource?: boolean;
+};
 export const BRIEF_BUILDER_VERSION = "1.2.1" as const;
 const BRIEF_BUILDER_CAPABILITY_DEPENDENCIES = [
   { operation_id: "web.search@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
   { operation_id: "web.read@1", requirement: "required", unavailable_behavior: "block_activation", provider_selection: "owner_or_admin_policy", silent_install_or_switch: false },
 ] as const;
 
-export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean; catalogSource?: Stage1CatalogSourceConfig | null }): Promise<AppLifecycleService> {
+export async function createAppLifecycle(input: CreateLifecycleInput): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
   const target = input.target ?? "docker_linux_x64";
+  if (input.requireCatalogSource && !input.catalogSource) {
+    throw new Error("Stage 1 catalog source is required for app lifecycle startup");
+  }
   const catalogPackageSource = input.catalogSource
     ? await createStage1CatalogPackageSource({
         source: input.catalogSource,
@@ -78,9 +91,12 @@ function briefResourceCandidates(): string[] {
   ];
 }
 
-export async function createBriefAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean; catalogSource?: Stage1CatalogSourceConfig | null }): Promise<AppLifecycleService> {
+export async function createBriefAppLifecycle(input: CreateLifecycleInput): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
   const target = input.target ?? "docker_linux_x64";
+  if (input.requireCatalogSource && !input.catalogSource) {
+    throw new Error("Stage 1 catalog source is required for app lifecycle startup");
+  }
   const catalogPackageSource = input.catalogSource
     ? await createStage1CatalogPackageSource({
         source: input.catalogSource,

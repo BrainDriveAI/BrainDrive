@@ -77,7 +77,7 @@ describe("Docker and packaged desktop lifecycle parity", () => {
     expect(macStates).toEqual(["active", "disabled", "active", "active", "active", "not_installed", "active"]);
   }, 45_000);
 
-  it("keeps Internet Search sidecar packages out of the initial desktop runtime", async () => {
+  it("keeps extracted app and capability packages out of the initial desktop runtime", async () => {
     const [nodeStage, powershellStage, sidecarStage, tauriReadme, manifest] = await Promise.all([
       readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.mjs"), "utf8"),
       readFile(path.resolve(process.cwd(), "scripts/desktop-stage-runtime.ps1"), "utf8"),
@@ -88,8 +88,16 @@ describe("Docker and packaged desktop lifecycle parity", () => {
 
     expect(nodeStage).not.toContain("internetSearchRoot");
     expect(nodeStage).not.toContain("\"internet_search\"");
+    expect(nodeStage).not.toContain("resumeBuilderRoot");
+    expect(nodeStage).not.toContain("\"resume_builder\"");
+    expect(nodeStage).not.toContain("briefBuilderRoot");
+    expect(nodeStage).not.toContain("\"brief_builder\"");
     expect(powershellStage).not.toContain("$InternetSearchRoot");
     expect(powershellStage).not.toContain("internet_search");
+    expect(powershellStage).not.toContain("$ResumeBuilderRoot");
+    expect(powershellStage).not.toContain("resume_builder");
+    expect(powershellStage).not.toContain("$BriefBuilderRoot");
+    expect(powershellStage).not.toContain("brief_builder");
     expect(sidecarStage).toContain("desktop_windows_x64");
     expect(sidecarStage).toContain("desktop_macos_universal");
     for (const stageScript of [nodeStage, powershellStage]) {
@@ -106,6 +114,6 @@ describe("Docker and packaged desktop lifecycle parity", () => {
       "packaged_process",
       "packaged_process",
     ]);
-    expect(tauriReadme).toMatch(/catalog-installed package/i);
+    expect(tauriReadme).toMatch(/catalog-installed packages/i);
   });
 });

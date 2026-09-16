@@ -7,7 +7,8 @@ export type AppLifecycleState = "not_installed" | "staged" | "active" | "disable
 
 export type AppLifecycleAction = "install" | "reinstall" | "update" | "disable" | "enable" | "rollback" | "uninstall" | "recover";
 
-export type InstalledPackageLifecycleState = "enabled" | "disabled" | "updating" | "uninstalled" | "quarantined" | "failed";
+export type InstalledPackageLifecycleState = "not_installed" | "enabled" | "disabled" | "updating" | "uninstalled" | "quarantined" | "failed";
+export type InstalledPackageLifecycleAction = "install" | "enable" | "disable" | "update" | "uninstall";
 export type InstalledPackageComponentKind = "app" | "capability_provider" | "dependency_service" | "sidecar";
 export type InstalledPackageComponentState = "enabled" | "disabled" | "stopped" | "running" | "uninstalled" | "unavailable" | "failed";
 export type InstalledPackageComponentHealth = "not_applicable" | "unknown" | "healthy" | "unhealthy";
@@ -83,13 +84,13 @@ export type InstalledPackageStatus = {
     package_id: string;
     display_name: string;
     publisher_id: string;
-    installation_id: string;
-    package_digest: `sha256:${string}`;
+    installation_id: string | null;
+    package_digest: `sha256:${string}` | null;
   };
   package_kind: Array<"app" | "capability_provider" | "dependency_service">;
   state: InstalledPackageLifecycleState;
   generation: number;
-  version: { installed: string; previous_package_digest: `sha256:${string}` | null };
+  version: { installed: string | null; available: string; previous_package_digest: `sha256:${string}` | null };
   trust: { status: "verified" | "not_verified" | "quarantined"; policy_version: 1; checked_at: string | null };
   source: { kind: "repository_fixture" | "local_package"; label: string };
   components: InstalledPackageComponentStatus[];
@@ -571,8 +572,13 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {
     let message = `App request failed with status ${response.status}`;
-    try { message = ((await response.json()) as { error?: string }).error ?? message; } catch { /* safe fallback */ }
-    throw new GatewayError(message, response.status, message);
+    let code: string | undefined;
+    try {
+      const failure = (await response.json()) as { error?: string; safe_message?: string };
+      code = failure.error;
+      message = failure.safe_message ?? failure.error ?? message;
+    } catch { /* safe fallback */ }
+    throw new GatewayError(message, response.status, code);
   }
   return (await response.json()) as T;
 }
@@ -588,6 +594,37 @@ export function getApp(appKey: string): Promise<AppStatus> {
 
 export function getAppCatalog(): Promise<AppCatalog> {
   return requestJson("/apps");
+}
+
+export async function installPackage(packageId: string, operationId = secureRandomUuid()): Promise<InstalledPackageStatus> {
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(packageId) || packageId.length > 160) throw new Error("Invalid package id");
+  return requestJson(`/packages/${encodeURIComponent(packageId)}/install`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      operation_id: operationId,
+      idempotency_key: operationId,
+    }),
+  });
+}
+
+export async function mutatePackage(
+  packageId: string,
+  action: InstalledPackageLifecycleAction,
+  current: InstalledPackageStatus,
+  operationId = secureRandomUuid(),
+): Promise<InstalledPackageStatus> {
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(packageId) || packageId.length > 160) throw new Error("Invalid package id");
+  const body = {
+    operation_id: operationId,
+    idempotency_key: operationId,
+    ...(action === "install" ? {} : { expected_generation: current.generation }),
+  };
+  return requestJson(`/packages/${encodeURIComponent(packageId)}/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export function inspectApp(appKey: string): Promise<AppStatus> {

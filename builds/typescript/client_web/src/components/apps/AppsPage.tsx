@@ -7,13 +7,16 @@ import {
   launchApp,
   launchAppChatWorkspace,
   mutateApp,
+  mutatePackage as mutatePackageLifecycle,
   runRetainedAppDataAction,
   type AppLaunch,
   type AppPresentationProfileSummary,
   type AppLifecycleAction,
   type AppStatus,
+  type InstalledPackageLifecycleAction,
   type InstalledPackageStatus,
 } from "@/api/apps-adapter";
+import { GatewayError } from "@/api/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppChatWorkspace from "./AppChatWorkspace";
 import AppCatalogCard from "./AppCatalogCard";
@@ -22,6 +25,7 @@ import SandboxedAppFrame from "./SandboxedAppFrame";
 
 type RetainedDataAction = "delete" | "export" | "archive";
 type BusyState = AppLifecycleAction | "launch" | `retained-data:${RetainedDataAction}`;
+type PackageBusyState = InstalledPackageLifecycleAction;
 type SelectedSession = { appKey: string; appId: string; appName: string; launch: AppLaunch };
 
 function replaceApp(apps: AppStatus[], next: AppStatus): AppStatus[] {
@@ -40,6 +44,15 @@ function primaryChatPresentation(app: AppStatus): Extract<AppPresentationProfile
 
 function isChatWorkspaceLaunch(launch: AppLaunch): launch is Extract<AppLaunch, { kind: "chat_workspace" }> {
   return launch.kind === "chat_workspace";
+}
+
+function lifecycleFailureMessage(failure: unknown): string {
+  const reason = failure instanceof GatewayError ? failure.message : "The lifecycle action could not be completed safely.";
+  return `${reason} BrainDrive refreshed this app's status; review it before retrying.`;
+}
+
+function isPackageLifecycleAction(action: string): action is InstalledPackageLifecycleAction {
+  return action === "install" || action === "enable" || action === "disable" || action === "update" || action === "uninstall";
 }
 
 export default function AppsPage({
@@ -61,7 +74,9 @@ export default function AppsPage({
   const [packages, setPackages] = useState<InstalledPackageStatus[] | null>(null);
   const [selected, setSelected] = useState<SelectedSession | null>(null);
   const [busyByApp, setBusyByApp] = useState<Record<string, BusyState | undefined>>({});
+  const [busyByPackage, setBusyByPackage] = useState<Record<string, PackageBusyState | undefined>>({});
   const [errorsByApp, setErrorsByApp] = useState<Record<string, string | undefined>>({});
+  const [errorsByPackage, setErrorsByPackage] = useState<Record<string, string | undefined>>({});
   const [noticesByApp, setNoticesByApp] = useState<Record<string, string | undefined>>({});
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [compactCards, setCompactCards] = useState(true);
@@ -93,6 +108,8 @@ export default function AppsPage({
   const setAppBusy = (appKey: string, value?: BusyState) => setBusyByApp((current) => ({ ...current, [appKey]: value }));
   const setAppError = (appKey: string, value?: string) => setErrorsByApp((current) => ({ ...current, [appKey]: value }));
   const setAppNotice = (appKey: string, value?: string) => setNoticesByApp((current) => ({ ...current, [appKey]: value }));
+  const setPackageBusy = (packageId: string, value?: PackageBusyState) => setBusyByPackage((current) => ({ ...current, [packageId]: value }));
+  const setPackageError = (packageId: string, value?: string) => setErrorsByPackage((current) => ({ ...current, [packageId]: value }));
 
   const mutate = async (app: AppStatus, action: AppLifecycleAction) => {
     if (busyByApp[app.route_key]) return;
@@ -101,12 +118,12 @@ export default function AppsPage({
       const next = await mutateApp(app.route_key, action, app);
       setApps((current) => current ? replaceApp(current, next) : current);
       if (next.request_resolution === "refreshed_after_ambiguous_response") setAppNotice(app.route_key, "The response was interrupted, so BrainDrive refreshed this app's authoritative status.");
-    } catch {
+    } catch (failure) {
       try {
         const refreshed = await getApp(app.route_key);
         setApps((current) => current ? replaceApp(current, refreshed) : current);
       } catch { /* Keep the last safe catalog projection. */ }
-      setAppError(app.route_key, "The lifecycle action was not confirmed. BrainDrive refreshed this app's status; review it before retrying.");
+      setAppError(app.route_key, lifecycleFailureMessage(failure));
     } finally { setAppBusy(app.route_key); }
   };
 
@@ -127,6 +144,19 @@ export default function AppsPage({
       } catch { /* Keep the last safe catalog projection. */ }
       setAppError(app.route_key, "The retained-data action was not confirmed. BrainDrive refreshed this app's status; review it before retrying.");
     } finally { setAppBusy(app.route_key); }
+  };
+
+  const mutatePackage = async (pack: InstalledPackageStatus, action: string) => {
+    if (!isPackageLifecycleAction(action) || busyByPackage[pack.identity.package_id]) return;
+    setPackageBusy(pack.identity.package_id, action); setPackageError(pack.identity.package_id);
+    try {
+      const next = await mutatePackageLifecycle(pack.identity.package_id, action, pack);
+      setPackages((current) => current ? current.map((candidate) => candidate.identity.package_id === next.identity.package_id ? next : candidate) : current);
+      await refresh();
+    } catch (failure) {
+      setPackageError(pack.identity.package_id, failure instanceof GatewayError ? failure.message : "The package lifecycle action could not be completed safely.");
+      await refresh();
+    } finally { setPackageBusy(pack.identity.package_id); }
   };
 
   const open = async (app: AppStatus) => {
@@ -234,9 +264,16 @@ export default function AppsPage({
             </div>
             {packages.length > 0 ? (
               <section aria-labelledby="apps-packages-heading">
-                <h2 id="apps-packages-heading" className="mb-3 font-heading text-lg font-semibold text-bd-text-heading">Installed packages</h2>
+                <h2 id="apps-packages-heading" className="mb-3 font-heading text-lg font-semibold text-bd-text-heading">Packages</h2>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-2" data-testid="package-catalog">
-                  {packages.map((pack) => <PackageLifecycleCard key={pack.identity.package_id} pack={pack} compact={compactCards} />)}
+                  {packages.map((pack) => <PackageLifecycleCard
+                    key={pack.identity.package_id}
+                    pack={pack}
+                    compact={compactCards}
+                    busy={busyByPackage[pack.identity.package_id] ?? null}
+                    error={errorsByPackage[pack.identity.package_id]}
+                    onAction={(action) => void mutatePackage(pack, action)}
+                  />)}
                 </div>
               </section>
             ) : null}

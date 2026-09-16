@@ -343,6 +343,77 @@ describe("owner lifecycle gateway routes", () => {
     await app.close();
   });
 
+  it("allows owner-controlled generic package update, disable, enable, and uninstall actions", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc002-package-actions-")); roots.push(root);
+    const h = await createLifecycleHarness(path.join(root, "apps"));
+    const packageStore = new InstalledPackageStore(path.join(root, "packages"));
+    await packageStore.initialize();
+    const manifest = await packageComponentFixture("valid-provider-sidecar");
+    await packageStore.installPackage({
+      manifest,
+      packageDigest: digest("7"),
+      source: { kind: "repository_fixture", label: "Synthetic SideCar provider fixture" },
+      installedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: "1.0.0", service: h.service },
+    ], 2, {
+      packageStore,
+      installAvailablePackage: async (packageId) => {
+        const current = await packageStore.requirePackage(packageId);
+        await packageStore.updatePackage(packageId, {
+          manifest: { ...current.manifest, package_version: "1.0.1" },
+          packageDigest: digest("8"),
+          source: current.source,
+        });
+      },
+    }));
+
+    const updateId = crypto.randomUUID();
+    const updated = await app.inject({
+      method: "POST",
+      url: "/packages/ai.braindrive.internet-search.searxng/update",
+      payload: { operation_id: updateId, idempotency_key: updateId, expected_generation: 1 },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ state: "enabled", generation: 2, version: { installed: "1.0.1" }, available_actions: ["disable", "update", "uninstall"] });
+
+    const disableId = crypto.randomUUID();
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/packages/ai.braindrive.internet-search.searxng/disable",
+      payload: { operation_id: disableId, idempotency_key: disableId, expected_generation: 2 },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json()).toMatchObject({ state: "disabled", generation: 3, available_actions: ["enable", "update", "uninstall"] });
+    expect(disabled.json().components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ component_kind: "capability_provider", state: "disabled" }),
+      expect.objectContaining({ component_kind: "sidecar", state: "stopped" }),
+    ]));
+
+    const enableId = crypto.randomUUID();
+    const enabled = await app.inject({
+      method: "POST",
+      url: "/packages/ai.braindrive.internet-search.searxng/enable",
+      payload: { operation_id: enableId, idempotency_key: enableId, expected_generation: 3 },
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json()).toMatchObject({ state: "enabled", generation: 4, available_actions: ["disable", "update", "uninstall"] });
+
+    const uninstallId = crypto.randomUUID();
+    const uninstalled = await app.inject({
+      method: "POST",
+      url: "/packages/ai.braindrive.internet-search.searxng/uninstall",
+      payload: { operation_id: uninstallId, idempotency_key: uninstallId, expected_generation: 4 },
+    });
+    expect(uninstalled.statusCode).toBe(200);
+    expect(uninstalled.json()).toMatchObject({ state: "uninstalled", generation: 5, available_actions: [] });
+    expect(uninstalled.json().components.every((component: { state: string }) => component.state === "uninstalled")).toBe(true);
+    await app.close();
+  });
+
   it("blocks legacy app install and enable actions when dual-projected required dependencies are unavailable", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-sc007-legacy-dependency-")); roots.push(root);
     const routeKey = "research-consumer";
@@ -1136,7 +1207,7 @@ describe("owner lifecycle gateway routes", () => {
     await app.close();
   });
 
-  it("rejects update from recoverable failure when the verified package digest changes at the same version", async () => {
+  it("updates from recoverable failure when the verified package digest changes at the same version", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-failed-digest-update-")); roots.push(root);
     const routeKey = "research-consumer";
     const appId = "ai.braindrive.research-consumer";
@@ -1175,14 +1246,13 @@ describe("owner lifecycle gateway routes", () => {
         approve_capabilities: true,
       },
     });
-    expect(updated.statusCode).toBe(409);
-    expect(updated.json()).toMatchObject({ error: "conflict", retryable: true });
-    const afterRejectedUpdate = (await app.inject({ method: "GET", url: "/apps" })).json();
-    expect(afterRejectedUpdate.apps[0]).toMatchObject({
-      state: "failed_recoverable",
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      state: "active",
       version: { installed: "1.0.0", available: "1.0.0" },
     });
-    expect(afterRejectedUpdate.apps[0].identity.package_digest).toBe(catalog.apps[0].identity.package_digest);
+    expect(updated.json().identity.package_digest).toBe(catalog.apps[0].availability.package_digest);
+    expect(updated.json().identity.package_digest).not.toBe(catalog.apps[0].identity.package_digest);
 
     await app.close();
   });

@@ -20,8 +20,11 @@ import {
   type PackageComponentManifest,
 } from "../app-platform/contracts/package-components.js";
 import { InstalledPackageStore } from "../app-platform/lifecycle/installed-package-store.js";
+import { catalogPackageRootForDigest } from "../app-platform/lifecycle/catalog-package-service.js";
+import type { Stage1CatalogSourceConfig } from "../app-platform/lifecycle/stage1-catalog-source.js";
 import {
   GenericSidecarSupervisor,
+  SidecarRuntimeBindingService,
   type PrivateSidecarRuntimeBinding,
   type SidecarRuntimeDriver,
   type SidecarRuntimeDriverContext,
@@ -72,6 +75,7 @@ export type InternetSearchProviderRuntime = {
   providerRegistry: CapabilityProviderRegistry;
   capabilityRegistry: InternetSearchRouteCapabilityRegistry;
   operationRouter: CapabilityOperationRouter;
+  activateInstalledPackage(packageId: string): Promise<void>;
   close(): Promise<void>;
   migrationShim: typeof INTERNET_SEARCH_LEGACY_ENV_SHIM | null;
 };
@@ -80,7 +84,9 @@ export async function createInternetSearchProviderRuntime(input: {
   rootDir: string;
   memoryRoot: string;
   stateRoot?: string;
+  hostVersion?: string;
   target?: RuntimeTarget;
+  catalogSource?: Stage1CatalogSourceConfig | null;
   env?: NodeJS.ProcessEnv;
   packageStore?: InstalledPackageStore;
   searchExecutor?: WebSearchExecutor | null;
@@ -92,8 +98,13 @@ export async function createInternetSearchProviderRuntime(input: {
   const target = input.target ?? "docker_linux_x64";
   const store = input.packageStore ?? new InstalledPackageStore(packageStoreRoot(input.memoryRoot, input.stateRoot));
   await store.initialize();
-  const manifest = await tryLoadInternetSearchProviderManifest(input.rootDir, env);
-  if (manifest) await installProofPackageIfMissing(store, manifest);
+  void input.hostVersion;
+  const installedPackage = await store.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+  const installedManifest = installedPackage && installedPackage.state !== "uninstalled" ? installedPackage.manifest : null;
+  const manifest = installedManifest ?? null;
+  const installedPackageRoot = installedPackage && installedPackage.state !== "uninstalled"
+    ? catalogPackageRootForDigest(input.memoryRoot, input.stateRoot, installedPackage.package_digest as `sha256:${string}`)
+    : undefined;
 
   const packageRuntimeSidecars = manifest
     ? await readPackageRuntimeSidecars(env.BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE, manifest, target)
@@ -106,26 +117,34 @@ export async function createInternetSearchProviderRuntime(input: {
       memoryRoot: input.memoryRoot,
       stateRoot: input.stateRoot,
       manifest,
+      packageRoot: installedPackageRoot,
+      packageDigest: installedPackage?.package_digest as `sha256:${string}` | undefined,
       target,
       env,
     });
-  const driver = packageRuntimeSidecars
+  let activeDriver = packageRuntimeSidecars
     ? new PackageRuntimeDescriptorSidecarDriver(packageRuntimeSidecars, input.fetchImpl)
     : shim
       ? new SearxngPackageSidecarDriver(shim, input.fetchImpl)
       : packagedProcessDriver;
-  const supervisor = new GenericSidecarSupervisor({
+  const bindingService = new SidecarRuntimeBindingService();
+  const createSupervisor = (drivers: readonly SidecarRuntimeDriver[]) => new GenericSidecarSupervisor({
     store,
     target,
-    drivers: driver ? [driver] : [],
+    drivers,
+    bindingService,
     readinessTimeoutMs: readPositiveInt(env.BRAINDRIVE_SIDECAR_STARTUP_TIMEOUT_MS ?? env.BRAINDRIVE_INTERNET_SEARCH_STARTUP_TIMEOUT_MS, 10_000),
     readinessPollMs: readPositiveInt(env.BRAINDRIVE_SIDECAR_READINESS_POLL_MS ?? env.BRAINDRIVE_INTERNET_SEARCH_READINESS_POLL_MS, 250),
   });
-  if (driver) await startProofSidecarIfReachable(supervisor);
+  let supervisor = createSupervisor(activeDriver ? [activeDriver] : []);
+  if (activeDriver) await startProofSidecarIfReachable(supervisor);
 
   const providerRegistry = new CapabilityProviderRegistry({ store, target });
   const capabilityRegistry = new InternetSearchPackageCapabilityRegistry(providerRegistry, async () => {
-    if (!driver) return;
+    if (!activeDriver) {
+      await markSearchSidecarNotSupervised(store, input.now);
+      return;
+    }
     try {
       await supervisor.health({
         packageId: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
@@ -133,6 +152,7 @@ export async function createInternetSearchProviderRuntime(input: {
         authority: { kind: "host" },
       });
     } catch {
+      await markSearchSidecarNotSupervised(store, input.now);
       return;
     }
   });
@@ -149,7 +169,7 @@ export async function createInternetSearchProviderRuntime(input: {
         env,
         fetchImpl: input.fetchImpl,
         now: input.now,
-      });
+  });
   return {
     packageStore: store,
     providerRegistry,
@@ -158,15 +178,34 @@ export async function createInternetSearchProviderRuntime(input: {
       registry: providerRegistry,
       operations: INTERNET_SEARCH_ROUTE_OPERATIONS,
       adapters: internetSearchPackageOperationAdapters({ searchExecutor, readExecutor }),
-      bindingService: supervisor.bindingService,
+      bindingService,
       sidecarAuthority: new StoreBackedProviderSidecarAuthority({
         store,
         target,
-        bindingService: supervisor.bindingService,
+        bindingService,
       }),
     }),
+    activateInstalledPackage: async (packageId: string) => {
+      if (packageId !== INTERNET_SEARCH_PROVIDER_PACKAGE_ID || activeDriver) return;
+      const packageRecord = await store.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID);
+      if (!packageRecord || packageRecord.state === "uninstalled") return;
+      const nextDriver = await createDesktopPackagedProcessSidecarDriver({
+        rootDir: input.rootDir,
+        memoryRoot: input.memoryRoot,
+        stateRoot: input.stateRoot,
+        manifest: packageRecord.manifest,
+        packageRoot: catalogPackageRootForDigest(input.memoryRoot, input.stateRoot, packageRecord.package_digest as `sha256:${string}`),
+        packageDigest: packageRecord.package_digest as `sha256:${string}`,
+        target,
+        env,
+      });
+      if (!nextDriver) return;
+      activeDriver = nextDriver;
+      supervisor = createSupervisor([nextDriver]);
+      await startProofSidecarIfReachable(supervisor);
+    },
     close: async () => {
-      if (driver) {
+      if (activeDriver) {
         await supervisor.stop({
           packageId: INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
           componentId: INTERNET_SEARCH_SIDECAR_COMPONENT_ID,
@@ -182,11 +221,6 @@ export async function loadInternetSearchProviderManifest(rootDir: string, env: N
   const manifestPath = internetSearchProviderManifestPath(rootDir, env);
   if (!manifestPath) throw new Error("Internet Search provider package manifest is missing");
   return PackageComponentManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")));
-}
-
-async function tryLoadInternetSearchProviderManifest(rootDir: string, env: NodeJS.ProcessEnv = process.env): Promise<PackageComponentManifest | null> {
-  const manifestPath = internetSearchProviderManifestPath(rootDir, env);
-  return manifestPath ? PackageComponentManifestSchema.parse(JSON.parse(await readFile(manifestPath, "utf8"))) : null;
 }
 
 export function digestInternetSearchProviderManifest(manifest: PackageComponentManifest): `sha256:${string}` {
@@ -351,6 +385,8 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
   memoryRoot: string;
   stateRoot?: string;
   manifest: PackageComponentManifest;
+  packageRoot?: string;
+  packageDigest?: `sha256:${string}`;
   target: RuntimeTarget;
   env?: NodeJS.ProcessEnv;
 }): Promise<SidecarRuntimeDriver | null> {
@@ -359,7 +395,18 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
   const target = sidecar?.targets.find((candidate) => candidate.target === input.target && candidate.runtime_kind === "packaged_process");
   if (!sidecar || !target || target.runtime_kind !== "packaged_process") return null;
 
-  const packageRoot = internetSearchProviderPackageRoot(input.rootDir, input.env);
+  const platformStoreRoot = path.join(packageStoreRoot(input.memoryRoot, input.stateRoot), "desktop-sidecars");
+  const packageDigest = input.packageDigest ?? digestInternetSearchProviderManifest(input.manifest);
+  const existingDriver = await createDesktopPackagedProcessDriverFromVerifiedStore({
+    platformStoreRoot,
+    manifest: input.manifest,
+    packageDigest,
+    target: input.target,
+    env: input.env,
+  });
+  if (existingDriver) return existingDriver;
+
+  const packageRoot = input.packageRoot ?? internetSearchProviderPackageRoot(input.rootDir, input.env);
   if (!packageRoot) return null;
   const requiredPaths = [
     target.artifact_path,
@@ -370,13 +417,11 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
   ];
   if (requiredPaths.some((packagePath) => !existsSync(path.join(packageRoot, ...packagePath.split("/"))))) return null;
 
-  const platformStoreRoot = path.join(packageStoreRoot(input.memoryRoot, input.stateRoot), "desktop-sidecars");
   await mkdir(platformStoreRoot, { recursive: true });
   const temporaryRoot = await mkdtemp(path.join(platformStoreRoot, "package-stage-"));
   const stageRoot = path.join(temporaryRoot, "package");
   try {
     await cp(packageRoot, stageRoot, { recursive: true, force: true });
-    const packageDigest = digestInternetSearchProviderManifest(input.manifest);
     const packageStore = new ImmutablePackageStore(path.join(platformStoreRoot, "verified-packages"));
     await packageStore.promote({
       manifest: input.manifest,
@@ -400,6 +445,7 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
     const bundleReference: SidecarBundleReference = staged.reference;
     return new PackagedProcessSidecarDriver({
       bundleStore,
+      environment: internetSearchDesktopSidecarEnvironment(input.env),
       bundleReferenceFor: (context) => (
         context.packageId === INTERNET_SEARCH_PROVIDER_PACKAGE_ID
         && context.sidecar.component_id === INTERNET_SEARCH_SIDECAR_COMPONENT_ID
@@ -413,25 +459,47 @@ async function createDesktopPackagedProcessSidecarDriver(input: {
   }
 }
 
-async function installProofPackageIfMissing(store: InstalledPackageStore, manifest: PackageComponentManifest): Promise<void> {
-  const packageDigest = digestInternetSearchProviderManifest(manifest);
-  const source = { kind: "repository_fixture" as const, label: "Internet Search provider package fixture" };
-  const existing = await store.readPackage(manifest.package_id);
-  if (existing) {
-    if (existing.package_digest === packageDigest && existing.package_version === manifest.package_version) return;
-    await store.updatePackage(manifest.package_id, {
-      manifest,
-      packageDigest,
-      source,
-    });
-    return;
-  }
-  await store.installPackage({
-    manifest,
-    packageDigest,
-    source,
-    installedAt: "2026-09-01T00:00:00.000Z",
+async function createDesktopPackagedProcessDriverFromVerifiedStore(input: {
+  platformStoreRoot: string;
+  manifest: PackageComponentManifest;
+  packageDigest: `sha256:${string}`;
+  target: "desktop_windows_x64" | "desktop_macos_universal";
+  env?: NodeJS.ProcessEnv;
+}): Promise<SidecarRuntimeDriver | null> {
+  const packageStore = new ImmutablePackageStore(path.join(input.platformStoreRoot, "verified-packages"));
+  const existing = await packageStore.read(input.packageDigest).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
   });
+  if (!existing || existing.target !== input.target) return null;
+  const verifiedPackage = await createVerifiedSidecarPackageBundleFromStore({
+    packageStore,
+    packageDigest: input.packageDigest,
+    manifest: input.manifest,
+  });
+  const bundleStore = new SidecarBundleStore(path.join(input.platformStoreRoot, "bundle-store"));
+  const staged = await bundleStore.stage({
+    verifiedPackage,
+    sidecarComponentId: INTERNET_SEARCH_SIDECAR_COMPONENT_ID,
+    target: input.target,
+  });
+  const bundleReference: SidecarBundleReference = staged.reference;
+  return new PackagedProcessSidecarDriver({
+    bundleStore,
+    environment: internetSearchDesktopSidecarEnvironment(input.env),
+    bundleReferenceFor: (context) => (
+      context.packageId === INTERNET_SEARCH_PROVIDER_PACKAGE_ID
+      && context.sidecar.component_id === INTERNET_SEARCH_SIDECAR_COMPONENT_ID
+        ? bundleReference
+        : null
+    ),
+  });
+}
+
+function internetSearchDesktopSidecarEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  return {
+    BRAINDRIVE_INTERNET_SEARCH_QUERY_TIMEOUT_MS: env.BRAINDRIVE_INTERNET_SEARCH_QUERY_TIMEOUT_MS,
+  };
 }
 
 function internetSearchProviderPackageRoot(rootDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
@@ -458,6 +526,18 @@ async function startProofSidecarIfReachable(supervisor: GenericSidecarSupervisor
   } catch {
     return;
   }
+}
+
+async function markSearchSidecarNotSupervised(store: InstalledPackageStore, now?: () => string): Promise<void> {
+  const installed = await store.readPackage(INTERNET_SEARCH_PROVIDER_PACKAGE_ID).catch(() => null);
+  if (!installed || installed.state === "uninstalled") return;
+  await store.setSidecarRuntimeState(
+    INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
+    INTERNET_SEARCH_SIDECAR_COMPONENT_ID,
+    "stopped",
+    "unknown",
+    now?.() ?? new Date().toISOString(),
+  ).catch(() => undefined);
 }
 
 function projectInternetSearchDiscovery(

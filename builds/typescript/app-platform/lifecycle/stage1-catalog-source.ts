@@ -6,17 +6,11 @@ import { z } from "zod";
 
 import { AppPlatformError } from "./errors.js";
 import type { FixtureRepository } from "./fixture-repository.js";
-import { CapabilityDependencySchema, type CapabilityDependency } from "../contracts/package-components.js";
+import { CapabilityDependencySchema, PackageIdSchema, type CapabilityDependency } from "../contracts/package-components.js";
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const REFERENCE = /^(?!\/)(?![A-Za-z]:)(?!.*\.\.)(?!.*:\/\/)[A-Za-z0-9._/-]+$/;
 const TARGETS = ["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"] as const;
-const STAGE1_PACKAGE_IDS = [
-  "ai.braindrive.resume-builder",
-  "ai.braindrive.internet-search.searxng",
-  "ai.braindrive.brief-builder",
-] as const;
-
 const ArtifactRefSchema = z.object({
   reference: z.string().regex(REFERENCE),
   digest: z.string().regex(DIGEST),
@@ -33,7 +27,7 @@ const TargetArtifactSchema = z.object({
 
 const CatalogEntrySchema = z.object({
   package_identity: z.object({
-    package_id: z.enum(STAGE1_PACKAGE_IDS),
+    package_id: PackageIdSchema,
     publisher_id: z.literal("ai.braindrive"),
     package_kind: z.array(z.enum(["app", "capability_provider", "dependency_service"])).min(1).max(3),
     version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/),
@@ -115,6 +109,13 @@ export type Stage1CatalogSourceConfig = z.infer<typeof Stage1CatalogSourceConfig
 type Stage1Catalog = z.infer<typeof Stage1CatalogSchema>;
 type Stage1CatalogEntry = z.infer<typeof CatalogEntrySchema>;
 
+export type Stage1CatalogPackageListing = Omit<Stage1CatalogPackageSource, "repository"> & {
+  packageId: string;
+  publisherId: string;
+  releaseStatus: Stage1CatalogEntry["release"]["status"];
+  launchableApp: boolean;
+};
+
 export type Stage1CatalogPackageSource = {
   repository: FixtureRepository;
   availableVersion: string;
@@ -181,33 +182,81 @@ export async function createStage1CatalogPackageSource(input: {
     candidate.package_identity.publisher_id === publisherId
   );
   if (!entry) throw new AppPlatformError("package_not_found", "Stage 1 catalog does not list the selected package", 404);
+  const target = requireVerifiedTarget(entry, input.target);
+  const artifacts = await resolveTargetArtifacts(loaded, target);
+  const key = `${entry.package_identity.package_id}@${entry.package_identity.version}`;
+  return {
+    repository: {
+      root: loaded.sourceRoot,
+      trustRootPath: artifacts.trustRootPath,
+      sourceIndexPath: artifacts.sourceIndexPath,
+      revocationListPath: artifacts.revocationListPath,
+      packages: {},
+      packagesByAppVersion: { [key]: { archivePath: artifacts.archivePath, descriptorPath: artifacts.descriptorPath } },
+      authoritiesByAppVersion: { [key]: { trustRootPath: artifacts.trustRootPath, sourceIndexPath: artifacts.sourceIndexPath, revocationListPath: artifacts.revocationListPath } },
+    },
+    ...sourceProjection(entry, loaded.cacheStatus),
+  };
+}
+
+export async function listStage1CatalogPackages(input: {
+  source: Stage1CatalogSourceConfig;
+  target: Stage1CatalogRuntimeTarget;
+  fallbackCacheRoot?: string;
+}): Promise<Stage1CatalogPackageListing[]> {
+  const config = Stage1CatalogSourceConfigSchema.parse(input.source);
+  const loaded = await readCatalog(config, input.fallbackCacheRoot);
+  const catalog = parseCatalog(loaded.raw);
+  assertStage1Boundary(catalog);
+  return catalog.entries
+    .filter((entry) => {
+      if (entry.release.status !== "local_dev_verified") return false;
+      return entry.target_artifacts.some((artifact) => artifact.target === input.target);
+    })
+    .map((entry) => ({
+      packageId: entry.package_identity.package_id,
+      publisherId: entry.package_identity.publisher_id,
+      releaseStatus: entry.release.status,
+      launchableApp: entry.relationship_projection.launchable_app,
+      ...sourceProjection(entry, loaded.cacheStatus),
+    }))
+    .sort((left, right) => left.packageId.localeCompare(right.packageId));
+}
+
+function requireVerifiedTarget(entry: Stage1CatalogEntry, targetName: Stage1CatalogRuntimeTarget): Stage1CatalogEntry["target_artifacts"][number] {
   if (entry.release.status !== "local_dev_verified") {
     throw new AppPlatformError("package_not_found", "Stage 1 catalog package is not available for verified local-dev install", 404);
   }
-  const target = entry.target_artifacts.find((candidate) => candidate.target === input.target);
+  const target = entry.target_artifacts.find((candidate) => candidate.target === targetName);
   if (!target) throw new AppPlatformError("host_incompatible", "Stage 1 catalog package does not support this host target");
   for (const candidate of entry.target_artifacts) {
     if (!entry.compatibility.targets.includes(candidate.target)) {
       throw new AppPlatformError("host_incompatible", "Stage 1 catalog target metadata is inconsistent");
     }
   }
+  return target;
+}
 
+async function resolveTargetArtifacts(
+  loaded: { sourceRoot: string; artifactCacheRoot?: string },
+  target: Stage1CatalogEntry["target_artifacts"][number],
+): Promise<{
+  trustRootPath: string;
+  sourceIndexPath: string;
+  revocationListPath: string;
+  descriptorPath: string;
+  archivePath: string;
+}> {
   const trustRootPath = await resolveVerifiedReference(loaded.sourceRoot, target.trust_root, "trust_root", loaded.artifactCacheRoot);
   const sourceIndexPath = await resolveVerifiedReference(loaded.sourceRoot, target.source_index, "source_index", loaded.artifactCacheRoot);
   const revocationListPath = await resolveVerifiedReference(loaded.sourceRoot, target.revocation, "revocation", loaded.artifactCacheRoot);
   const descriptorPath = await resolveVerifiedReference(loaded.sourceRoot, target.descriptor, "descriptor", loaded.artifactCacheRoot);
   const archivePath = await resolveVerifiedReference(loaded.sourceRoot, target.archive, "archive", loaded.artifactCacheRoot);
-  const key = `${entry.package_identity.package_id}@${entry.package_identity.version}`;
+  return { trustRootPath, sourceIndexPath, revocationListPath, descriptorPath, archivePath };
+}
+
+function sourceProjection(entry: Stage1CatalogEntry, cacheStatus: "fresh" | "last_known_good"): Omit<Stage1CatalogPackageSource, "repository"> {
   return {
-    repository: {
-      root: loaded.sourceRoot,
-      trustRootPath,
-      sourceIndexPath,
-      revocationListPath,
-      packages: {},
-      packagesByAppVersion: { [key]: { archivePath, descriptorPath } },
-      authoritiesByAppVersion: { [key]: { trustRootPath, sourceIndexPath, revocationListPath } },
-    },
     availableVersion: entry.package_identity.version,
     displayName: entry.safe_presentation.display_name,
     publisherName: "BrainDrive",
@@ -217,7 +266,7 @@ export async function createStage1CatalogPackageSource(input: {
     ownerSafeSource: {
       kind: "stage1_catalog",
       label: "BrainDrive Stage 1 catalog",
-      cache_status: loaded.cacheStatus,
+      cache_status: cacheStatus,
     },
   };
 }

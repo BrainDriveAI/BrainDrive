@@ -8,9 +8,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createInternetSearchProviderRuntime,
+  digestInternetSearchProviderManifest,
   INTERNET_SEARCH_PROVIDER_PACKAGE_ID,
   INTERNET_SEARCH_SIDECAR_COMPONENT_ID,
+  loadInternetSearchProviderManifest,
 } from "../../internet-search/provider-package.js";
+import { InstalledPackageStore } from "./installed-package-store.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -48,6 +51,19 @@ async function renderPackageSidecars(mode: "dev" | "local" = "dev") {
 
 function noOwnerProjectionLeak(value: unknown): void {
   expect(JSON.stringify(value)).not.toMatch(/bdsc-[a-f0-9]+|localhost|127\.|0\.0\.0\.0|\bport\b|endpoint|credential|secret|authorization|cookie|\/home\/|raw_response/i);
+}
+
+async function seedInstalledInternetSearchPackage(stateRoot: string): Promise<InstalledPackageStore> {
+  const packageStore = new InstalledPackageStore(resolve(stateRoot, "state", "packages"));
+  await packageStore.initialize();
+  const manifest = await loadInternetSearchProviderManifest(process.cwd());
+  await packageStore.installPackage({
+    manifest,
+    packageDigest: digestInternetSearchProviderManifest(manifest),
+    source: { kind: "repository_fixture", label: "Internet Search provider package fixture" },
+    installedAt: "2026-09-01T00:00:00.000Z",
+  });
+  return packageStore;
 }
 
 describe("Docker development first-party app package boundary", () => {
@@ -151,10 +167,12 @@ describe("Docker development first-party app package boundary", () => {
     const fetchCalls: string[] = [];
     const root = await mkdtemp(resolve(os.tmpdir(), "bd-sc008-runtime-"));
     roots.push(root);
+    const stateRoot = resolve(root, "state");
+    const packageStore = await seedInstalledInternetSearchPackage(stateRoot);
     const providerRuntime = await createInternetSearchProviderRuntime({
       rootDir: process.cwd(),
       memoryRoot: resolve(root, "memory"),
-      stateRoot: resolve(root, "state"),
+      stateRoot,
       target: "docker_linux_x64",
       env: {
         BRAINDRIVE_SIDECAR_RUNTIME_DESCRIPTOR_FILE: descriptorPath,
@@ -169,6 +187,7 @@ describe("Docker development first-party app package boundary", () => {
           results: [{ title: "Descriptor result", url: "https://example.test/result", content: "External inert result." }],
         }), { status: 200, headers: { "content-type": "application/json" } });
       },
+      packageStore,
       readExecutor: null,
     });
 
@@ -194,12 +213,15 @@ describe("Docker development first-party app package boundary", () => {
   it("keeps admitted desktop sidecar targets stopped instead of partially activating through Docker", async () => {
     const root = await mkdtemp(resolve(os.tmpdir(), "bd-sc008-desktop-unsupported-"));
     roots.push(root);
+    const stateRoot = resolve(root, "state");
+    const packageStore = await seedInstalledInternetSearchPackage(stateRoot);
     const providerRuntime = await createInternetSearchProviderRuntime({
       rootDir: process.cwd(),
       memoryRoot: resolve(root, "memory"),
-      stateRoot: resolve(root, "state"),
+      stateRoot,
       target: "desktop_windows_x64",
       env: {},
+      packageStore,
       searchExecutor: null,
       readExecutor: null,
     });

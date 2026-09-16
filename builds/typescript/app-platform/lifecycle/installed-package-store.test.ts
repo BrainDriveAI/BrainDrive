@@ -160,8 +160,8 @@ describe("SC-002 installed package component store", () => {
         safe_message: expect.stringMatching(/first start may take several minutes/i),
       },
       os_security: {
-        classification: "blocked",
-        safe_message: expect.stringMatching(/OS security or Host policy blocked/i),
+        classification: "review_required",
+        safe_message: expect.stringMatching(/Desktop security/i),
       },
     });
     const runtimeComponent = projection!.components.find((component) => component.component_id === "notes.worker")!;
@@ -169,7 +169,7 @@ describe("SC-002 installed package component store", () => {
       target_support: "supported",
       install_size: { classification: "large" },
       first_start: { classification: "lengthy" },
-      os_security: { classification: "blocked" },
+      os_security: { classification: "review_required" },
     });
     expect(JSON.stringify(projection)).not.toMatch(/payload\/|artifact_path|entrypoint|dependency_bundle|package_path|adapter|export_name|localhost|127\.|0\.0\.0\.0|\bport\b|token|pid|secret|credential|raw|service_name|local network/i);
 
@@ -183,7 +183,7 @@ describe("SC-002 installed package component store", () => {
       target_message: "This package does not declare a runtime for this desktop target.",
       os_security: {
         classification: "review_required",
-        safe_message: expect.stringMatching(/OS security review/i),
+        safe_message: expect.stringMatching(/Desktop security/i),
       },
     });
   });

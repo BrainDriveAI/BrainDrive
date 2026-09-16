@@ -14,7 +14,7 @@ const stateCopy: Record<string, string> = {
   rollback_pending: "Recovering the last working version",
   uninstalling: "Removing app authority and code",
   quarantined: "Quarantined because package trust changed",
-  failed_recoverable: "Recovery required — your saved data is retained",
+  failed_recoverable: "Needs recovery",
 };
 
 const stageCopy: Record<string, string> = {
@@ -59,6 +59,8 @@ const readinessCopy: Record<NonNullable<AppStatus["dependency_readiness"]>["stat
 };
 
 const activationActions = new Set(["install", "reinstall", "update", "enable", "launch"]);
+const setupWarningClass = "mt-4 rounded-lg border border-bd-amber px-4 py-3 text-sm text-bd-text-primary";
+const dangerWarningClass = "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary";
 
 const appDescriptionCopy: Record<string, { short: string; long: string }> = {
   "ai.braindrive.brief-builder": {
@@ -87,7 +89,13 @@ function dependencyOperationIds(app: AppStatus): string[] {
 function dependencyDetail(statuses: CapabilityDependencyStatus[] | undefined): string | null {
   const unavailable = statuses?.filter((status) => !status.callable) ?? [];
   if (unavailable.length === 0) return null;
-  return unavailable.map((status) => status.safe_message || `${status.operation_id} is ${formatValue(status.state)}.`).join(" ");
+  if (hasInternetSearchDependency(unavailable) && unavailable.some((status) => status.failure_code === "provider_unhealthy" || status.state === "unhealthy")) {
+    return "Internet Search Provider is installed, but its runtime is not ready. Review the provider setup, then refresh Apps. BrainDrive will not install or switch providers silently.";
+  }
+  if (hasInternetSearchDependency(unavailable) && unavailable.every((status) => status.failure_code === "provider_unavailable" || status.state === "missing" || status.state === "unavailable")) {
+    return "Install Internet Search Provider from Packages, then refresh Apps. BrainDrive will not install or switch providers silently.";
+  }
+  return [...new Set(unavailable.map((status) => status.safe_message || `${status.operation_id} is ${formatValue(status.state)}.`))].join(" ");
 }
 
 function readinessGuidance(app: AppStatus): string {
@@ -102,6 +110,12 @@ function readinessGuidance(app: AppStatus): string {
     return "Refresh Apps or ask an owner/admin to check provider status before launch.";
   }
   if (app.dependency_readiness?.status === "blocked") {
+    if (hasInternetSearchDependency(statuses)) {
+      if (statuses.some((status) => status.failure_code === "provider_unhealthy" || status.state === "unhealthy")) {
+        return "Internet Search Provider is installed, but its runtime is not ready. This app can be installed after Search/Read reports healthy.";
+      }
+      return "Install Internet Search Provider from Packages before installing or launching this app.";
+    }
     return "Install, enable, or repair a compatible provider before launch.";
   }
   return "All declared dependencies are available for this app.";
@@ -145,6 +159,7 @@ export default function AppCatalogCard({
   const shortDescription = fallbackDescription?.short ?? catalog?.summary ?? `Open ${app.identity.display_name}.`;
   const longDescription = catalog?.summary ?? fallbackDescription?.long ?? shortDescription;
   const retainedDataControls = app.state === "not_installed" ? app.retention.post_uninstall_controls ?? [] : [];
+  const recoveryMessage = app.state === "failed_recoverable" ? "Recovery required — your saved data is retained." : null;
   const dependencyReadiness = app.dependency_readiness;
   const dependencyIds = dependencyOperationIds(app);
   const dependencyDetailText = dependencyDetail(app.capability_dependency_status);
@@ -162,8 +177,8 @@ export default function AppCatalogCard({
             <p className="mt-1 break-all text-xs text-bd-text-muted">{app.identity.app_id}</p>
           </div>
         </div>
-        <div className="shrink-0 whitespace-nowrap text-left sm:text-right">
-          <p className="whitespace-nowrap font-medium text-bd-text-primary">{stateCopy[app.state] ?? app.state}</p>
+        <div className="min-w-0 text-left sm:max-w-48 sm:text-right">
+          <p className="font-medium text-bd-text-primary">{stateCopy[app.state] ?? app.state}</p>
           <p className="text-xs text-bd-text-muted">{app.version.installed ? `Version ${app.version.installed}` : `Available ${app.version.available}`}</p>
         </div>
       </div>
@@ -182,11 +197,12 @@ export default function AppCatalogCard({
         </Tooltip>
       </div>
 
-      {error ? <div role="alert" className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
+      {recoveryMessage ? <div role="alert" className={dangerWarningClass}>{recoveryMessage}</div> : null}
+      {error ? <div role="alert" className={dangerWarningClass}>{error}</div> : null}
       {notice ? <div role="status" className="mt-4 rounded-lg border border-bd-amber px-4 py-3 text-sm text-bd-text-primary">{notice}</div> : null}
-      {app.availability?.status === "unavailable" ? <div role="alert" className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{app.availability.safe_message ?? "This app is unavailable."}</div> : null}
+      {app.availability?.status === "unavailable" ? <div role="alert" className={setupWarningClass}>{app.availability.safe_message ?? "This app is unavailable."}</div> : null}
       {showDependencyReadiness ? (
-        <div role={dependencyReadiness.status === "blocked" ? "alert" : "status"} aria-label={`${app.identity.display_name} dependency readiness`} className={dependencyReadiness.status === "blocked" ? "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary" : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}>
+        <div role={dependencyReadiness.status === "blocked" ? "alert" : "status"} aria-label={`${app.identity.display_name} dependency readiness`} className={dependencyReadiness.status === "blocked" ? setupWarningClass : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}>
           {readinessCopy[dependencyReadiness.status]}
           {dependencyIds.length ? `: ${dependencyIds.join(", ")}` : ""}
           <span className="block pt-1 text-xs text-bd-text-secondary">{readinessGuidance(app)}</span>

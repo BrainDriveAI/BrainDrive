@@ -46,6 +46,8 @@ const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
 // Preserve the existing fallback on desktop targets whose Apps runtime is not yet claimed.
 #[cfg(not(any(windows, target_os = "macos")))]
 const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
+const DEFAULT_STAGE1_CATALOG_URL: &str =
+    "https://raw.githubusercontent.com/BrainDriveAI/BrainDrive-Marketplace/main/catalog/stage1/catalog.json";
 const BROWSER_ACCESS_DEFAULT_PORT: u16 = 18088;
 const BROWSER_ACCESS_FALLBACK_END_PORT: u16 = 18107;
 const FIREWALL_RULE_NAME: &str = "BrainDrive Browser Access";
@@ -1512,6 +1514,7 @@ fn spawn_gateway(launch: GatewayLaunch<'_>) -> Result<Child, String> {
         .env("BRAINDRIVE_CLIENT_GATEWAY_URL", launch.gateway_base_url)
         .env("BRAINDRIVE_DESKTOP_API_TOKEN", launch.desktop_api_token)
         .env("BRAINDRIVE_APP_PLATFORM_ENABLED", "true")
+        .env("BRAINDRIVE_STAGE1_CATALOG_REQUIRED", "true")
         .env(
             "BRAINDRIVE_APP_PLATFORM_TARGET",
             DESKTOP_APP_PLATFORM_TARGET,
@@ -1530,6 +1533,11 @@ fn spawn_gateway(launch: GatewayLaunch<'_>) -> Result<Child, String> {
         .env("PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP", "false")
         .env("MCP_SERVERS_FILE", launch.mcp_servers_file)
         .env("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1");
+    if std::env::var_os("BRAINDRIVE_STAGE1_CATALOG_URL").is_none()
+        && std::env::var_os("BRAINDRIVE_STAGE1_CATALOG_PATH").is_none()
+    {
+        command.env("BRAINDRIVE_STAGE1_CATALOG_URL", DEFAULT_STAGE1_CATALOG_URL);
+    }
     spawn_logged(command, &launch.paths.log_root, "gateway")
 }
 

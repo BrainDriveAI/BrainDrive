@@ -19,7 +19,7 @@ import {
 } from "../contracts/package-components.js";
 import { AppPlatformError } from "./errors.js";
 
-export const PackageLifecycleStateSchema = z.enum(["enabled", "disabled", "updating", "uninstalled", "quarantined", "failed"]);
+export const PackageLifecycleStateSchema = z.enum(["not_installed", "enabled", "disabled", "updating", "uninstalled", "quarantined", "failed"]);
 export const ComponentLifecycleStateSchema = z.enum(["enabled", "disabled", "stopped", "running", "uninstalled", "unavailable", "failed"]);
 export const ComponentHealthStateSchema = z.enum(["not_applicable", "unknown", "healthy", "unhealthy"]);
 export const CapabilityDependencyStateSchema = z.enum(["available", "missing", "unavailable", "disabled", "unhealthy", "unauthorized", "selection_required", "unsupported_target", "unknown"]);
@@ -160,14 +160,15 @@ export const OwnerSafeInstalledPackageSchema = z.object({
     package_id: PackageIdSchema,
     display_name: z.string(),
     publisher_id: z.string(),
-    installation_id: z.string().uuid(),
-    package_digest: Sha256DigestSchema,
+    installation_id: z.string().uuid().nullable(),
+    package_digest: Sha256DigestSchema.nullable(),
   }).strict(),
   package_kind: z.array(PackageComponentKindSchema),
   state: PackageLifecycleStateSchema,
   generation: z.number().int().nonnegative(),
   version: z.object({
-    installed: z.string(),
+    installed: z.string().nullable(),
+    available: z.string(),
     previous_package_digest: Sha256DigestSchema.nullable(),
   }).strict(),
   trust: PackageTrustProjectionSchema,
@@ -537,6 +538,7 @@ export async function ownerSafePackageProjection(
     generation: record.generation,
     version: {
       installed: record.package_version,
+      available: record.package_version,
       previous_package_digest: record.previous_package_digest,
     },
     trust: record.state === "quarantined" ? { ...record.trust, status: "quarantined" } : record.trust,
@@ -579,9 +581,79 @@ export async function ownerSafePackageProjection(
   });
 }
 
+export async function ownerSafeAvailablePackageProjection(input: {
+  manifest: PackageComponentManifest;
+  packageDigest: `sha256:${string}`;
+  source: { kind: "repository_fixture" | "local_package"; label: string };
+  dependencyResolver?: CapabilityDependencyResolver | null;
+  currentTarget?: RuntimeTarget | null;
+  updatedAt?: string;
+}): Promise<OwnerSafeInstalledPackage> {
+  const manifest = parsePackageComponentManifestForConformance(input.manifest);
+  const currentTarget = input.currentTarget ?? currentDesktopTarget();
+  const dependencyStatus = await dependencyStatusMap(allManifestDependencies(manifest), input.dependencyResolver ?? null);
+  const now = input.updatedAt ?? new Date().toISOString();
+  const components = availableComponents(manifest, now);
+  return OwnerSafeInstalledPackageSchema.parse({
+    projection_version: 1,
+    identity: {
+      package_id: manifest.package_id,
+      display_name: manifest.catalog.display_name,
+      publisher_id: manifest.publisher_id,
+      installation_id: null,
+      package_digest: null,
+    },
+    package_kind: manifest.package_kind,
+    state: "not_installed",
+    generation: 0,
+    version: {
+      installed: null,
+      available: manifest.package_version,
+      previous_package_digest: null,
+    },
+    trust: { status: "verified", policy_version: 1, checked_at: null },
+    source: input.source,
+    components: components.map((component) => ({
+      component_id: component.component_id,
+      component_kind: component.component_kind,
+      display_name: component.display_name,
+      owner_component_id: component.owner_component_id,
+      state: component.state,
+      health: component.health,
+      launchable: component.launchable,
+      owner_visible_actions: [],
+      provided_operations: component.provided_operations,
+      required_capabilities: component.required_capabilities,
+      capability_dependency_status: component.required_capabilities.map((dependency) => statusForDependency(dependency, dependencyStatus)),
+      dependency_readiness: readinessForDependencies(component.required_capabilities.map((dependency) => statusForDependency(dependency, dependencyStatus))),
+      sidecar_count: component.sidecar_count,
+      target_support: component.target_support,
+      runtime_summary: runtimeSummaryForComponent(manifest, component, currentTarget),
+    })),
+    operations: manifest.provided_operations.map((operation) => ({
+      operation_id: operation.operation_id,
+      provider_component_id: operation.provider_component_id,
+      result_classification: operation.result_classification,
+    })),
+    capability_dependencies: manifest.capability_dependencies.map(safeDependency),
+    capability_dependency_status: manifest.capability_dependencies.map((dependency) => statusForDependency(dependency, dependencyStatus)),
+    dependency_readiness: readinessForDependencies(manifest.capability_dependencies.map((dependency) => statusForDependency(dependency, dependencyStatus))),
+    retention: {
+      runtime_authority: manifest.retention_policy.runtime_binding,
+      sidecar_runtime_state: manifest.retention_policy.sidecar_runtime_state,
+      provider_cache: manifest.retention_policy.provider_cache,
+      diagnostics: manifest.retention_policy.diagnostics,
+      evidence: manifest.retention_policy.evidence,
+    },
+    runtime_summary: runtimeSummaryForPackage(manifest, components, currentTarget),
+    available_actions: ["install"],
+    updated_at: now,
+  });
+}
+
 function runtimeSummaryForPackage(manifest: PackageComponentManifest, components: readonly InstalledComponentRecord[], currentTarget: RuntimeTarget | null): OwnerSafeRuntimeSummary {
-  const sidecarComponents = components.filter((component) => component.component_kind === "sidecar");
-  return runtimeSummary(manifest.sidecars, currentTarget, sidecarComponents.some((component) => component.state === "unavailable" || component.state === "failed"), totalPackageBytes(manifest));
+  void components;
+  return runtimeSummary(manifest.sidecars, currentTarget, totalPackageBytes(manifest));
 }
 
 function runtimeSummaryForComponent(manifest: PackageComponentManifest, component: InstalledComponentRecord, currentTarget: RuntimeTarget | null): OwnerSafeRuntimeSummary {
@@ -589,10 +661,10 @@ function runtimeSummaryForComponent(manifest: PackageComponentManifest, componen
     ? manifest.sidecars.filter((sidecar) => sidecar.component_id === component.component_id)
     : manifest.sidecars.filter((sidecar) => sidecar.owner_component_id === component.component_id);
   const packageBytes = component.component_kind === "sidecar" || sidecars.length > 0 ? 0 : totalPackageBytes(manifest);
-  return runtimeSummary(sidecars, currentTarget, component.state === "unavailable" || component.state === "failed", packageBytes);
+  return runtimeSummary(sidecars, currentTarget, packageBytes);
 }
 
-function runtimeSummary(sidecars: readonly SidecarDescriptor[], currentTarget: RuntimeTarget | null, runtimeBlocked: boolean, packageBytes: number): OwnerSafeRuntimeSummary {
+function runtimeSummary(sidecars: readonly SidecarDescriptor[], currentTarget: RuntimeTarget | null, packageBytes: number): OwnerSafeRuntimeSummary {
   return RuntimeSummarySchema.parse({
     sidecar_count: sidecars.length,
     target_support: targetSupportState(sidecars, currentTarget),
@@ -600,7 +672,7 @@ function runtimeSummary(sidecars: readonly SidecarDescriptor[], currentTarget: R
     target_message: targetSupportMessage(sidecars, currentTarget),
     install_size: installSizeProjection(sidecars, packageBytes),
     first_start: firstStartProjection(sidecars),
-    os_security: osSecurityProjection(sidecars, runtimeBlocked),
+    os_security: osSecurityProjection(sidecars),
   });
 }
 
@@ -646,13 +718,10 @@ function firstStartProjection(sidecars: readonly SidecarDescriptor[]): OwnerSafe
   return { classification: "quick", safe_message: "Quick first start expected for the declared runtime." };
 }
 
-function osSecurityProjection(sidecars: readonly SidecarDescriptor[], runtimeBlocked: boolean): OwnerSafeRuntimeSummary["os_security"] {
+function osSecurityProjection(sidecars: readonly SidecarDescriptor[]): OwnerSafeRuntimeSummary["os_security"] {
   const hasDesktopProcessTarget = sidecars.some((sidecar) => sidecar.targets.some((target) => target.runtime_kind === "packaged_process"));
   if (!hasDesktopProcessTarget) return { classification: "not_applicable", safe_message: "No desktop OS security review is declared for this runtime." };
-  if (runtimeBlocked) {
-    return { classification: "blocked", safe_message: "OS security or Host policy blocked this runtime. Review system security settings and retry from Host controls." };
-  }
-  return { classification: "review_required", safe_message: "OS security review may be required before first start. BrainDrive will show a safe blocked state if the desktop denies execution." };
+  return { classification: "review_required", safe_message: "Desktop security will be checked when this runtime starts. If Windows or macOS blocks execution, BrainDrive will report that separately." };
 }
 
 function maxRuntimeBytes(sidecar: SidecarDescriptor): number {
@@ -738,6 +807,32 @@ function sidecarRecord(record: InstalledPackageRecord, sidecar: SidecarDescripto
     cleanup_on_uninstall: sidecar.lifecycle.cleanup_on_uninstall,
     updated_at: now,
   });
+}
+
+function availableComponents(manifest: PackageComponentManifest, now: string): InstalledComponentRecord[] {
+  const record = InstalledPackageRecordSchema.parse({
+    store_version: 1,
+    package_id: manifest.package_id,
+    publisher_id: manifest.publisher_id,
+    package_version: manifest.package_version,
+    package_kind: manifest.package_kind,
+    installation_id: "00000000-0000-4000-8000-000000000000",
+    package_digest: `sha256:${"0".repeat(64)}`,
+    previous_package_digest: null,
+    generation: 0,
+    state: "not_installed",
+    source: { kind: "local_package", label: "BrainDrive Stage 1 catalog" },
+    trust: { status: "verified", policy_version: 1, checked_at: null },
+    manifest,
+    installed_at: now,
+    updated_at: now,
+  });
+  return manifestComponents(record, manifest, now).map((component) => InstalledComponentRecordSchema.parse({
+    ...component,
+    state: "unavailable",
+    health: component.component_kind === "sidecar" ? "unknown" : "not_applicable",
+    lifecycle_actions: [],
+  }));
 }
 
 function sidecarLifecycleActions(sidecar: SidecarDescriptor): string[] {

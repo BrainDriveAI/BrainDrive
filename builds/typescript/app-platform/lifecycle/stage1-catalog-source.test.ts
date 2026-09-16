@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { PermissionSet } from "../../contracts.js";
 import { PackageVerifier } from "./package-verifier.js";
 import { createFixtureRepository, revokeFixtureVersion } from "./fixture-repository.js";
-import { createStage1CatalogPackageSource } from "./stage1-catalog-source.js";
+import { createStage1CatalogPackageSource, listStage1CatalogPackages } from "./stage1-catalog-source.js";
 import { AppLifecycleStore } from "./store.js";
 import { AppLifecycleService } from "./service.js";
 import { CapabilityTokenBroker } from "./capability-token.js";
@@ -216,7 +216,7 @@ describe("Stage 1 catalog source", () => {
       .resolves.toMatchObject({ manifest: { package_version: "1.0.0" } });
   });
 
-  it("rejects unsupported targets, identity mismatches, revoked packages, and arbitrary Stage 1 package IDs", async () => {
+  it("rejects unsupported targets, preserves generic package IDs, and lets verifier catch identity/revocation failures", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-stage1-negative-")); roots.push(root);
     const repository = await createFixtureRepository(root);
 
@@ -225,8 +225,10 @@ describe("Stage 1 catalog source", () => {
       .rejects.toMatchObject({ code: "host_incompatible" });
 
     catalogPath = await writeStage1Catalog({ root, sourceRoot: repository.root, appId: "ai.braindrive.unknown-builder" });
-    await expect(createStage1CatalogPackageSource({ source: { kind: "local_file", catalogPath }, appId: "ai.braindrive.unknown-builder", target: "docker_linux_x64" }))
-      .rejects.toMatchObject({ code: "source_index_signature_invalid" });
+    const genericPackage = await createStage1CatalogPackageSource({ source: { kind: "local_file", catalogPath }, appId: "ai.braindrive.unknown-builder", target: "docker_linux_x64" });
+    expect(genericPackage.repository.packagesByAppVersion).toHaveProperty("ai.braindrive.unknown-builder@1.0.0");
+    await expect(listStage1CatalogPackages({ source: { kind: "local_file", catalogPath }, target: "docker_linux_x64" }))
+      .resolves.toMatchObject([{ packageId: "ai.braindrive.unknown-builder", launchableApp: true }]);
 
     catalogPath = await writeStage1Catalog({ root, sourceRoot: repository.root });
     const identityMismatch = await createStage1CatalogPackageSource({ source: { kind: "local_file", catalogPath }, appId: "ai.braindrive.resume-builder", target: "docker_linux_x64" });

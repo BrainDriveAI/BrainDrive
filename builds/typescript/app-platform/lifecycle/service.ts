@@ -218,8 +218,12 @@ export class AppLifecycleService {
         operation = await this.stage(operation, "verifying_package");
         candidate = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, input.version, candidateRoot, "candidate_install_or_update", { appId: this.appId, publisherId: this.publisherId });
         const priorPackage = await this.requireStoredPackage(prior.active_package_digest!);
-        if (comparePackageVersion(candidate.manifest.package_version, priorPackage.package_version) <= 0) {
-          throw new AppPlatformError("conflict", "Update version must be newer than the active version", 409);
+        const versionComparison = comparePackageVersion(candidate.manifest.package_version, priorPackage.package_version);
+        if (versionComparison < 0) {
+          throw new AppPlatformError("conflict", "Update version must not be older than the active version", 409);
+        }
+        if (versionComparison === 0 && candidate.packageDigest === priorPackage.package_digest) {
+          throw new AppPlatformError("conflict", "This app package is already current", 409);
         }
         candidate = await this.promoteVerifiedPackage(candidate);
         const priorGrant = await this.requireGrant(prior.grant_id!);
@@ -968,6 +972,8 @@ function storedPackageAvailabilityErrorCode(error: unknown): string | null {
   return [
     "package_archive_digest_mismatch",
     "package_cache_missing",
+    "package_not_found",
+    "host_incompatible",
     "package_manifest_invalid",
     "package_verification_failed",
     "store_corrupt",
