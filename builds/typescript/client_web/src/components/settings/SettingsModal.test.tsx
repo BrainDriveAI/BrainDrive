@@ -1005,6 +1005,41 @@ describe("SettingsModal", () => {
     openSpy.mockRestore();
   });
 
+  it.each([
+    [
+      "credits_exhausted_topup_required",
+      "Your BrainDrive Models credits are exhausted. Add credits to continue.",
+    ],
+    [
+      "account_suspended",
+      "This BrainDrive Models account is suspended. Contact support.",
+    ],
+    [
+      "payment_revoked",
+      "This BrainDrive Models account is suspended. Contact support.",
+    ],
+  ])("shows checkout failure message for %s", async (code, message) => {
+    const user = userEvent.setup();
+    createCreditsCheckoutMock.mockRejectedValueOnce(Object.assign(new Error("checkout failed"), { code }));
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+    const emailInput = await screen.findByLabelText("Email for your receipt");
+    fireEvent.change(emailInput, { target: { value: "owner@example.com" } });
+    await waitFor(() => {
+      expect(emailInput).toHaveValue("owner@example.com");
+    });
+    await user.click(screen.getAllByRole("button", { name: "$5" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]!);
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
   it("polls activating status every three seconds and stops by the 120 second deadline", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));

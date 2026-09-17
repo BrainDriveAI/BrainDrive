@@ -675,6 +675,18 @@ function emailCreditErrorMessage(code: string): string {
   }
 }
 
+function checkoutPurchaseErrorMessage(code: string): string {
+  switch (code) {
+    case "credits_exhausted_topup_required":
+      return "Your BrainDrive Models credits are exhausted. Add credits to continue.";
+    case "account_suspended":
+    case "payment_revoked":
+      return "This BrainDrive Models account is suspended. Contact support.";
+    default:
+      return "Failed to open checkout. Please try again.";
+  }
+}
+
 function getSavedBillingEmail(): string {
   const savedEmail = localStorage.getItem("bd_billing_email") ?? "";
   if (savedEmail && isSyntheticLocalEmail(savedEmail)) {
@@ -2367,7 +2379,7 @@ function BrainDriveModelsPanel({
         setShowRepairKey(true);
         setPurchaseError("BrainDrive Models needs the key from your purchase email, or a migration from the original computer, before checkout can continue.");
       } else {
-        setPurchaseError("Failed to open checkout. Please try again.");
+        setPurchaseError(checkoutPurchaseErrorMessage(code));
       }
     } finally {
       setPurchaseLoading(null);

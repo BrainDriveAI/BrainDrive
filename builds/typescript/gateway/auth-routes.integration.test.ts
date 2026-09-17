@@ -1924,6 +1924,62 @@ describe.sequential("gateway auth route integration", () => {
     await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-existing-zero-balance");
   });
 
+  it("preserves upstream BrainDrive Models checkout failure status and code", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-existing-suspended-key");
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-suspended-key" });
+        return new Response(JSON.stringify({ remaining_usd: 0, key_valid: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/checkout")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-suspended-key" });
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "account_suspended",
+              message: "This account has been suspended. Contact support for assistance.",
+            },
+          }),
+          { status: 403, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string; code: string }>(response.body)).toMatchObject({
+      error: "This account has been suspended. Contact support for assistance.",
+      code: "account_suspended",
+    });
+  });
+
   it("does not silently overwrite an invalid existing BrainDrive Models key", async () => {
     context = await createTestServer({
       authMode: "local-owner",
