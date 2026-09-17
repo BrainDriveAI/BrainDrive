@@ -2497,7 +2497,11 @@ function craftRepairIssues(candidate, input, prefix) {
   if (!hasExactKeys(candidate, STANDARD_REQUIRED_KEYS.resume_craft_repair) || ![1, 2].includes(candidate.repair_version)) return [`${prefix}/schema-result-invalid`];
   const source = oneBlock(input, "general_resume_definition") ?? oneBlock(input, "resume_definition"), report = oneBlock(input, "craft_quality_report"), scope = oneBlock(input, "craft_repair_scope"), facts = confirmedFactIds(input);
   if (candidate.source_definition_revision_id !== recordRevision(source) || candidate.source_report_revision_id !== recordRevision(report)) return [`${prefix}/lineage-binding-invalid`];
-  const allowed = [...new Set([...(scope?.statement_ids ?? []), ...(scope?.allowed_statement_ids ?? [])].filter(validOpaqueId))].sort();
+  const allowed = [...new Set([
+    ...(scope?.statement_scope_ids ?? []),
+    ...(scope?.statement_ids ?? []),
+    ...(scope?.allowed_statement_ids ?? []),
+  ].filter(validOpaqueId))].sort();
   if (!uniqueArray(candidate.changed_statement_ids, 500, validOpaqueId, 1) || canonicalJson([...candidate.changed_statement_ids].sort()) !== canonicalJson(allowed)) return [`${prefix}/repair-scope-mismatch`];
   const sourceStatements = Array.isArray(source?.statements) ? source.statements : [], nextStatements = Array.isArray(candidate.statements) ? candidate.statements : [], old = new Map(sourceStatements.map((entry) => [entry?.statement_id, entry])), next = new Map(nextStatements.map((entry) => [entry?.statement_id, entry]));
   if (old.size !== sourceStatements.length || next.size !== nextStatements.length || old.size !== next.size || [...old.keys()].some((id) => !next.has(id)) || nextStatements.some((statement) => !validGeneratedStatement(statement, facts))) return [`${prefix}/schema-statement-set-mismatch`];
@@ -2651,13 +2655,14 @@ export function adjudicateResumeInference(input) {
   const purpose = standardPurpose(input?.program, input?.input);
   if (input.attempt !== 1 && input.attempt !== 2) throw new Error("attempt_invalid");
   const acceptedInput = canonicalStandardInput(input.input);
-  const issueIds = standardIssueIds(purpose, input.candidate, acceptedInput);
+  const candidate = unwrapProviderCandidate(purpose, input.candidate);
+  const issueIds = standardIssueIds(purpose, candidate, acceptedInput);
   if (issueIds.length === 0) {
     const acceptedResult = purpose === "resume_strategy"
-      ? canonicalizeAppStrategy(projectStrategyCandidate(input.candidate, acceptedInput), acceptedInput)
+      ? canonicalizeAppStrategy(projectStrategyCandidate(candidate, acceptedInput), acceptedInput)
       : purpose === "resume_craft_evaluate"
-        ? projectCraftCandidate(input.candidate, acceptedInput).result
-      : input.candidate;
+        ? projectCraftCandidate(candidate, acceptedInput).result
+      : candidate;
     return {
     inference_program_contract_version: 1, program: RESUME_INFERENCE_PROGRAMS[purpose], attempt: input.attempt,
     decision: "accepted", issue_ids: [], result: acceptedResult,
@@ -2682,4 +2687,10 @@ export function adjudicateResumeInference(input) {
     },
   };
   return { inference_program_contract_version: 1, program: RESUME_INFERENCE_PROGRAMS[purpose], attempt: input.attempt, decision: "failed", issue_ids: issueIds, safe_error_code: "candidate_invalid" };
+}
+
+function unwrapProviderCandidate(purpose, candidate) {
+  if (!isRecord(candidate) || typeof candidate.candidate_json !== "string") return candidate;
+  try { return JSON.parse(candidate.candidate_json); }
+  catch { return candidate; }
 }

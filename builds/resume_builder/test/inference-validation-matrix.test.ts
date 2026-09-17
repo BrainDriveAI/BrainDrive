@@ -129,7 +129,7 @@ const revisionRequest = {
 const repairScope = {
   source_definition_revision_id: ids.definition,
   source_report_revision_id: ids.report,
-  allowed_statement_ids: [ids.statement],
+  statement_scope_ids: [ids.statement],
   correction_class: "specificity",
 };
 

@@ -1,6 +1,6 @@
-# Retired Resume inference broker and offline conformance evidence
+# Resume inference evidence and live conformance
 
-This directory contains the retired pre-installed-program inference implementation and its offline conformance, quality, and historical acceptance harnesses. It has no production caller. All twelve active Resume purposes are owned by the Resume Builder package at `builds/resume_builder/resources/inference-program.js`; BrainDrive's generic executor is in `app-inference/installed-program.ts`, and contract version 1 is rejected.
+The broker implementation in this directory is retired historical/offline evidence and has no production caller. All twelve active Resume purposes are owned by the Resume Builder package at `builds/resume_builder/resources/inference-program.js`; BrainDrive's generic executor is in `app-inference/installed-program.ts`, and contract version 1 is rejected. The live `resume:conformance` command executes that installed-app contract. The retired broker harness remains available to preserve historical tests and evidence, but it is not the live product gate.
 
 The material below documents historical version-1 behavior and the validators still reused by host-side Resume data-safety checks and offline tests. It is not the authority for any installed app prompt, schema, semantic issue ID, retry instruction, adjudication, or fallback.
 
