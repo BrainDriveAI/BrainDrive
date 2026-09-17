@@ -43,6 +43,9 @@ type AppChatPreparedExport = {
   payload: HostAppExportPayload;
 };
 type AppChatExportHandlingResult = "ignored" | "completed" | "cancelled" | "failed";
+type MissingResumeEssentials = {
+  missing_essentials: Array<{ label: string }>;
+};
 
 type AppChatWorkspaceProps = {
   appKey: string;
@@ -902,6 +905,7 @@ function WorkspaceDetail({
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [documentNotice, setDocumentNotice] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
+  const [missingResumeEssentials, setMissingResumeEssentials] = useState<MissingResumeEssentials | null>(null);
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
   const boundDocument = item.kind === "document" && Boolean(item.document.data_binding_id) ? item.document : null;
@@ -1079,7 +1083,10 @@ function WorkspaceDetail({
     }
   }
 
-  async function executeDirectHeaderAction(action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>) {
+  async function executeDirectHeaderAction(
+    action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>,
+    actionInputOverride?: Record<string, unknown>,
+  ) {
     if (runningActionId) return;
     const isExportAction = action.action_id.toLowerCase().includes("export");
     setRunningActionId(action.action_id);
@@ -1089,9 +1096,17 @@ function WorkspaceDetail({
     setCurrentRevisionHint(null);
     try {
       const result = await withSessionRecovery((activeSessionId) => executeAppChatWorkspaceAction(appKey, activeSessionId, action.action_id, {
-        actionInput: action.action_input ?? {},
+        actionInput: actionInputOverride ?? action.action_input ?? {},
         ownerConfirmed: true,
       }));
+      const missingEssentials = extractMissingResumeEssentials(result);
+      if (missingEssentials) {
+        setMissingResumeEssentials(missingEssentials);
+        setDocumentNotice(null);
+        setDocumentError("Resume creation is paused until you choose how to handle the visible Profile gaps.");
+        return;
+      }
+      setMissingResumeEssentials(null);
       const exportResult = await onDirectActionResult(result);
       if (isExportAction && exportResult === "ignored") throw new Error("export_result_missing");
       if (exportResult === "cancelled") {
@@ -1242,6 +1257,24 @@ function WorkspaceDetail({
             {documentNotice ? (
               <div role="status" aria-live="polite" className="mt-4 rounded-md border border-bd-success/35 bg-bd-success/10 px-3 py-2 text-sm text-bd-text-primary">
                 {documentNotice}
+              </div>
+            ) : null}
+
+            {missingResumeEssentials ? (
+              <div role="status" className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
+                <p>Resolve or explicitly accept {missingResumeEssentials.missing_essentials.length} visible Profile gap{missingResumeEssentials.missing_essentials.length === 1 ? "" : "s"} before exporting.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3 gap-2"
+                  disabled={runningActionId !== null}
+                  onClick={() => {
+                    const createAction = presentation?.header_actions.find((candidate): candidate is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => candidate.type === "app_action" && candidate.delivery === "direct_action" && candidate.action_id === "resume.create");
+                    if (createAction) void executeDirectHeaderAction(createAction, { ...(createAction.action_input ?? {}), missing_essential_disposition: "proceed_with_limitations" });
+                  }}
+                >
+                  Proceed with limitations
+                </Button>
               </div>
             ) : null}
 
@@ -1448,6 +1481,13 @@ function buildDirectActionHostMessage(
       : `Owner pressed Export PDF. Downloaded ${label} through the browser.`;
   }
   return `Owner pressed ${action.label}. ${action.label} completed.`;
+}
+
+function extractMissingResumeEssentials(result: unknown): MissingResumeEssentials | null {
+  if (!isRecord(result) || !isRecord(result.result) || result.result.status !== "missing_essentials") return null;
+  const missing = result.result.missing_essentials;
+  if (!Array.isArray(missing) || !missing.every((item) => isRecord(item) && typeof item.label === "string")) return null;
+  return { missing_essentials: missing as Array<{ label: string }> };
 }
 
 function extractCreatedResumeRevision(result: unknown): number | null {

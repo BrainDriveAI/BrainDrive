@@ -710,6 +710,47 @@ describe("AppChatWorkspace", () => {
     ));
   });
 
+  it("does not report Create success until the missing-essentials gate is explicitly accepted", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction)
+      .mockResolvedValueOnce({
+        action_id: "resume.create",
+        operation_id: "00000000-0000-4000-8000-000000000731",
+        idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000731",
+        result: {
+          result_version: 1,
+          status: "missing_essentials",
+          missing_essentials: [{ label: "Contact identity" }, { label: "Experience details" }],
+        },
+      })
+      .mockResolvedValueOnce({
+        action_id: "resume.create",
+        operation_id: "00000000-0000-4000-8000-000000000732",
+        idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000732",
+        result: { definition: { metadata: { revision: 4 } } },
+      });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(await screen.findByRole("button", { name: "Create resume" }));
+    expect(await screen.findByText(/Resume creation is paused/)).toBeInTheDocument();
+    expect(appsApi.appendConversationHostMessage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Proceed with limitations" }));
+    await waitFor(() => expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenLastCalledWith("resume-builder", current.session.session_id, "resume.create", {
+      actionInput: { missing_essential_disposition: "proceed_with_limitations" },
+      ownerConfirmed: true,
+    }));
+    await waitFor(() => expect(appsApi.appendConversationHostMessage).toHaveBeenCalledWith(
+      null,
+      "Owner pressed Create resume. Your Resume revision 4 created.",
+    ));
+  });
+
   it("creates a durable host-message conversation for direct Create resume before any chat turn", async () => {
     const current = withDirectResumeActions(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);

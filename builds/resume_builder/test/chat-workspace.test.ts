@@ -726,6 +726,76 @@ describe("Resume Builder chat workspace contract", () => {
     expect(documentWrite?.content).toBe("# Maya Torres\n\n## Experience\n- Reduced launch slips by 38% across six product squads.");
   });
 
+  it("renders the owner Profile through the Resume Template Standard", () => {
+    const operationId = crypto.randomUUID();
+    const profileMarkdown = [
+      "# Resume Profile",
+      "",
+      "## Contact",
+      "- **Name:** Maya Torres",
+      "- **Email:** maya@example.com",
+      "- **Phone:** 555-0100",
+      "- **Location:** Chicago, IL",
+      "",
+      "## Professional Summary",
+      "Operations leader who turns messy launches into repeatable systems.",
+      "",
+      "## Experience",
+      "**Director of Operations** | Northstar Cloud | Chicago, IL | 2020\u2013Present",
+      "- Reduced launch slips by 38% across six product squads.",
+      "",
+      "## Education",
+      "B.A. Communications | Northwestern University | 2018",
+      "",
+      "## Skills",
+      "- **Program delivery:** launch planning, risk reviews",
+    ].join("\n");
+    const plan = planResumeAction({
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `resume-standard-${operationId}`,
+      occurred_at: "2026-09-17T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents: [{
+        document_id: "resume.profile",
+        document_binding_id: RESUME_PROFILE_BINDING_ID,
+        media_type: "text/markdown",
+        revision: 1,
+        revision_id: crypto.randomUUID(),
+        content: profileMarkdown,
+      }],
+    });
+
+    const documentWrite = plan.steps.find((step) => step.step_id === "write-resume-document") as { content?: unknown };
+    expect(documentWrite.content).toBe([
+      "# Maya Torres",
+      "Chicago, IL  ·  maya@example.com  ·  555-0100",
+      "",
+      "## Professional Summary",
+      "Operations leader who turns messy launches into repeatable systems.",
+      "",
+      "## Experience",
+      "**Director of Operations**",
+      "Northstar Cloud  ·  Chicago, IL  ·  2020\u2013Present",
+      "- Reduced launch slips by 38% across six product squads.",
+      "",
+      "## Education",
+      "B.A. Communications, Northwestern University \u2014 2018",
+      "",
+      "## Skills",
+      "- **Program delivery:** launch planning, risk reviews",
+    ].join("\n"));
+    expect(String(documentWrite.content)).not.toContain("## Contact");
+    expect(String(documentWrite.content)).not.toContain("Resume Profile");
+  });
+
   it("rejects Create resume when no reviewed Profile document is available", () => {
     const operationId = crypto.randomUUID();
     expect(() => planResumeAction({
@@ -1050,7 +1120,7 @@ describe("Resume Builder chat workspace contract", () => {
     });
 
     const pdfBytes = Buffer.from(String(plan.steps[0].bytes_base64), "base64");
-    expect(rasterizedPdfTextLayoutDigest(pdfBytes)).toBe("3f4f705cdce0f942b49aeb4e16e88185b94b264af44cfed0368a7e33f301f94d");
+    expect(rasterizedPdfTextLayoutDigest(pdfBytes)).toBe("b62c6aacfb461c218c5e08fc9e08ee2c2c70e3e0e7343b6b8d1efc61c34f6184");
   });
 
   it("keeps short PDF sections with their first content line across page breaks", () => {

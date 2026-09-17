@@ -108,7 +108,15 @@ test.describe("LAN browser access", () => {
     await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });
 
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await page.getByRole("button", { name: "Reload app" }).click();
+    // Native app-chat workspaces do not expose the sandbox-only "Reload app"
+    // control. Reload the browser, then re-enter the workspace through Apps.
+    await page.reload();
+    await page.getByRole("button", { name: "Apps", exact: true }).click();
+    await expect(page.getByTestId("apps-page")).toBeVisible({ timeout: 20_000 });
+    const reopenCard = page.locator('[data-app-key="resume-builder"]');
+    const reopen = appLaunchButton(reopenCard, "Resume Builder");
+    await expect(reopen).toBeVisible({ timeout: 15_000 });
+    await reopen.click();
     await expectAppWorkspaceReady(page, "Resume Builder");
     await page.getByRole("button", { name: "Your Resume Profile" }).click();
     await expect(page.getByRole("heading", { name: "resume-profile.md" })).toBeVisible({ timeout: 20_000 });

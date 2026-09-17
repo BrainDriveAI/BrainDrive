@@ -783,7 +783,7 @@ function documentReadStep(stepId: string, documentId: string) {
 }
 
 function renderResumeMarkdown(input: ResumeChatCreateActionInput): string {
-  if (input.resume_markdown?.trim()) return normalizeResumeMarkdown(input.resume_markdown);
+  if (input.resume_markdown?.trim()) return renderResumeTemplateStandard(input.resume_markdown);
   const lines = input.title?.trim() ? [`# ${input.title.trim()}`, ""] : [];
   for (const section of input.sections ?? []) {
     const title = normalizeStatementText(section.title ?? section.section_id ?? "");
@@ -792,6 +792,170 @@ function renderResumeMarkdown(input: ResumeChatCreateActionInput): string {
     lines.push("");
   }
   return lines.join("\n").trim();
+}
+
+type ResumeProfileSection = {
+  heading: string;
+  lines: string[];
+};
+
+type ResumeContact = {
+  name?: string;
+  location?: string;
+  email?: string;
+  phone?: string;
+};
+
+const GENERIC_PROFILE_HEADINGS = /^(?:resume|resume\s+profile|profile)$/i;
+const TEMPLATE_SECTION_NAMES = {
+  summary: /^(?:professional\s+)?summary$/i,
+  experience: /^(?:professional\s+)?(?:experience|work\s+experience|work\s+history|employment)$/i,
+  education: /^education$/i,
+  skills: /^skills?$/i,
+  certifications: /^(?:certifications?|licenses?)$/i,
+  contact: /^(?:contact|contact\s+identity|personal\s+details)$/i,
+} as const;
+
+function renderResumeTemplateStandard(profileMarkdown: string): string {
+  const parsed = parseResumeProfileSections(profileMarkdown);
+  const contact = parseResumeContact(parsed.contact?.lines ?? []);
+  const profileTitle = parsed.title && !GENERIC_PROFILE_HEADINGS.test(parsed.title) ? parsed.title : undefined;
+  const name = contact.name ?? profileTitle;
+  const lines: string[] = [];
+
+  if (name) lines.push(`# ${name}`);
+  const contactLine = [contact.location, contact.email, contact.phone].filter((value): value is string => Boolean(value)).join("  \u00b7  ");
+  if (contactLine) lines.push(contactLine);
+  if (name || contactLine) lines.push("");
+
+  appendResumeTemplateSection(lines, "Professional Summary", parsed.summary?.lines ?? []);
+  appendResumeExperienceSection(lines, parsed.experience?.lines ?? []);
+  appendResumeEducationSection(lines, parsed.education?.lines ?? []);
+  appendResumeTemplateSection(lines, "Skills", parsed.skills?.lines ?? []);
+  appendResumeTemplateSection(lines, "Certifications", parsed.certifications?.lines ?? []);
+
+  for (const section of parsed.other) {
+    appendResumeTemplateSection(lines, section.heading, section.lines);
+  }
+
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function parseResumeProfileSections(markdown: string): {
+  title?: string;
+  contact?: ResumeProfileSection;
+  summary?: ResumeProfileSection;
+  experience?: ResumeProfileSection;
+  education?: ResumeProfileSection;
+  skills?: ResumeProfileSection;
+  certifications?: ResumeProfileSection;
+  other: ResumeProfileSection[];
+} {
+  const sections: ResumeProfileSection[] = [];
+  let title: string | undefined;
+  let current: ResumeProfileSection | null = null;
+  for (const rawLine of normalizeResumeMarkdown(markdown).split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const h1 = /^#\s+(.+)$/.exec(line.trim());
+    const heading = /^#{2,6}\s+(.+)$/.exec(line.trim());
+    if (h1) {
+      title ??= stripResumeInlineMarkup(h1[1]);
+      current = null;
+      continue;
+    }
+    if (heading) {
+      current = { heading: stripResumeInlineMarkup(heading[1]), lines: [] };
+      sections.push(current);
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+
+  const classified = {
+    title,
+    contact: undefined as ResumeProfileSection | undefined,
+    summary: undefined as ResumeProfileSection | undefined,
+    experience: undefined as ResumeProfileSection | undefined,
+    education: undefined as ResumeProfileSection | undefined,
+    skills: undefined as ResumeProfileSection | undefined,
+    certifications: undefined as ResumeProfileSection | undefined,
+    other: [] as ResumeProfileSection[],
+  };
+  for (const section of sections) {
+    if (TEMPLATE_SECTION_NAMES.contact.test(section.heading)) classified.contact ??= section;
+    else if (TEMPLATE_SECTION_NAMES.summary.test(section.heading)) classified.summary ??= section;
+    else if (TEMPLATE_SECTION_NAMES.experience.test(section.heading)) classified.experience ??= section;
+    else if (TEMPLATE_SECTION_NAMES.education.test(section.heading)) classified.education ??= section;
+    else if (TEMPLATE_SECTION_NAMES.skills.test(section.heading)) classified.skills ??= section;
+    else if (TEMPLATE_SECTION_NAMES.certifications.test(section.heading)) classified.certifications ??= section;
+    else classified.other.push(section);
+  }
+  return classified;
+}
+
+function parseResumeContact(lines: readonly string[]): ResumeContact {
+  const contact: ResumeContact = {};
+  for (const rawLine of lines) {
+    const line = stripResumeInlineMarkup(rawLine.replace(/^\s*[-*+]\s+/, "").trim());
+    const match = /^([^:*]+?):\s*(.+)$/.exec(line);
+    if (!match) continue;
+    const key = match[1].trim().toLowerCase();
+    const value = stripResumeInlineMarkup(match[2]).trim();
+    if (!value) continue;
+    if (key === "name" || key === "full name") contact.name ??= value;
+    else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
+    else if (key === "email" || key === "email address") contact.email ??= value;
+    else if (key === "phone" || key === "phone number") contact.phone ??= value;
+  }
+  return contact;
+}
+
+function appendResumeTemplateSection(lines: string[], heading: string, rawLines: readonly string[]): void {
+  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  if (content.length === 0) return;
+  if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+  lines.push(`## ${heading}`);
+  lines.push(...content);
+}
+
+function appendResumeExperienceSection(lines: string[], rawLines: readonly string[]): void {
+  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  if (content.length === 0) return;
+  if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+  lines.push("## Experience");
+  for (const line of content) {
+    const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+    if (bullet) {
+      lines.push(`- ${bullet[1]}`);
+      continue;
+    }
+    const parts = line.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const title = parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`;
+      const metadata = parts.slice(1).join("  \u00b7  ");
+      lines.push(title, metadata);
+    } else {
+      lines.push(line);
+    }
+  }
+}
+
+function appendResumeEducationSection(lines: string[], rawLines: readonly string[]): void {
+  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  if (content.length === 0) return;
+  if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+  lines.push("## Education");
+  for (const line of content) {
+    const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+    const value = bullet?.[1] ?? line;
+    const parts = value.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 3) lines.push(`${parts[0]}, ${parts[1]} \u2014 ${parts.slice(2).join(" | ")}`);
+    else lines.push(value);
+  }
+}
+
+function stripResumeInlineMarkup(value: string): string {
+  return value.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").trim();
 }
 
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
@@ -1047,15 +1211,14 @@ function renderPdfPages(blocks: PdfBlock[], fontUsage: PdfFontUsage): string[] {
       if (block.depth === 1) {
         ensure(38);
         const text = runsPlainText(block.runs);
-        const fontSize = 20;
+        const fontSize = 22;
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else {
         ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         y -= 10;
         const text = runsPlainText(block.runs).toUpperCase();
-        commands.push(textCommand("F2", 9.5, left, y, text, fontUsage.bold));
-        commands.push(`0.72 0.75 0.80 RG 0.5 w ${left} ${round(y - 8)} m ${right} ${round(y - 8)} l S 0 0 0 RG`);
+        commands.push(textCommand("F2", 10.5, left, y, text, fontUsage.bold));
         y -= 28;
       }
       continue;
