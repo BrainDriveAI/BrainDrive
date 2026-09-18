@@ -1699,6 +1699,46 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     reply.code(status).send({ error: message, code });
   };
 
+  const checkoutErrorFromResponse = async (
+    response: Response
+  ): Promise<{ error: string; code?: string; detail?: unknown }> => {
+    const fallback = { error: "Checkout service unavailable" };
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return fallback;
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return fallback;
+    }
+    if (!payload || typeof payload !== "object") {
+      return fallback;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const detail = record.detail;
+    if (detail && typeof detail === "object") {
+      const detailRecord = detail as Record<string, unknown>;
+      const message = detailRecord.message ?? detailRecord.error;
+      const code = detailRecord.code;
+      return {
+        error: typeof message === "string" ? message : fallback.error,
+        ...(typeof code === "string" ? { code } : {}),
+        detail,
+      };
+    }
+
+    const message = record.error ?? record.message ?? record.detail;
+    const code = record.code;
+    return {
+      error: typeof message === "string" ? message : fallback.error,
+      ...(typeof code === "string" ? { code } : {}),
+      ...(detail !== undefined ? { detail } : {}),
+    };
+  };
+
   const refreshEntitlementOperation = async (
     preferences: Preferences
   ): Promise<
@@ -2165,7 +2205,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         body: JSON.stringify({ amount: parsed.data.amount, email: parsed.data.email }),
       });
       if (!resp.ok) {
-        reply.code(resp.status).send({ error: "Checkout service unavailable" });
+        reply.code(resp.status).send(await checkoutErrorFromResponse(resp));
         return;
       }
       const data = (await resp.json()) as Record<string, unknown>;

@@ -577,7 +577,7 @@ describe("Resume Builder-owned General draft inference program", () => {
 
   it("runtime PDF export blocks the empty Resume placeholder", () => {
     const operationId = crypto.randomUUID();
-    expect(() => planResumeAction({
+    const plan = planResumeAction({
       action_planning_contract_version: 1,
       action_id: "resume.export.pdf.request",
       action_input: { safe_filename: "resume.pdf", destination_intent: "new_download" },
@@ -595,7 +595,21 @@ describe("Resume Builder-owned General draft inference program", () => {
         document_id: "resume.document",
         content: "# Resume\n\nYour finished resume will appear here after you create it from your Resume Profile.",
       }],
-    })).toThrow("formatted_resume_required");
+    });
+
+    expect(plan).toMatchObject({
+      action_id: "resume.export.pdf.request",
+      steps: [{ step_id: "read-resume-document", type: "document.read", document_id: "resume.document" }],
+      final_result: {
+        kind: "literal",
+        value: {
+          result_version: 1,
+          status: "failed",
+          code: "formatted_resume_required",
+          recoverable: true,
+        },
+      },
+    });
   });
 
   it("assembles exact evidence slots in the app and asks the provider for text only", () => {

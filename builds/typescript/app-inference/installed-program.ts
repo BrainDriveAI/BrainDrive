@@ -135,15 +135,7 @@ export class InstalledAppInferenceExecutor {
       if (typeof provider.adapter.completeStructuredNoTools !== "function") {
         throw new AppPlatformError("protocol_incompatible", "The active provider does not support structured app inference", 409);
       }
-      const response = await provider.adapter.completeStructuredNoTools({
-        system: plan.system,
-        user: plan.user,
-        schemaName: plan.schema_name,
-        schema: plan.output_schema,
-        maxOutputTokens: plan.max_output_tokens,
-        timeoutMs: plan.timeout_ms,
-        signal: context.signal,
-      });
+      const response = await provider.adapter.completeStructuredNoTools(providerRequest(provider.providerProfileId, plan, context.signal));
       const candidate = parseCandidate(response.text);
       const adjudication = assertIdentity(
         parseProgramValue(InstalledAppInferenceAdjudicationSchema, await context.programClient.adjudicate({ program: parsed.program, input: parsed.input, attempt, candidate }), "Installed app inference adjudication is invalid"),
@@ -244,4 +236,48 @@ export class InstalledAppInferenceExecutor {
     try { this.dependencies.audit?.(event, details); }
     catch { /* Diagnostics cannot expose content or interrupt inference. */ }
   }
+}
+
+function providerRequest(
+  providerProfileId: string,
+  plan: Plan,
+  signal?: AbortSignal,
+): Parameters<NonNullable<ModelAdapter["completeStructuredNoTools"]>>[0] {
+  if (providerProfileId !== "braindrive-models" || !needsProviderCandidateEnvelope(plan.program.id)) {
+    return {
+      system: plan.system,
+      user: plan.user,
+      schemaName: plan.schema_name,
+      schema: plan.output_schema,
+      maxOutputTokens: plan.max_output_tokens,
+      timeoutMs: plan.timeout_ms,
+      signal,
+    };
+  }
+  return {
+    system: `${plan.system} The candidate_json value must contain one JSON-encoded complete candidate object matching the app contract below. Do not add prose outside that JSON string.`,
+    user: `${plan.user}\n${JSON.stringify({ provider_output_contract: { candidate_json: "JSON-encoded candidate object", candidate_schema: plan.output_schema } })}`,
+    schemaName: `${plan.schema_name}_json_envelope`,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["candidate_json"],
+      properties: { candidate_json: { type: "string", minLength: 2, maxLength: 262_144 } },
+    },
+    maxOutputTokens: plan.max_output_tokens,
+    timeoutMs: plan.timeout_ms,
+    signal,
+  };
+}
+
+function needsProviderCandidateEnvelope(programId: string): boolean {
+  return new Set([
+    "resume.interview-assist",
+    "resume.tailoring-plan",
+    "resume.targeted-draft",
+    "resume.revision-draft",
+    "resume.guidance",
+    "resume.craft-evaluate",
+    "resume.craft-repair",
+  ]).has(programId);
 }

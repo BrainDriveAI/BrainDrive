@@ -1033,6 +1033,27 @@ describe("manifest-driven Apps surface", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Launch" })).toHaveFocus());
   });
 
+  it("attempts the bounded session resume handshake when the owner relaunches the app", async () => {
+    const current = installed({ catalog: { ...installed().catalog!, presentations: chatPresentation() } });
+    const first = chatLaunch();
+    const reopened = { ...first, resumed: true, session: { ...first.session, session_id: crypto.randomUUID(), session_generation: first.session.session_generation + 1 } };
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    vi.mocked(appsApi.launchAppChatWorkspace).mockResolvedValueOnce(first).mockResolvedValueOnce(reopened);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(first.session);
+
+    const user = userEvent.setup();
+    renderApps(<AppsPage />);
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
+    await user.click(await screen.findByRole("button", { name: "Back to Apps" }));
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
+
+    await waitFor(() => expect(appsApi.launchAppChatWorkspace).toHaveBeenLastCalledWith("resume-builder", {
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      resume: first,
+    }));
+  });
+
   it("keeps surface presentations on the sandbox launch path", async () => {
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
     vi.mocked(appsApi.launchApp).mockResolvedValue(launch);

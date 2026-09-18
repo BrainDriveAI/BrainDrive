@@ -100,6 +100,18 @@ function capabilityResultSchema(): Record<string, unknown> {
   };
 }
 
+function resumeCreateResultSchema(): Record<string, unknown> {
+  const base = capabilityResultSchema();
+  return {
+    ...base,
+    properties: {
+      ...(base.properties as Record<string, unknown>),
+      result_version: { type: "number", enum: [1] },
+      audit: { type: "object", additionalProperties: true, properties: {}, required: [] },
+    },
+  };
+}
+
 function profileReadInputSchema(): Record<string, unknown> {
   return {
     type: "object",
@@ -309,6 +321,19 @@ function resumePlannerDocuments(): ChatWorkspaceDescriptor["documents"] {
       model_access: "action_result",
       resource_id: null,
       data_binding_id: "resume.definition.current.general",
+      presentation: null,
+    },
+    {
+      document_version: 1,
+      document_id: "resume.action-result",
+      role: "action_result_document",
+      title: "Resume Action Result",
+      description: "Latest Resume Builder action result.",
+      editable: false,
+      default_visibility: "secondary",
+      model_access: "action_result",
+      resource_id: null,
+      data_binding_id: "resume.action-result.latest",
       presentation: null,
     },
   ];
@@ -621,7 +646,7 @@ describe("app-chat workspace session authority", () => {
           kind: "render",
           title: "Create Resume",
           description: "Create the current general Resume.",
-          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema(), resumeCreateResultSchema()),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -2048,7 +2073,7 @@ describe("app-chat workspace session authority", () => {
           kind: "render",
           title: "Create Resume",
           description: "Create resume.",
-          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema()),
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema(), resumeCreateResultSchema()),
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -2120,6 +2145,81 @@ describe("app-chat workspace session authority", () => {
       }),
       expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
     );
+  });
+
+  it("returns a missing-essentials action result for sparse Resume Builder chat create actions", async () => {
+    const router = fakeRouter({ definition: { metadata: { revision_id: randomUUID() } }, reused: false });
+    const { host } = await setup({
+      router,
+      clientFactory: resumePlannerClientFactory,
+      requestedCapabilities: ["resume.definitions.read", "resume.definitions.write"],
+      documents: resumePlannerDocuments(),
+      actions: [
+        {
+          action_version: 1,
+          action_id: "resume.profile.update",
+          kind: "write",
+          title: "Update Resume Profile",
+          description: "Update profile.",
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          confirmation: "none",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.create",
+          kind: "render",
+          title: "Create Resume",
+          description: "Create resume.",
+          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema(), resumeCreateResultSchema()),
+          confirmation: "owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
+          required_inference_purposes: [],
+        },
+      ],
+    });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const executor = new ToolExecutor(model.tools);
+    const createOperationId = randomUUID();
+
+    await expect(executor.execute(ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      auth: ownerAuth,
+      correlationId: "rbjc-sparse-profile-update",
+    }, "app_action_resume_profile_update", {
+      action_input: {
+        profile_markdown: [
+          "# Resume Profile",
+          "",
+          "## Summary",
+          "- Customer support leader.",
+          "## Experience",
+          "- [gap: prior role details]",
+        ].join("\n"),
+        completed_topics: ["direction"],
+        current_topic: "experience",
+      },
+    })).resolves.toMatchObject({ status: "ok" });
+
+    await expect(host.executeAppChatAction(launch.session.session_id, "resume.create", {
+      action_input: {},
+      operation_id: createOperationId,
+      idempotency_key: `rbjc-sparse-create-${createOperationId}`,
+      owner_confirmed: true,
+    }, "owner")).resolves.toMatchObject({
+      action_id: "resume.create",
+      result: expect.objectContaining({
+        record: expect.objectContaining({
+          document_id: "resume.action-result",
+        }),
+      }),
+    });
   });
 
   it("denies app action plans that try to rewrite owner-editable operating-rule resources", async () => {

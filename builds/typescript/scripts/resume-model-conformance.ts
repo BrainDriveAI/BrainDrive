@@ -1,7 +1,8 @@
 import { loadAdapterConfig, loadPreferences } from "../config.js";
 import { createModelAdapter, resolveEffectiveAdapterConfig } from "../adapters/index.js";
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
-import { RESUME_CONFORMANCE_PURPOSES, runResumeModelConformance, serializeConformanceReport } from "../resume-inference/conformance.js";
+import { RESUME_CONFORMANCE_PURPOSES, serializeConformanceReport } from "../resume-inference/conformance.js";
+import { runInstalledResumeModelConformance } from "../resume-inference/installed-conformance.js";
 import { effectiveInferenceConfigFingerprint } from "../resume-inference/compatibility.js";
 
 if (process.env.BRAINDRIVE_RESUME_CONFORMANCE !== "1") throw new Error("Set BRAINDRIVE_RESUME_CONFORMANCE=1 to authorize live model conformance calls");
@@ -18,7 +19,7 @@ const adapter = createModelAdapter("openai-compatible", adapterConfig, preferenc
 const requestedPurposes = process.env.BRAINDRIVE_RESUME_CONFORMANCE_PURPOSES?.split(",").map((value) => value.trim()).filter(Boolean);
 if (requestedPurposes?.some((purpose) => !RESUME_CONFORMANCE_PURPOSES.includes(purpose as typeof RESUME_CONFORMANCE_PURPOSES[number]))) throw new Error("Unknown Resume Builder conformance purpose");
 const diagnostics: unknown[] = [];
-const result = await runResumeModelConformance({
+const result = await runInstalledResumeModelConformance({
   adapter,
   providerProfileId: profileId,
   modelId: effective.model,
@@ -29,7 +30,6 @@ const result = await runResumeModelConformance({
     modelId: effective.model,
     baseUrl: effective.base_url,
   }),
-  evidenceClass: "authorized_live_provider",
   ...(requestedPurposes ? { purposes: requestedPurposes as typeof RESUME_CONFORMANCE_PURPOSES[number][] } : {}),
   ...(process.env.BRAINDRIVE_RESUME_CONFORMANCE_DIAGNOSTICS === "1" ? { onDiagnostic: (diagnostic: unknown) => diagnostics.push(diagnostic) } : {}),
 });

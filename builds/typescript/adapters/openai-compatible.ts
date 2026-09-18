@@ -514,6 +514,9 @@ function buildChatCompletionBody(
     };
   }>;
   tool_choice?: "auto";
+  stream_options?: {
+    include_usage: boolean;
+  };
 } {
   return {
     model,
@@ -544,6 +547,7 @@ function buildChatCompletionBody(
       },
     })),
     ...(tools.length > 0 ? { tool_choice: "auto" as const } : {}),
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
 }
 

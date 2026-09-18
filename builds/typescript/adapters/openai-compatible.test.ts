@@ -96,6 +96,7 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
               const encoder = new TextEncoder();
               controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'));
               controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+              controller.enqueue(encoder.encode('data: {"model":"test-model","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n'));
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
               controller.close();
             },
@@ -127,15 +128,21 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     const providerRequest = events.find((entry) => entry.event === "prompt_audit.provider_request");
     const providerResponse = events.find((entry) => entry.event === "prompt_audit.provider_response");
     expect(providerRequest?.details.provider_request_body).toEqual(sentBody);
+    expect(providerRequest?.details.provider_request_body).toMatchObject({
+      stream_options: { include_usage: true },
+    });
     expect(providerResponse?.details.reconstructed_response).toMatchObject({
       assistantText: "Hi",
       finishReason: "stop",
+      usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
     });
+    expect(providerResponse?.details.usage).toEqual({ promptTokens: 10, completionTokens: 2, totalTokens: 12 });
     expect(chunks.at(-1)).toMatchObject({
       type: "final",
       response: {
         assistantText: "Hi",
         finishReason: "stop",
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
       },
     });
   });

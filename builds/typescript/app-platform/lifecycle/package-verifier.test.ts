@@ -326,7 +326,7 @@ describe("signed fixture package verification", () => {
     expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
   });
 
-  it("declares the PDF export action result as a prepared artifact export result", async () => {
+  it("declares the PDF export action result as prepared or safe precondition failure", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-export-result-schema-"));
     roots.push(root);
     const repository = await createFixtureRepository(path.join(root, "source"));
@@ -346,16 +346,14 @@ describe("signed fixture package verification", () => {
     expect(action?.result_schema.schema).toMatchObject({
       type: "object",
       properties: {
-        status: { type: "string", enum: ["prepared"] },
+        status: { type: "string", enum: ["prepared", "failed"] },
+        code: { type: "string", enum: ["formatted_resume_required"] },
+        recoverable: { type: "boolean" },
         artifact: { type: "object" },
         safe_destination_label: { type: "string" },
       },
     });
-    expect((action?.result_schema.schema as { required?: string[] }).required).toEqual(expect.arrayContaining([
-      "artifact",
-      "bytes_base64",
-      "safe_destination_label",
-    ]));
+    expect((action?.result_schema.schema as { required?: string[] }).required).toEqual(["result_version", "status"]);
     expect(exportHeaderAction).toMatchObject({
       delivery: "direct_action",
       action_input: {

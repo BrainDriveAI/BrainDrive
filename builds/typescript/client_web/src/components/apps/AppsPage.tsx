@@ -82,6 +82,7 @@ export default function AppsPage({
   const [compactCards, setCompactCards] = useState(true);
   const [confirmUninstallKey, setConfirmUninstallKey] = useState<string | null>(null);
   const launchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const lastChatLaunches = useRef(new Map<string, Extract<AppLaunch, { kind: "chat_workspace" }>>());
   const uninstallButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -164,9 +165,26 @@ export default function AppsPage({
     setAppBusy(app.route_key, "launch"); setAppError(app.route_key); setAppNotice(app.route_key);
     try {
       const chatPresentation = primaryChatPresentation(app);
-      const launch = chatPresentation
-        ? await launchAppChatWorkspace(app.route_key, { presentationId: chatPresentation.presentation_id, workspaceId: chatPresentation.workspace_id })
-        : await launchApp(app.route_key, entryPoint);
+      let launch: AppLaunch;
+      if (chatPresentation) {
+        const previous = lastChatLaunches.current.get(app.route_key);
+        try {
+          launch = await launchAppChatWorkspace(app.route_key, {
+            presentationId: chatPresentation.presentation_id,
+            workspaceId: chatPresentation.workspace_id,
+            ...(previous ? { resume: previous } : {}),
+          });
+        } catch (error) {
+          if (!previous) throw error;
+          launch = await launchAppChatWorkspace(app.route_key, {
+            presentationId: chatPresentation.presentation_id,
+            workspaceId: chatPresentation.workspace_id,
+          });
+        }
+        lastChatLaunches.current.set(app.route_key, launch);
+      } else {
+        launch = await launchApp(app.route_key, entryPoint);
+      }
       setSelected({ appKey: app.route_key, appId: app.identity.app_id, appName: app.identity.display_name, launch });
     } catch {
       setAppError(app.route_key, `${app.identity.display_name} could not connect. Check its status and try again.`);
