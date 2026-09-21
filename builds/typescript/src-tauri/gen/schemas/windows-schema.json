@@ -2191,6 +2191,12 @@
           "type": "string",
           "const": "core:window:deny-unminimize",
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the plugin",
+          "type": "string",
+          "const": "wdio-webdriver:default",
+          "markdownDescription": "Default permissions for the plugin"
         }
       ]
     },

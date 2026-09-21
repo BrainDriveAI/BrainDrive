@@ -6,6 +6,10 @@ authors = ["BrainDrive"]
 edition = "2021"
 license = "MIT"
 
+[features]
+default = []
+desktop-verifier = ["dep:tauri-plugin-wdio-webdriver"]
+
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }
 
@@ -16,6 +20,7 @@ sha2 = "0.10"
 tauri = { version = "2.11.2", features = [] }
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading"] }

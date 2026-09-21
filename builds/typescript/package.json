@@ -52,6 +52,7 @@
     "desktop:stage-runtime:powershell": "powershell -ExecutionPolicy Bypass -File scripts/desktop-stage-runtime.ps1",
     "desktop:reset-app-installs:windows": "powershell -ExecutionPolicy Bypass -File scripts/desktop-reset-app-installs.ps1",
     "desktop:dev": "tauri dev",
+    "desktop:verify:native": "node scripts/desktop-native-verifier/run.mjs",
     "desktop:release-aliases": "node scripts/desktop-release-aliases.mjs",
     "desktop:build": "tauri build && npm run desktop:release-aliases",
     "desktop:build:mac": "node scripts/desktop-release-aliases.mjs --prepare mac && tauri build --bundles dmg && node scripts/desktop-release-aliases.mjs --require mac",

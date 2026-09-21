@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(all(feature = "desktop-verifier", not(debug_assertions)))]
+compile_error!("The desktop-verifier feature is only supported in debug builds.");
+
 mod native_export;
 mod process_containment;
 pub mod tailscale_access;
@@ -721,7 +724,10 @@ fn main() {
     let setup_runtime = runtime.clone();
     let setup_launch_state = launch_state.clone();
     let window_runtime = runtime.clone();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "desktop-verifier")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    builder
         .manage(runtime.clone())
         .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![

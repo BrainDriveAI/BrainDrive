@@ -12,7 +12,8 @@
 > - Adjacent topics: [Tauri desktop development](../../../docs/developers/setup/tauri-desktop.md); [Architecture overview](../../../docs/developers/architecture/README.md); [Change verification](../../../docs/developers/verification.md); [BrainDrive web client](../client_web/README.md).
 > - Keywords: `Tauri desktop`, `Rust shell`, `embedded runtime`, `desktop transport`.
 > - Sources: [`builds/typescript/src-tauri/src/main.rs`](./src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](./src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](./src/native_export.rs); [`builds/typescript/src-tauri/tauri.conf.json`](./tauri.conf.json); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../scripts/desktop-release-aliases.mjs); [`builds/typescript/client_web/src/api/runtime-api-base.ts`](../client_web/src/api/runtime-api-base.ts).
-> - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs).
+> - Sources: [`builds/typescript/src-tauri/src/main.rs`](./src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](./src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](./src/native_export.rs); [`builds/typescript/src-tauri/tauri.conf.json`](./tauri.conf.json); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../scripts/desktop-release-aliases.mjs); [`builds/typescript/scripts/desktop-native-verifier/README.md`](../scripts/desktop-native-verifier/README.md); [`builds/typescript/client_web/src/api/runtime-api-base.ts`](../client_web/src/api/runtime-api-base.ts).
+> - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs); [`builds/typescript/scripts/desktop-native-verifier/`](../scripts/desktop-native-verifier/).
 <!-- catalog-contract:end tauri-desktop-boundary -->
 
 This directory owns the native shell, not normal-user desktop installation. The canonical developer journey is [Tauri desktop setup](../../../docs/developers/setup/tauri-desktop.md); the cross-cutting component relationship remains in the [architecture overview](../../../docs/developers/architecture/README.md#tauri-desktop).
@@ -30,6 +31,7 @@ This directory owns the native shell, not normal-user desktop installation. The 
 | `../client_web/src/api/runtime-api-base.ts` | Browser-versus-Tauri API base selection and desktop request header |
 | `../scripts/desktop-prepare-dev.mjs` | Clean-clone creation of the ignored resource root required by Tauri development builds and Cargo tests |
 | `../scripts/desktop-stage-runtime.mjs` | Release-build staging of Node, compiled gateway/MCP, web assets, adapters, and starter pack |
+| `../scripts/desktop-native-verifier/` | Debug-only embedded-WebDriver screen/input prototype for Windows and macOS |
 
 During `desktop:dev`, the before-dev hook creates the ignored `desktop-runtime/` resource root when it is absent, then Vite serves the frontend. Rust resolves the source workspace, starts the built MCP package and gateway on free loopback ports, waits for health, and exposes runtime status through a Tauri command. Release builds replace that root with the staged runtime. Generated/staged runtime content is not hand-edited.
 
@@ -40,11 +42,13 @@ Run from `builds/typescript/`:
 ```bash
 npm run desktop:preflight
 npm run desktop:test
+npm run desktop:verify:native
 npm run desktop:dev
 ```
 
 - `desktop:preflight` builds the TypeScript gateway, builds the MCP package, and typechecks the web client.
 - `desktop:test` prepares the ignored development resource root, runs runtime tests, builds MCP, runs web tests, and runs Cargo tests.
+- `desktop:verify:native` builds and launches the debug Tauri app in a fresh temporary profile, captures first-run setup/login screens, and records two safe navigation clicks; it is an exploratory screen/input slice, not lifecycle qualification.
 - `desktop:dev` invokes Tauri; its configured before-dev hook reruns preflight and starts Vite.
 - `desktop:build:windows` and `desktop:build:mac` snapshot the expected platform/version before Tauri runs and refuse to alias an installer that was not produced by that invocation. A stale bundle can never satisfy a current release gate.
 

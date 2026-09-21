@@ -3,6 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for BrainDrive desktop",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "wdio-webdriver:default"]
 }
-

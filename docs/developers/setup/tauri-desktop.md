@@ -11,7 +11,7 @@
 > - Parent: [docs/developers/README.md](../README.md).
 > - Adjacent topics: [BrainDrive Tauri desktop shell](../../../builds/typescript/src-tauri/README.md); [Native TypeScript and web development](./native.md); [Change verification](../verification.md); [Safe debugging and failure evidence](../debugging.md).
 > - Keywords: `Tauri desktop`, `Rust`, `embedded runtime`, `provider-independent startup`.
-> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](../../../builds/typescript/src-tauri/src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](../../../builds/typescript/src-tauri/src/native_export.rs); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../../../builds/typescript/scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../../../builds/typescript/scripts/desktop-release-aliases.mjs); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
+> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](../../../builds/typescript/src-tauri/src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](../../../builds/typescript/src-tauri/src/native_export.rs); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../../../builds/typescript/scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../../../builds/typescript/scripts/desktop-release-aliases.mjs); [`builds/typescript/scripts/desktop-native-verifier/README.md`](../../../builds/typescript/scripts/desktop-native-verifier/README.md); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
 > - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs).
 <!-- catalog-contract:end tauri-desktop-setup -->
 
@@ -34,7 +34,7 @@ Windows and macOS each require their own native exact-candidate J-05 report. WSL
 | Field | Contract |
 |---|---|
 | Working directory | `builds/typescript/` |
-| Commands | `npm run desktop:preflight`, then `npm run desktop:dev` |
+| Commands | `npm run desktop:preflight`, then `npm run desktop:dev`; limited native screen/input prototype: `npm run desktop:verify:native` |
 | Platform | V1 J-05 claims native Windows and native macOS. Linux remains configured but unclaimed; WSL/Linux is diagnostic-only |
 | Mode | Tauri development shell with local embedded runtime; not Docker or managed deployment |
 | Credential need | None for preflight, runtime health, local authentication UI, or the desktop shell |
@@ -51,6 +51,8 @@ npm run desktop:dev
 ```
 
 `desktop:dev` already invokes preflight and creates the ignored `src-tauri/desktop-runtime/` resource root through `tauri.conf.json`; running preflight separately first makes failures easier to classify and provides an independent check result. Development still runs against the source workspace. Release builds replace that root with the fully staged runtime.
+
+`desktop:verify:native` builds the frontend and debug Tauri app, then runs the embedded-WebDriver prototype with a new task-owned temporary profile. It captures the first-run setup and login views plus two non-mutating navigation clicks. Evidence is written below the OS temporary directory; set `BRAINDRIVE_DESKTOP_VERIFIER_ARTIFACTS` to choose a persistent parent directory. This prototype does not cover app lifecycle operations, packaged release behavior, or the full instrumentation minimum, and is not a substitute for J-05.
 
 `desktop:test` invokes the same resource preparation before its runtime, MCP, web, and Cargo checks. A clean clone therefore does not need an earlier `desktop:dev` run to satisfy Tauri's declared resource path.
 
