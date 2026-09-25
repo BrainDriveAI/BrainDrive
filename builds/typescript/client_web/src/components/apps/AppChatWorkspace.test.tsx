@@ -745,8 +745,12 @@ describe("AppChatWorkspace", () => {
         idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000731",
         result: {
           result_version: 1,
-          status: "missing_essentials",
-          missing_essentials: [{ label: "Contact identity" }, { label: "Experience details" }],
+          record: {
+            content: {
+              status: "missing_essentials",
+              missing_essentials: [{ label: "Contact identity" }, { label: "Experience details" }],
+            },
+          },
         },
       })
       .mockResolvedValueOnce({

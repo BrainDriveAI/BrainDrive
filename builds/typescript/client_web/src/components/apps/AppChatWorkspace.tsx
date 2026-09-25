@@ -987,6 +987,7 @@ function WorkspaceDetail({
   const sessionIdRef = useRef(sessionId);
   const boundDocumentRef = useRef(boundDocument);
   const resourceRef = useRef(packageResource);
+  const resumeCreateActionRef = useRef<Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> | null>(null);
   const documentRecord = documentResult?.record ?? null;
   const mediaType = documentRecord?.media_type ?? "text/markdown";
   const renderer = presentation?.renderer ?? (mediaType === "application/json" ? "json_editor" : "plain_text");
@@ -1171,6 +1172,9 @@ function WorkspaceDetail({
     actionInputOverride?: Record<string, unknown>,
   ) {
     if (runningActionId) return;
+    if (action.action_id === "resume.create") {
+      resumeCreateActionRef.current = action;
+    }
     const isExportAction = action.action_id.toLowerCase().includes("export");
     setRunningActionId(action.action_id);
     setDocumentError(null);
@@ -1385,7 +1389,7 @@ function WorkspaceDetail({
                   className="mt-3 gap-2"
                   disabled={runningActionId !== null}
                   onClick={() => {
-                    const createAction = presentation?.header_actions.find((candidate): candidate is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => candidate.type === "app_action" && candidate.delivery === "direct_action" && candidate.action_id === "resume.create");
+                    const createAction = presentation?.header_actions.find((candidate): candidate is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => candidate.type === "app_action" && candidate.delivery === "direct_action" && candidate.action_id === "resume.create") ?? resumeCreateActionRef.current;
                     if (createAction) void executeDirectHeaderAction(createAction, { ...(createAction.action_input ?? {}), missing_essential_disposition: "proceed_with_limitations" });
                   }}
                 >
@@ -1545,8 +1549,8 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
       const depth = heading[1].length;
       const text = heading[2];
       if (variant === "paper") {
-        if (depth === 1) return <h1 key={key} className="mb-2 text-center font-serif text-3xl font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h1>;
-        return <h2 key={key} className="mb-2 mt-6 border-b border-[#c8ced6] pb-1 text-sm font-bold uppercase tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h2>;
+        if (depth === 1) return <h1 key={key} className="mb-2 text-center font-heading text-3xl font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h1>;
+        return <h2 key={key} className="mb-2 mt-6 font-heading text-sm font-bold uppercase tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h2>;
       }
       if (depth === 1) return <h1 key={key} className="mb-4 font-heading text-3xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h1>;
       return <h2 key={key} className="mb-3 mt-7 font-heading text-xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h2>;
@@ -1600,8 +1604,14 @@ function buildDirectActionHostMessage(
 }
 
 function extractMissingResumeEssentials(result: unknown): MissingResumeEssentials | null {
-  if (!isRecord(result) || !isRecord(result.result) || result.result.status !== "missing_essentials") return null;
-  const missing = result.result.missing_essentials;
+  if (!isRecord(result) || !isRecord(result.result)) return null;
+  const actionResult = result.result;
+  const persistedContent = isRecord(actionResult.record) && isRecord(actionResult.record.content)
+    ? actionResult.record.content
+    : null;
+  const payload = persistedContent ?? actionResult;
+  if (payload.status !== "missing_essentials") return null;
+  const missing = payload.missing_essentials;
   if (!Array.isArray(missing) || !missing.every((item) => isRecord(item) && typeof item.label === "string")) return null;
   return { missing_essentials: missing as Array<{ label: string }> };
 }
