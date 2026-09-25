@@ -24,6 +24,27 @@ describe("OpenAICompatibleGatewayAdapter.normalizeMessageRequest", () => {
     }
   });
 
+  it("accepts retry metadata used to replay a failed turn", () => {
+    const result = adapter.normalizeMessageRequest(
+      {
+        content: "Retry this turn",
+        metadata: {
+          retry_of_message_id: "message-1",
+          retry_reason: "provider_error",
+        },
+      },
+      undefined
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.request.metadata).toEqual({
+        retry_of_message_id: "message-1",
+        retry_reason: "provider_error",
+      });
+    }
+  });
+
   it("accepts exact app-chat metadata for native app workspaces", () => {
     const appChat = {
       metadata_version: 1,

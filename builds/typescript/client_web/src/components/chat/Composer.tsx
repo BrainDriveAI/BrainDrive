@@ -73,6 +73,7 @@ export default function Composer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const wasStreamingRef = useRef(isStreaming);
+  const sendLockRef = useRef(false);
   const message = draftState.message;
   const trimmedMessage = message.trim();
   const hasContent = trimmedMessage.length > 0;
@@ -152,13 +153,16 @@ export default function Composer({
 
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
+      sendLockRef.current = false;
       textareaRef.current?.focus({ preventScroll: true });
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
   function handleSend() {
-    if (!hasContent) return;
+    if (!hasContent || sendLockRef.current) return;
+
+    sendLockRef.current = true;
 
     onSend?.(trimmedMessage);
     setDraftState({ key: normalizedDraftKey, message: "" });
@@ -231,13 +235,14 @@ export default function Composer({
               onPointerDown={handleActionPointerDown}
               onClick={handleSend}
               className={[
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-amber text-white transition-all duration-200",
+                "flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-bd-amber px-3 text-sm font-medium text-white transition-all duration-200",
                 !hasContent
                   ? "cursor-not-allowed opacity-50"
                   : "hover:bg-bd-amber-hover"
               ].join(" ")}
             >
               <ArrowUp size={18} strokeWidth={1.5} />
+              <span>Send</span>
             </button>
           )}
         </div>

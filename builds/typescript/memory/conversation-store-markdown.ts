@@ -135,6 +135,46 @@ export class MarkdownConversationStore implements ConversationRepository {
     };
   }
 
+  deleteConversation(conversationId: string): boolean {
+    const filePath = this.conversationPath(conversationId);
+    if (!existsSync(filePath)) return false;
+    const index = this.readIndexWithFallback();
+    this.writeIndex({
+      conversations: index.conversations.filter((conversation) => conversation.id !== conversationId),
+    });
+    renameSync(filePath, `${filePath}.deleted-${Date.now()}`);
+    return true;
+  }
+
+  removeAssistantMessagesAfterUser(conversationId: string, userMessageId: string): boolean {
+    const filePath = this.conversationPath(conversationId);
+    if (!existsSync(filePath)) return false;
+
+    const raw = readFileSync(filePath, "utf8");
+    const parsed = parseConversationDocument(raw);
+    const userIndex = parsed.messages.findIndex((message) => message.id === userMessageId && message.role === "user");
+    if (userIndex < 0) return false;
+
+    const messages = parsed.messages.filter((message, index) =>
+      !(index > userIndex && message.role === "assistant")
+    );
+    if (messages.length === parsed.messages.length) return false;
+
+    const updatedRecord: ConversationRecord = {
+      id: parsed.frontmatter.id,
+      title: parsed.frontmatter.title,
+      created_at: parsed.frontmatter.created_at,
+      updated_at: new Date().toISOString(),
+      message_count: messages.length,
+    };
+    writeFileAtomic(filePath, renderConversationDocument({
+      frontmatter: toFrontmatter(updatedRecord, parsed.frontmatter.active_skill_ids),
+      messages,
+    }));
+    this.upsertIndexRecord(updatedRecord);
+    return true;
+  }
+
   getConversationSkills(conversationId: string): string[] | null {
     const filePath = this.conversationPath(conversationId);
     if (!existsSync(filePath)) {

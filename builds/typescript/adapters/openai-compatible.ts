@@ -357,11 +357,13 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
     let usage: TokenUsage | undefined;
     let cost: CostMetadata | undefined;
     let providerModel: string | undefined;
+    let receivedDone = false;
     const rawStreamChunks: string[] = [];
     const toolCallBuilders = new Map<number, { id: string; name: string; args: string }>();
 
     for await (const data of parseProviderSSE(response)) {
       if (data === "[DONE]") {
+        receivedDone = true;
         break;
       }
 
@@ -440,6 +442,10 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
           toolCallBuilders.set(index, current);
         }
       }
+    }
+
+    if (!receivedDone) {
+      finishReason = "incomplete";
     }
 
     yield {

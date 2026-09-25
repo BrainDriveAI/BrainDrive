@@ -12,6 +12,8 @@ export interface ConversationRepository {
   appendMessage(conversationId: string, message: ConversationMessage): void;
   listConversations(limit?: number, offset?: number): ConversationListResult;
   getConversation(conversationId: string): ConversationDetail | null;
+  deleteConversation(conversationId: string): boolean;
+  removeAssistantMessagesAfterUser(conversationId: string, userMessageId: string): boolean;
   getConversationSkills(conversationId: string): string[] | null;
   setConversationSkills(conversationId: string, skillIds: string[]): boolean;
 }

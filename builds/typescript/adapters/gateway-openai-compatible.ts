@@ -27,6 +27,8 @@ const messageRequestSchema = z.object({
     .object({
       client: z.string().min(1).optional(),
       project: z.string().min(1).optional(),
+      retry_of_message_id: z.string().min(1).max(256).optional(),
+      retry_reason: z.string().min(1).max(128).optional(),
       app_chat: appChatMetadataSchema.optional(),
     })
     .strict()

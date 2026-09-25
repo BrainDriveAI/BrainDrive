@@ -147,6 +147,36 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     });
   });
 
+  it("marks a stream that closes before done as incomplete", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      ))
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+    const chunks = [];
+    for await (const chunk of adapter.completeStream!(request, tools)) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: "text-delta", delta: "Partial" },
+      expect.objectContaining({ type: "final", response: expect.objectContaining({ finishReason: "incomplete" }) }),
+    ]);
+  });
+
   it("passes the chat abort signal to streaming provider fetch", async () => {
     const controller = new AbortController();
     let observedSignal: AbortSignal | null = null;

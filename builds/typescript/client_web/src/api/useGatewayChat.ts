@@ -77,6 +77,13 @@ type UseGatewayChatOptions = {
 type AppendOptions = {
   metadata?: Record<string, unknown>;
   echoUserMessage?: boolean;
+  retryOfMessageId?: string;
+  recoveryRetry?: boolean;
+};
+
+type RecoveryQueueEntry = {
+  content: string;
+  messageId: string;
 };
 
 export function useGatewayChat(options: UseGatewayChatOptions = {}): {
@@ -129,6 +136,8 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
   const streamEventHandlerRef = useRef(options.onStreamEvent);
+  const recoveryQueueRef = useRef<RecoveryQueueEntry[]>([]);
+  const recoveryTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     projectIdRef.current = externalProjectId;
@@ -231,12 +240,34 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     if (
       externalConversationId !== null &&
       !isLoading &&
+      !error &&
       messages.length === 0 &&
       externalMessages.length > 0
     ) {
       setMessages(externalMessages);
     }
-  }, [externalConversationId, externalMessages, isLoading, messages.length]);
+  }, [error, externalConversationId, externalMessages, isLoading, messages.length]);
+
+  useEffect(() => {
+    if (
+      externalConversationId === null ||
+      isLoading ||
+      error ||
+      externalMessages.length === 0 ||
+      externalMessages.length < messages.length
+    ) {
+      return;
+    }
+
+    const matchesPersistedHistory = messages.every((message, index) => {
+      const persisted = externalMessages[index];
+      return persisted?.role === message.role && persisted.content === message.content;
+    });
+
+    if (externalMessages.length > messages.length || !matchesPersistedHistory) {
+      setMessages(externalMessages);
+    }
+  }, [error, externalConversationId, externalMessages, isLoading, messages]);
 
   function nextMessageId(): string {
     messageCounterRef.current += 1;
@@ -284,6 +315,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     conversationIdRef.current = null;
     messageCounterRef.current = 0;
     activityCounterRef.current = 0;
+    recoveryQueueRef.current = [];
+    if (recoveryTimerRef.current !== null) {
+      window.clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
+    }
   }
 
   async function resolveApproval(requestId: string, decision: ApprovalDecision): Promise<void> {
@@ -368,6 +404,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       content: trimmed
     };
     const assistantMessageId = nextMessageId();
+    const retryOfMessageId = options?.retryOfMessageId ?? (typeof options?.metadata?.retry_of_message_id === "string" ? options.metadata.retry_of_message_id : null);
 
     setError(null);
     setErrorCode(null);
@@ -376,6 +413,14 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     if (echoUserMessage) {
       setMessages((current) => [...current, userMessage]);
     }
+    if (retryOfMessageId) {
+      setMessages((current) => current.filter((message) => message.status !== "incomplete"));
+    }
+
+    const requestMetadata = {
+      ...options?.metadata,
+      ...(retryOfMessageId ? { retry_of_message_id: retryOfMessageId } : {}),
+    };
 
     // Track this as a background stream so state updates route correctly
     backgroundStreams.set(activeCacheKey, { requestToken });
@@ -448,11 +493,13 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
       const pendingToolCalls = new Map<string, string>();
       let shouldSeparateNextAssistantDelta = false;
+      let receivedAssistantText = false;
+      let receivedDone = false;
 
       try {
         for await (const event of sendMessage(conversationIdRef.current, trimmed, {
           signal: controller.signal,
-          metadata: options?.metadata,
+          metadata: Object.keys(requestMetadata).length > 0 ? requestMetadata : undefined,
           onContextWarning: (warning) => {
             if (isActive()) {
               setContextWindowWarning(warning);
@@ -487,6 +534,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           switch (event.type) {
             case "text-delta":
               {
+                receivedAssistantText = true;
                 const separateAssistantDelta = shouldSeparateNextAssistantDelta;
                 shouldSeparateNextAssistantDelta = false;
               if (isActive()) {
@@ -515,6 +563,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               }
               break;
             case "done":
+              receivedDone = true;
+              if (retryOfMessageId) {
+                recoveryQueueRef.current = recoveryQueueRef.current.filter((entry) => entry.messageId !== retryOfMessageId);
+                scheduleRecovery();
+              }
               if (isActive()) {
                 setToolStatus(null);
                 setError(null);
@@ -532,6 +585,18 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               backgroundStreams.delete(activeCacheKey);
               return;
             case "error":
+              if (receivedAssistantText) {
+                markAssistantIncomplete(assistantMessageId);
+              }
+              if (!receivedAssistantText && isProviderRecoveryError(event.message, event.code)) {
+                const recoveryMessageId = retryOfMessageId ?? userMessage.id;
+                markMessageWaiting(recoveryMessageId, recoveryMessageId);
+                recoveryQueueRef.current = [
+                  ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
+                  { content: trimmed, messageId: recoveryMessageId },
+                ];
+                scheduleRecovery();
+              }
               if (isActive()) {
                 setToolStatus(null);
                 setError(new Error(event.message));
@@ -617,6 +682,23 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               break;
           }
         }
+
+        // A provider can close an SSE response after emitting text without
+        // sending the terminal done event. Treat that as an incomplete reply
+        // so the owner can see the reason and retry the same turn.
+        if (receivedAssistantText && !receivedDone) {
+          markAssistantIncomplete(assistantMessageId);
+          if (isActive()) {
+            setError(new Error("The model connection was interrupted before the response finished."));
+            setErrorCode("stream_incomplete");
+          } else {
+            updateBackground(() => ({
+              isLoading: false,
+              error: new Error("The model connection was interrupted before the response finished."),
+              errorCode: "stream_incomplete",
+            }));
+          }
+        }
       } catch (caughtError) {
         if (isAbortError(caughtError)) {
           return;
@@ -636,6 +718,18 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
         setError(toError(caughtError));
         setErrorCode(null);
+        if (receivedAssistantText) {
+          markAssistantIncomplete(assistantMessageId);
+        }
+        if (!receivedAssistantText && isProviderRecoveryError(toError(caughtError).message, null)) {
+          const recoveryMessageId = retryOfMessageId ?? userMessage.id;
+          markMessageWaiting(recoveryMessageId, recoveryMessageId);
+          recoveryQueueRef.current = [
+            ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
+            { content: trimmed, messageId: recoveryMessageId },
+          ];
+          scheduleRecovery();
+        }
       } finally {
         backgroundStreams.delete(activeCacheKey);
         if (isActive() && requestToken === requestTokenRef.current) {
@@ -647,6 +741,45 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         }
       }
     })();
+  }
+
+  function markMessageWaiting(messageId: string, _logicalMessageId: string) {
+    const update = (current: Message[]) => current.map((message) => message.id === messageId ? { ...message, status: "waiting_for_model" as const } : message);
+    if (cacheKeyRef.current === cacheKey) {
+      setMessages(update);
+    } else {
+      updateBackgroundMessages(update);
+    }
+  }
+
+  function markAssistantIncomplete(messageId: string) {
+    const update = (current: Message[]) => current.map((message) =>
+      message.id === messageId ? { ...message, status: "incomplete" as const } : message
+    );
+    if (cacheKeyRef.current === cacheKey) {
+      setMessages(update);
+    } else {
+      updateBackgroundMessages(update);
+    }
+  }
+
+  function updateBackgroundMessages(updater: (messages: Message[]) => Message[]) {
+    const background = backgroundStates.get(cacheKeyRef.current);
+    if (background) background.messages = updater(background.messages);
+  }
+
+  function scheduleRecovery() {
+    if (recoveryTimerRef.current !== null || recoveryQueueRef.current.length === 0) return;
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null;
+      const pending = recoveryQueueRef.current[0];
+      if (!pending) return;
+      append(pending.content, {
+        echoUserMessage: false,
+        retryOfMessageId: pending.messageId,
+        recoveryRetry: true,
+      });
+    }, 1_500);
   }
 
   return {
@@ -664,6 +797,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     stop,
     startNewConversation
   };
+}
+
+function isProviderRecoveryError(message: string, code: string | null | undefined): boolean {
+  const normalized = message.toLowerCase();
+  return code === "provider_error" || normalized.includes("provider") || normalized.includes("model") || normalized.includes("could not be reached") || normalized.includes("timed out") || normalized.includes("connection");
 }
 
 function appendAssistantDelta(

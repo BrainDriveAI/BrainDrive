@@ -228,6 +228,28 @@ describe("useGatewayChat", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("marks text as incomplete when the stream closes without done", async () => {
+    sendMessageMock.mockImplementation(() =>
+      (async function* incompleteStream() {
+        yield { type: "text-delta", delta: "Partial reply" } as ChatEvent;
+      })()
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Finish this");
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.errorCode).toBe("stream_incomplete");
+    expect(result.current.messages).toEqual([
+      { id: "message-1", role: "user", content: "Finish this" },
+      { id: "message-2", role: "assistant", content: "Partial reply", status: "incomplete" },
+    ]);
+  });
+
   it("surfaces gateway error events", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([
@@ -252,8 +274,28 @@ describe("useGatewayChat", () => {
     expect(result.current.error?.message).toBe("Provider unavailable");
     expect(result.current.errorCode).toBe("provider_error");
     expect(result.current.messages).toEqual([
-      { id: "message-1", role: "user", content: "Hello" }
+      { id: "message-1", role: "user", content: "Hello", status: "waiting_for_model" }
     ]);
+  });
+
+  it("automatically retries a provider error without duplicating the owner turn", async () => {
+    let attempts = 0;
+    sendMessageMock.mockImplementation(() => {
+      attempts += 1;
+      return streamEvents(attempts === 1
+        ? [{ type: "error", code: "provider_error", message: "Provider unavailable" }]
+        : [{ type: "text-delta", delta: "Recovered" }, { type: "done", finish_reason: "stop", conversation_id: "conv-1" }]);
+    });
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Retry me");
+    });
+
+    await waitFor(() => expect(attempts).toBe(2), { timeout: 4_000 });
+    await waitFor(() => expect(result.current.messages.some((message) => message.role === "assistant" && message.content === "Recovered")).toBe(true), { timeout: 4_000 });
+    expect(result.current.messages.filter((message) => message.role === "user")).toHaveLength(1);
   });
 
   it("stores context overflow error code for overflow-specific UI actions", async () => {

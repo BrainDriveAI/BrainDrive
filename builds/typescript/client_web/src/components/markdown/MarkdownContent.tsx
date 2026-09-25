@@ -17,10 +17,11 @@ function CopyButton({ code }: { code: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-bd-bg-secondary/80 text-bd-text-muted transition-colors hover:bg-bd-bg-tertiary hover:text-bd-text-primary"
+      className="absolute right-2 top-2 flex h-7 items-center justify-center gap-1 rounded-md bg-bd-bg-secondary/80 px-2 text-xs text-bd-text-muted transition-colors hover:bg-bd-bg-tertiary hover:text-bd-text-primary"
       aria-label="Copy code"
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
+      <span>Copy</span>
     </button>
   );
 }

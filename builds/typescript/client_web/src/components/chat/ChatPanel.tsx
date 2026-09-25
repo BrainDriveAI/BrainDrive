@@ -31,6 +31,8 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
   app_action_career_fact_confirm: "Saving your career profile...",
 };
 
+const STALL_NOTICE_AFTER_MS = 30_000;
+
 function formatToolStatus(toolName: string): string {
   if (toolName.startsWith("Approval")) {
     return toolName;
@@ -104,6 +106,7 @@ export default function ChatPanel({
   const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
+  const [operationAgeMs, setOperationAgeMs] = useState(0);
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
@@ -171,6 +174,40 @@ export default function ChatPanel({
     };
   }, [activeConversationId]);
 
+  // Conversation state can be changed by another owner view. Refresh the
+  // persisted transcript while this view is idle so an already-open view
+  // receives committed turns without requiring a reload.
+  useEffect(() => {
+    if (!activeConversationId) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = () => {
+      if (cancelled || isLoading) {
+        return;
+      }
+
+      void getConversation(activeConversationId)
+        .then((conversation) => {
+          if (!cancelled) {
+            setHistoryMessages(mapConversationMessages(conversation));
+          }
+        })
+        .catch(() => {
+          // The initial load owns connection-error presentation. A transient
+          // background refresh failure should not hide the current transcript.
+        });
+    };
+
+    refresh();
+    const timer = window.setInterval(refresh, 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeConversationId, isLoading]);
+
   useEffect(() => {
     if (error) {
       setConnectionStatus("disconnected");
@@ -182,6 +219,18 @@ export default function ChatPanel({
   useEffect(() => {
     setDismissedError(null);
   }, [error, historyError]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setOperationAgeMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const update = () => setOperationAgeMs(Date.now() - startedAt);
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && conversationId) {
@@ -234,6 +283,14 @@ export default function ChatPanel({
     : visibleChatError;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
+  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.content.trim().length > 0) ?? null;
+  const incompleteMessageId = lastAssistantMessage?.status === "incomplete"
+    ? lastAssistantMessage.id
+    : visibleChatError && lastAssistantMessage
+      ? lastAssistantMessage.id
+      : null;
+  const isStalled = isLoading && operationAgeMs >= STALL_NOTICE_AFTER_MS;
+  const isSlow = isLoading && operationAgeMs >= 3_000;
 
   function resetErrorPresentation() {
     setHistoryError(null);
@@ -277,6 +334,11 @@ export default function ChatPanel({
     onStop: stop,
     draftKey: draftKey ? `${draftKey}:composer` : null,
   };
+
+  function renderIncompleteRetry() {
+    if (!lastUserMessage) return undefined;
+    return () => handleRetryCurrentTurn();
+  }
 
   const mobileComposer = typeof document === "undefined"
     ? null
@@ -325,7 +387,20 @@ export default function ChatPanel({
               messages={messages}
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
+              incompleteMessageId={incompleteMessageId}
+              onRetryIncomplete={renderIncompleteRetry()}
             >
+              {isSlow ? (
+                <div role="status" aria-live="polite" className="mx-auto w-full max-w-[780px] rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">
+                  <p>{isStalled ? "This response is taking longer than expected. You can cancel it or try again." : "BrainDrive is still working on this response."}</p>
+                  {isStalled ? (
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={stop} className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary">Cancel</button>
+                      {lastUserMessage ? <button type="button" onClick={handleRetryCurrentTurn} className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary">Try Again</button> : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {statusNotice ? (
                 <div
                   role={statusNotice.tone === "error" ? "alert" : "status"}
@@ -350,7 +425,7 @@ export default function ChatPanel({
                   </div>
                 </div>
               )}
-              {visibleChatError && (
+              {visibleChatError && !incompleteMessageId && (
                 <ErrorMessage
                   message={visibleRecoveryMessage ?? visibleChatError}
                   onOpenSettings={isProviderError ? onOpenSettings : undefined}

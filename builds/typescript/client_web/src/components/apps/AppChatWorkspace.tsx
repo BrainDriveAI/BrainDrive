@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Pencil, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { getSession } from "@/api/auth-adapter";
+import { deleteConversation, listConversations } from "@/api/gateway-adapter";
 import {
   appendConversationHostMessage,
   closeAppSession,
@@ -220,6 +221,7 @@ export default function AppChatWorkspace({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [queuedChatMessage, setQueuedChatMessage] = useState<{ id: string; content: string } | null>(null);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ tone: "info" | "success" | "error"; message: string } | null>(null);
   const activeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const navButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -287,7 +289,28 @@ export default function AppChatWorkspace({
   }, [closeSessionById, launch.session.session_id]);
 
   useEffect(() => {
-    setActiveConversationId(readStoredAppChatConversationId(conversationStorageKey));
+    let cancelled = false;
+    const storedConversationId = readStoredAppChatConversationId(conversationStorageKey);
+    if (storedConversationId) {
+      setActiveConversationId(storedConversationId);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void listConversations()
+      .then((conversations) => {
+        if (cancelled || conversations.length === 0) return;
+        const latestConversationId = conversations[0]?.id;
+        if (!latestConversationId) return;
+        setActiveConversationId(latestConversationId);
+        writeStoredAppChatConversationId(conversationStorageKey, latestConversationId);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
   }, [conversationStorageKey]);
 
   useEffect(() => {
@@ -475,6 +498,23 @@ export default function AppChatWorkspace({
     setIsMobileNavOpen(false);
   }
 
+  async function handleDeleteConversation() {
+    const conversationId = activeConversationIdRef.current;
+    if (!conversationId || isDeletingConversation) return;
+    if (typeof window !== "undefined" && !window.confirm("Delete this conversation?")) return;
+    setIsDeletingConversation(true);
+    try {
+      await deleteConversation(conversationId);
+      activeConversationIdRef.current = null;
+      setActiveConversationId(null);
+      window.localStorage.removeItem(conversationStorageKey);
+      window.sessionStorage.removeItem(conversationStorageKey);
+      setActiveItemKey(defaultItemKey(launch, items));
+    } finally {
+      setIsDeletingConversation(false);
+    }
+  }
+
   function moveNavigationFocus(event: KeyboardEvent<HTMLButtonElement>, currentKey: string) {
     const visibleItems = advancedOpen ? items : items.filter((item) => item.kind !== "resource" && item.document.default_visibility !== "advanced");
     const keys = visibleItems.map(itemKey);
@@ -517,6 +557,10 @@ export default function AppChatWorkspace({
           headingRef={activeHeadingRef}
           onRecoverSession={recoverSession}
           onBackToChat={() => setActiveItemKey(itemKey(items.find((candidate) => candidate.kind === "document" && candidate.document.role === "conversation") ?? items[0] ?? { key: "document:conversation", kind: "document", document: FALLBACK_CONVERSATION }))}
+          onOpenWorkspaceItem={(documentId) => {
+            const target = items.find((candidate) => candidate.kind === "document" && candidate.document.document_id === documentId);
+            if (target) setActiveItemKey(itemKey(target));
+          }}
           onQueueChatPrompt={queueWorkspaceChatPrompt}
           onClearExportNotice={() => setExportNotice(null)}
           onDirectActionResult={handlePreparedAppChatExport}
@@ -554,6 +598,9 @@ export default function AppChatWorkspace({
           onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
           onMoveFocus={moveNavigationFocus}
           onCloseWorkspace={closeWorkspace}
+          activeConversationId={activeConversationId}
+          isDeletingConversation={isDeletingConversation}
+          onDeleteConversation={() => void handleDeleteConversation()}
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           tier={tier}
@@ -578,6 +625,9 @@ export default function AppChatWorkspace({
           onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
           onMoveFocus={moveNavigationFocus}
           onCloseWorkspace={closeWorkspace}
+          activeConversationId={activeConversationId}
+          isDeletingConversation={isDeletingConversation}
+          onDeleteConversation={() => void handleDeleteConversation()}
           onCloseNavigation={() => setIsMobileNavOpen(false)}
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
@@ -629,6 +679,9 @@ function WorkspaceNavigation({
   onToggleAdvanced,
   onMoveFocus,
   onCloseWorkspace,
+  activeConversationId,
+  isDeletingConversation,
+  onDeleteConversation,
   onCloseNavigation,
   onOpenSettings,
   onLogout,
@@ -645,6 +698,9 @@ function WorkspaceNavigation({
   onToggleAdvanced: () => void;
   onMoveFocus: (event: KeyboardEvent<HTMLButtonElement>, currentKey: string) => void;
   onCloseWorkspace: () => void;
+  activeConversationId: string | null;
+  isDeletingConversation: boolean;
+  onDeleteConversation: () => void;
   onCloseNavigation?: () => void;
   onOpenSettings?: () => void;
   onLogout?: () => void;
@@ -686,6 +742,20 @@ function WorkspaceNavigation({
           onSelect={onSelect}
           onMoveFocus={onMoveFocus}
         />
+        {activeItemKey === "document:conversation" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDeleteConversation}
+            disabled={isDeletingConversation || !activeConversationId}
+            aria-label="Delete conversation"
+            className="mt-1 w-full justify-start gap-2 px-3 text-bd-danger hover:bg-bd-danger-bg"
+          >
+            {isDeletingConversation ? <LoaderCircle size={15} className="animate-spin" /> : <X size={15} />}
+            Delete conversation
+          </Button>
+        ) : null}
         {advancedItems.length > 0 ? (
           <div className="pt-4">
             <button
@@ -869,6 +939,7 @@ function WorkspaceDetail({
   headingRef,
   onRecoverSession,
   onBackToChat,
+  onOpenWorkspaceItem,
   onQueueChatPrompt,
   onClearExportNotice,
   onDirectActionResult,
@@ -884,6 +955,7 @@ function WorkspaceDetail({
   headingRef: MutableRefObject<HTMLHeadingElement | null>;
   onRecoverSession: () => Promise<string | null>;
   onBackToChat: () => void;
+  onOpenWorkspaceItem: (documentId: string) => void;
   onQueueChatPrompt: (prompt: string) => void;
   onClearExportNotice: () => void;
   onDirectActionResult: (result: unknown) => Promise<AppChatExportHandlingResult>;
@@ -1153,6 +1225,7 @@ function WorkspaceDetail({
       : "No saved content yet";
   const presentationTitle = presentation?.title ?? title;
   const presentationSubtitle = presentation?.subtitle ?? (isDocumentChrome ? description : `${appName} / ${workspaceTitle}`);
+  const readOnlyExplanation = !editable ? presentation?.read_only_explanation ?? null : null;
 
   return (
     <section
@@ -1212,6 +1285,23 @@ function WorkspaceDetail({
             ) : null}
           </div>
         </div>
+
+        {readOnlyExplanation ? (
+          <aside className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary" aria-label="Read-only explanation">
+            <p>{readOnlyExplanation.text}</p>
+            {readOnlyExplanation.source_document_id && readOnlyExplanation.source_action_label ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                onClick={() => onOpenWorkspaceItem(readOnlyExplanation.source_document_id!)}
+              >
+                {readOnlyExplanation.source_action_label}
+              </Button>
+            ) : null}
+          </aside>
+        ) : null}
 
         {!isDocumentChrome && !packageResource ? (
           <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">

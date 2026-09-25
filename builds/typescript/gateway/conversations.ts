@@ -8,7 +8,26 @@ type StoredToolCall = {
 };
 
 export class GatewayConversationService {
+  private readonly turnTails = new Map<string, Promise<void>>();
+
   constructor(private readonly store: ConversationRepository) {}
+
+  async acquireTurn(conversationId: string): Promise<() => void> {
+    const previous = this.turnTails.get(conversationId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.turnTails.set(conversationId, current);
+    await previous;
+
+    return () => {
+      release();
+      if (this.turnTails.get(conversationId) === current) {
+        this.turnTails.delete(conversationId);
+      }
+    };
+  }
 
   hasConversation(conversationId: string): boolean {
     return this.store.getConversation(conversationId) !== null;
@@ -114,9 +133,17 @@ export class GatewayConversationService {
     });
   }
 
-  buildConversationMessages(conversationId: string, systemPrompt: string): GatewayMessage[] {
+  buildConversationMessages(
+    conversationId: string,
+    systemPrompt: string,
+    throughMessageId?: string,
+  ): GatewayMessage[] {
     const detail = this.store.getConversation(conversationId);
-    const messages = detail?.messages ?? [];
+    const storedMessages = detail?.messages ?? [];
+    const throughIndex = throughMessageId
+      ? storedMessages.findIndex((message) => message.id === throughMessageId)
+      : -1;
+    const messages = throughIndex >= 0 ? storedMessages.slice(0, throughIndex + 1) : storedMessages;
     const replayMessages: GatewayMessage[] = [];
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -185,6 +212,21 @@ export class GatewayConversationService {
 
   detail(conversationId: string): ConversationDetail | null {
     return this.store.getConversation(conversationId);
+  }
+
+  delete(conversationId: string): boolean {
+    const deleted = this.store.deleteConversation(conversationId);
+    if (deleted) {
+      auditLog("memory.delete", {
+        action: "conversation.delete",
+        conversation_id: conversationId,
+      });
+    }
+    return deleted;
+  }
+
+  removeAssistantMessagesAfterUser(conversationId: string, userMessageId: string): boolean {
+    return this.store.removeAssistantMessagesAfterUser(conversationId, userMessageId);
   }
 
   getConversationSkills(conversationId: string): string[] | null {

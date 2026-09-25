@@ -796,6 +796,11 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
               { type: "back_to_chat", label: "Back to chat" },
               { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "direct_action", action_input: { format: "pdf", destination_intent: "new_download" } },
             ],
+            read_only_explanation: {
+              text: "This formatted Resume is generated from your Resume Profile. To make changes, edit your Profile.",
+              source_document_id: "resume.profile",
+              source_action_label: "Edit Profile",
+            },
           },
         },
         {

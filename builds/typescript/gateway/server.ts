@@ -926,7 +926,29 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       return;
     }
 
-    const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
+    const retryOfMessageId = body.metadata && typeof body.metadata.retry_of_message_id === "string"
+      ? body.metadata.retry_of_message_id
+      : null;
+    let conversationId: string;
+    let currentUserMessage: ConversationMessage;
+    const retryMessage = retryOfMessageId && requestedConversationId
+      ? (() => {
+          const detail = conversations.detail(requestedConversationId);
+          return detail?.messages.find((message) => message.id === retryOfMessageId && message.role === "user")
+            ?? [...(detail?.messages ?? [])].reverse().find((message) => message.role === "user" && message.content === body.content);
+        })()
+      : undefined;
+    if (retryMessage && requestedConversationId) {
+      conversationId = requestedConversationId;
+      currentUserMessage = retryMessage;
+      conversations.removeAssistantMessagesAfterUser(conversationId, currentUserMessage.id);
+    } else {
+      const persisted = conversations.persistUserMessage(requestedConversationId, body);
+      conversationId = persisted.conversationId;
+      currentUserMessage = persisted.message;
+    }
+    const releaseTurn = await conversations.acquireTurn(conversationId);
+    try {
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
@@ -975,7 +997,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
       correlationId,
-      messages: conversations.buildConversationMessages(conversationId, finalPrompt),
+      messages: conversations.buildConversationMessages(conversationId, finalPrompt, currentUserMessage.id),
       tools: requestToolExecutor.listTools(request.authContext),
     });
 
@@ -1183,6 +1205,9 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     }
 
     return reply;
+    } finally {
+      releaseTurn();
+    }
   });
 
   app.post("/approvals/:requestId", async (request, reply) => {
@@ -1241,6 +1266,15 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     }
 
     return detail;
+  });
+
+  app.delete("/conversations/:id", async (request, reply) => {
+    const params = request.params as { id: string };
+    if (!conversations.delete(params.id)) {
+      reply.code(404).send({ error: "Conversation not found" });
+      return;
+    }
+    reply.code(204).send();
   });
 
   app.post("/conversations/host-messages", async (request, reply) => {

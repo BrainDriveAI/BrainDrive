@@ -370,6 +370,11 @@ export const WorkspaceDocumentPresentationSchema = z
     title: safePresentationText(80).nullable(),
     subtitle: safePresentationText(160).nullable(),
     header_actions: z.array(WorkspaceDocumentHeaderActionSchema).max(6),
+    read_only_explanation: z.object({
+      text: safePresentationText(512),
+      source_document_id: DescriptorDocumentIdSchema.nullable().optional(),
+      source_action_label: safePresentationText(40).nullable().optional(),
+    }).strict().nullable().optional(),
   })
   .strict();
 

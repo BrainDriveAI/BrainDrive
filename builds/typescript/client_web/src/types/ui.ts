@@ -2,6 +2,7 @@ export type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  status?: "waiting_for_model" | "incomplete";
 };
 
 export interface Project {

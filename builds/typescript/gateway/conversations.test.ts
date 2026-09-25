@@ -92,4 +92,37 @@ describe("GatewayConversationService host messages", () => {
       { role: "assistant", content: "BrainDrive host update: Owner pressed Export PDF. Downloaded resume.pdf through the browser." },
     ]);
   });
+
+  it("can build a turn context without later waiting owner messages", () => {
+    const repository = new MemoryConversationRepository();
+    const conversations = new GatewayConversationService(repository);
+    const first = conversations.persistUserMessage(undefined, { content: "First queued turn" });
+    const second = conversations.persistUserMessage(first.conversationId, { content: "Second queued turn" });
+
+    expect(conversations.buildConversationMessages(first.conversationId, "system prompt", first.message.id)).toEqual([
+      { role: "system", content: "system prompt" },
+      { role: "user", content: "First queued turn" },
+    ]);
+    expect(conversations.buildConversationMessages(first.conversationId, "system prompt", second.message.id).at(-1)).toEqual({
+      role: "user",
+      content: "Second queued turn",
+    });
+  });
+
+  it("serializes model turns per conversation while allowing other conversations through", async () => {
+    const conversations = new GatewayConversationService(new MemoryConversationRepository());
+    const releaseFirst = await conversations.acquireTurn("conversation-1");
+    let secondAcquired = false;
+    const second = conversations.acquireTurn("conversation-1").then((release) => {
+      secondAcquired = true;
+      return release;
+    });
+
+    await Promise.resolve();
+    expect(secondAcquired).toBe(false);
+    releaseFirst();
+    const releaseSecond = await second;
+    expect(secondAcquired).toBe(true);
+    releaseSecond();
+  });
 });

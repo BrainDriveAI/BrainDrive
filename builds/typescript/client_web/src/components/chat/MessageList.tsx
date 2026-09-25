@@ -9,6 +9,8 @@ type MessageListProps = {
   messages: Message[];
   isTyping?: boolean;
   typingStatus?: string;
+  incompleteMessageId?: string | null;
+  onRetryIncomplete?: () => void;
   children?: ReactNode;
 };
 
@@ -16,6 +18,8 @@ export default function MessageList({
   messages,
   isTyping = false,
   typingStatus,
+  incompleteMessageId = null,
+  onRetryIncomplete,
   children
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,8 +87,24 @@ export default function MessageList({
           if (message.role === "assistant") {
             return (
               <article key={message.id} className="py-4">
-                <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
+                <div className="max-w-full">
+                  <div className="prose-bd text-[15px] leading-7 text-bd-text-primary">
                   <MarkdownContent content={message.content} />
+                  </div>
+                  {message.id === incompleteMessageId ? (
+                    <div className="mt-3 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
+                      <p role="status" aria-live="polite">This response is incomplete because the model connection was interrupted.</p>
+                      {onRetryIncomplete ? (
+                        <button
+                          type="button"
+                          onClick={onRetryIncomplete}
+                          className="mt-2 flex items-center gap-1.5 rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+                        >
+                          Try Again
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </article>
             );
@@ -97,6 +117,9 @@ export default function MessageList({
                   <div className="whitespace-pre-wrap text-[15px] leading-7 text-bd-text-primary">
                     {message.content}
                   </div>
+                  {message.status === "waiting_for_model" ? (
+                    <div role="status" aria-live="polite" className="mt-2 text-xs text-bd-text-secondary">Waiting for the model</div>
+                  ) : null}
                 </div>
               </div>
             </article>

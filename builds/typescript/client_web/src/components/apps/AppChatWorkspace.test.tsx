@@ -36,6 +36,7 @@ vi.mock("@/api/apps-adapter", async () => {
       content: "BrainDrive host update: Owner pressed Create resume. Your Resume created.",
       timestamp: "2026-08-26T12:00:00.000Z",
     })),
+    listConversations: vi.fn(async () => []),
     closeAppSession: vi.fn(async () => undefined),
     executeAppChatWorkspaceAction: vi.fn(),
     finalizeAppExport: vi.fn(async (appKey: string, input: { safe_destination_label: string; outcome: string }) => ({
@@ -243,6 +244,11 @@ function withDirectResumeActions(current: appsApi.AppChatWorkspaceLaunch): appsA
         { type: "back_to_chat", label: "Back to chat" },
         { type: "app_action", action_id: "resume.export.pdf.request", label: "Export PDF", delivery: "direct_action", action_input: { format: "pdf", destination_intent: "new_download" } },
       ],
+      read_only_explanation: {
+        text: "This formatted Resume is generated from your Resume Profile. To make changes, edit your Profile.",
+        source_document_id: "profile",
+        source_action_label: "Edit Profile",
+      },
     },
   };
   const documents = current.workspace.documents.some((document) => document.document_id === "resume")
@@ -675,6 +681,25 @@ describe("AppChatWorkspace", () => {
     }));
     expect(await screen.findByRole("status")).toHaveTextContent("Create resume completed.");
     expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please create"))).toBe(false);
+  });
+
+  it("renders descriptor-driven read-only provenance and opens its source document", async () => {
+    const current = withDirectResumeActions(launch());
+    console.log("RESUME_DESCRIPTOR_DEBUG", current.workspace.documents.find((document) => document.document_id === "resume")?.presentation);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    // Diagnostic assertion: the descriptor-driven resume surface must be active.
+    expect(await screen.findByRole("heading", { name: "Your Resume" })).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Read-only explanation" })).toHaveTextContent(
+      "This formatted Resume is generated from your Resume Profile. To make changes, edit your Profile.",
+    );
+    await user.click(screen.getByRole("button", { name: "Edit Profile" }));
+    expect(await screen.findByRole("heading", { name: "Your Resume Profile" })).toBeInTheDocument();
   });
 
   it("records a durable host message after direct Create resume completes", async () => {

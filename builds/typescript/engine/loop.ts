@@ -249,6 +249,15 @@ export async function* runAgentLoop(
       await appendModelResponseAudit(options, completion, modelCall);
     }
 
+    if (completion.finishReason === "incomplete") {
+      yield {
+        type: "error",
+        code: "provider_error",
+        message: "The model connection was interrupted before the response finished. Retry the request.",
+      };
+      return;
+    }
+
     if (completion.toolCalls.length === 0) {
       yield {
         type: "done",

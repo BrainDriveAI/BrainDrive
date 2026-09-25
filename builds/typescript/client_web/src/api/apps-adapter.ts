@@ -289,6 +289,11 @@ export type AppWorkspaceDocumentPresentation = {
   title: string | null;
   subtitle: string | null;
   header_actions: AppWorkspaceDocumentHeaderAction[];
+  read_only_explanation?: {
+    text: string;
+    source_document_id?: string | null;
+    source_action_label?: string | null;
+  } | null;
 };
 
 export type AppResourceDescriptor = {
