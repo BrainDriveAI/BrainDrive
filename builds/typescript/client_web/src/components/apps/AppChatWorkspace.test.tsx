@@ -1348,7 +1348,7 @@ describe("AppChatWorkspace", () => {
         state_version: 1,
         state: "unavailable",
         safe_message: "This workspace document binding is unavailable.",
-        retryable: false,
+        retryable: true,
         refresh_required: false,
         current_revision: null,
       },
@@ -1361,6 +1361,7 @@ describe("AppChatWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Profile" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This workspace document binding is unavailable.");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
   });
 

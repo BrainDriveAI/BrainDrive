@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -123,6 +123,27 @@ describe("SCAF-002 app-owned durable document storage", () => {
       idempotencyKey: "resume-profile-update-0001",
     }));
     expect(updated.record).toMatchObject({ revision: 2, prior_revision_id: created.record.revision_id, content: "# Updated profile" });
+  });
+
+  it("fails closed when stored document content no longer matches its digest", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-scaf-002-storage-integrity-"));
+    roots.push(root);
+    const store = new AppDocumentStorageService(path.join(root, "memory-root"));
+    await store.initialize();
+    await store.writeDocument(writeInput({ content: "# Profile" }));
+
+    const entries = await readdir(path.join(root, "memory-root"), { recursive: true });
+    const recordEntry = entries.find((entry) => entry.endsWith(".json") && entry.includes("documents"));
+    expect(recordEntry).toBeDefined();
+    const recordPath = path.join(root, "memory-root", recordEntry!);
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.content = "# Tampered profile";
+    await writeFile(recordPath, JSON.stringify(record));
+
+    await expect(store.readDocument(authority(), "resume.profile")).rejects.toMatchObject({
+      code: "store_corrupt",
+      details: { retryable: true },
+    });
   });
 
   it("lists only documents in the caller's owner, app, and installation namespace", async () => {

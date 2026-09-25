@@ -202,6 +202,11 @@ export class AppDocumentStorageService {
     try {
       const record = AppDocumentRecordSchema.parse(JSON.parse(await readFile(this.documentPath(parsedAuthority, documentId), "utf8")));
       assertRecordNamespace(record, parsedAuthority);
+      if (canonicalInputDigest(record.content) !== record.content_digest) {
+        throw new AppPlatformError("store_corrupt", "App document content failed its integrity check", 500, {
+          retryable: true,
+        });
+      }
       return record;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

@@ -980,6 +980,7 @@ function WorkspaceDetail({
   const [missingResumeEssentials, setMissingResumeEssentials] = useState<MissingResumeEssentials | null>(null);
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
+  const [documentRetryable, setDocumentRetryable] = useState(false);
   const boundDocument = item.kind === "document" && Boolean(item.document.data_binding_id) ? item.document : null;
   const packageResource = boundDocument ? null : resource;
   const canResetToPackageDefault = Boolean(boundDocument?.resource_id && editable);
@@ -1028,12 +1029,14 @@ function WorkspaceDetail({
       setDocumentError(null);
       setDocumentNotice(null);
       setCurrentRevisionHint(null);
+      setDocumentRetryable(false);
       return;
     }
     setDocumentStatus("loading");
     setDocumentError(null);
     setDocumentNotice(null);
     setCurrentRevisionHint(null);
+    setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, currentDocument.document_id));
       setDocumentResult(result);
@@ -1046,8 +1049,10 @@ function WorkspaceDetail({
       if (error instanceof AppDocumentError) {
         setDocumentError(error.safeMessage);
         setCurrentRevisionHint(error.currentRevision);
+        setDocumentRetryable(error.retryable);
       } else {
         setDocumentError("This workspace document binding is unavailable.");
+        setDocumentRetryable(false);
       }
     }
   }, [appKey, withSessionRecovery]);
@@ -1094,8 +1099,9 @@ function WorkspaceDetail({
     }
     setDocumentStatus("saving");
     setDocumentError(null);
-    setDocumentNotice(null);
-    setCurrentRevisionHint(null);
+      setDocumentNotice(null);
+      setCurrentRevisionHint(null);
+      setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery((activeSessionId) => writeAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id, {
         expectedRevision: documentRecord?.revision ?? null,
@@ -1115,8 +1121,10 @@ function WorkspaceDetail({
       if (error instanceof AppDocumentError) {
         setDocumentError(error.safeMessage);
         setCurrentRevisionHint(error.currentRevision);
+        setDocumentRetryable(error.retryable);
       } else {
         setDocumentError("The app document could not be saved safely.");
+        setDocumentRetryable(false);
       }
     }
   }
@@ -1125,8 +1133,9 @@ function WorkspaceDetail({
     if (!boundDocument?.resource_id || documentStatus === "saving") return;
     setDocumentStatus("saving");
     setDocumentError(null);
-    setDocumentNotice(null);
-    setCurrentRevisionHint(null);
+      setDocumentNotice(null);
+      setCurrentRevisionHint(null);
+      setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery(async (activeSessionId) => {
         const packageDefault = await readAppChatWorkspaceResource(appKey, activeSessionId, boundDocument.resource_id!);
@@ -1149,8 +1158,10 @@ function WorkspaceDetail({
       if (error instanceof AppDocumentError) {
         setDocumentError(error.safeMessage);
         setCurrentRevisionHint(error.currentRevision);
+        setDocumentRetryable(error.retryable);
       } else {
         setDocumentError(`${title} could not be reset to the package default.`);
+        setDocumentRetryable(false);
       }
     }
   }
@@ -1166,6 +1177,7 @@ function WorkspaceDetail({
     setDocumentNotice(`Running ${action.label}...`);
     onClearExportNotice();
     setCurrentRevisionHint(null);
+    setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery((activeSessionId) => executeAppChatWorkspaceAction(appKey, activeSessionId, action.action_id, {
         actionInput: actionInputOverride ?? action.action_input ?? {},
@@ -1194,8 +1206,10 @@ function WorkspaceDetail({
       if (error instanceof AppDocumentError) {
         setDocumentError(error.safeMessage);
         setCurrentRevisionHint(error.currentRevision);
+        setDocumentRetryable(error.retryable);
       } else {
         setDocumentError(`${action.label} could not complete safely.`);
+        setDocumentRetryable(false);
       }
     } finally {
       setRunningActionId(null);
@@ -1338,10 +1352,22 @@ function WorkspaceDetail({
             )}
 
             {documentError ? (
-              <div role="alert" className="mt-4 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
-                <p>{documentError}</p>
-                {currentRevisionHint !== null ? <p className="mt-1">The current revision is {currentRevisionHint}.</p> : null}
-              </div>
+            <div role="alert" className="mt-4 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
+              <p>{documentError}</p>
+              {currentRevisionHint !== null ? <p className="mt-1">The current revision is {currentRevisionHint}.</p> : null}
+              {documentRetryable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => void loadDocument()}
+                  disabled={documentStatus === "loading" || documentStatus === "saving"}
+                >
+                  Retry
+                </Button>
+              ) : null}
+            </div>
             ) : null}
 
             {documentNotice ? (
