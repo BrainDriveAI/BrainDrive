@@ -298,6 +298,34 @@ describe("useGatewayChat", () => {
     expect(result.current.messages.filter((message) => message.role === "user")).toHaveLength(1);
   });
 
+  it("cancels the queued automatic recovery when the owner retries manually", async () => {
+    let attempts = 0;
+    sendMessageMock.mockImplementation(() => {
+      attempts += 1;
+      return streamEvents(attempts === 1
+        ? [{ type: "error", code: "provider_error", message: "Provider unavailable" }]
+        : [{ type: "done", finish_reason: "stop", conversation_id: "conv-manual-retry" }]);
+    });
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Retry manually");
+    });
+
+    await waitFor(() => expect(result.current.errorCode).toBe("provider_error"));
+    act(() => {
+      result.current.append("Retry manually", {
+        metadata: { retry_of_message_id: "message-1", retry_reason: "provider_error" },
+        echoUserMessage: false,
+      });
+    });
+
+    await waitFor(() => expect(attempts).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 1_700));
+    expect(attempts).toBe(2);
+  });
+
   it("stores context overflow error code for overflow-specific UI actions", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([

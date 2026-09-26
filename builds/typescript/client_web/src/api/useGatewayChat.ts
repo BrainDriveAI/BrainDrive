@@ -406,6 +406,20 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     const assistantMessageId = nextMessageId();
     const retryOfMessageId = options?.retryOfMessageId ?? (typeof options?.metadata?.retry_of_message_id === "string" ? options.metadata.retry_of_message_id : null);
 
+    // A visible manual retry supersedes the queued automatic recovery for the
+    // same failed turn. Keep unrelated queued turns intact and reschedule the
+    // next one, so one recovery action cannot produce duplicate requests.
+    if (retryOfMessageId && !options?.recoveryRetry) {
+      recoveryQueueRef.current = recoveryQueueRef.current.filter(
+        (entry) => entry.messageId !== retryOfMessageId
+      );
+      if (recoveryTimerRef.current !== null) {
+        window.clearTimeout(recoveryTimerRef.current);
+        recoveryTimerRef.current = null;
+      }
+      scheduleRecovery();
+    }
+
     setError(null);
     setErrorCode(null);
     setIsLoading(true);
