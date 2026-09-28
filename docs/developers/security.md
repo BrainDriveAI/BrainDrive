@@ -7,6 +7,8 @@ Do not report a suspected vulnerability in a public issue. Follow the repository
 
 For repository secret scanning, synthetic test patterns, remediation expectations, and contributor checks, use [repository security guidance](../repository-security.md). Never paste a credential or raw scanner match into documentation, chat, an issue, a milestone record, or a pull request.
 
+When a historical scanner match is reviewed as a false positive, the repository security guidance records only its exact fingerprint, reviewer, rationale, and expiry. Treat that record as a bounded exception for the identified history, not as permission to add secrets or broaden scanner exclusions.
+
 ## Development boundaries
 
 - Treat provider credentials, vault/master-key material, auth tokens, backup repository tokens, owner memory, exports/migration archives, support bundles, audit/prompt traces, and private endpoints as sensitive.
