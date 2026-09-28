@@ -109,6 +109,7 @@ import { ApprovalStore } from "../engine/approval-store.js";
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
+import { SecretIntegrityError } from "../secrets/crypto.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
@@ -743,6 +744,11 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         return;
       }
 
+      if (error instanceof SecretIntegrityError) {
+        sendSecretStoreRepairRequired(reply, request);
+        return;
+      }
+
       throw error;
     }
   });
@@ -778,6 +784,11 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     } catch (error) {
       if (error instanceof InvalidCredentialsError) {
         reply.code(401).send({ error: "invalid_credentials" });
+        return;
+      }
+
+      if (error instanceof SecretIntegrityError) {
+        sendSecretStoreRepairRequired(reply, request);
         return;
       }
 
@@ -822,6 +833,11 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
 
       if (error instanceof InvalidRefreshTokenError) {
         reply.code(401).send({ error: "invalid_refresh_token" });
+        return;
+      }
+
+      if (error instanceof SecretIntegrityError) {
+        sendSecretStoreRepairRequired(reply, request);
         return;
       }
 
@@ -4351,6 +4367,21 @@ function resolveAdapterProfile(
     api_key_env: adapterConfig.api_key_env,
     provider_id: adapterConfig.provider_id,
   };
+}
+
+function sendSecretStoreRepairRequired(
+  reply: FastifyReply,
+  request: { method: string; url: string }
+): void {
+  auditLog("auth.secret_store_unavailable", {
+    method: request.method,
+    path: request.url,
+    reason: "integrity_check",
+  });
+  reply.code(503).send({
+    code: "secret_store_repair_required",
+    error: "Secret store requires repair",
+  });
 }
 
 function sanitizeCredentialResolutionError(error: unknown): string {

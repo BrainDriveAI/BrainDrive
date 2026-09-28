@@ -32,6 +32,13 @@ export const encryptedSecretEntrySchema = z
   })
   .strict();
 
+export class SecretIntegrityError extends Error {
+  constructor() {
+    super("Secret decryption failed: integrity check failed");
+    this.name = "SecretIntegrityError";
+  }
+}
+
 export type EncryptedSecretEntry = z.infer<typeof encryptedSecretEntrySchema>;
 
 export async function encryptSecretValue(input: {
@@ -93,7 +100,7 @@ export async function decryptSecretValue(
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     return plaintext.toString("utf8");
   } catch {
-    throw new Error("Secret decryption failed: integrity check failed");
+    throw new SecretIntegrityError();
   }
 }
 

@@ -538,6 +538,39 @@ describe.sequential("gateway auth route integration", () => {
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
+  it("returns a repair-required response when the secret vault cannot be decrypted", async () => {
+    context = await createTestServer({ allowFirstSignupAnyIp: true });
+    const previousMasterKey = process.env.PAA_SECRETS_MASTER_KEY_B64;
+    delete process.env.PAA_SECRETS_MASTER_KEY_B64;
+
+    try {
+      await writeVaultSecret("auth/jwt/signing_key", "synthetic-signing-key");
+      process.env.PAA_SECRETS_MASTER_KEY_B64 = Buffer.alloc(32, 0x5a).toString("base64");
+      await restartTestServer(context);
+
+      const response = await context.app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          identifier: "owner",
+          password: "password123",
+        },
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+        code: "secret_store_repair_required",
+        error: "Secret store requires repair",
+      });
+    } finally {
+      if (typeof previousMasterKey === "string") {
+        process.env.PAA_SECRETS_MASTER_KEY_B64 = previousMasterKey;
+      } else {
+        delete process.env.PAA_SECRETS_MASTER_KEY_B64;
+      }
+    }
+  });
+
   it("rejects retired project document uploads without memory writes", async () => {
     context = await createTestServer();
 
