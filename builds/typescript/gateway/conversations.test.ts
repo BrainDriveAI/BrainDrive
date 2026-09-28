@@ -49,6 +49,29 @@ class MemoryConversationRepository implements ConversationRepository {
     };
   }
 
+  deleteConversation(conversationId: string): boolean {
+    return this.records.delete(conversationId);
+  }
+
+  removeAssistantMessagesAfterUser(conversationId: string, userMessageId: string): boolean {
+    const current = this.records.get(conversationId);
+    if (!current) return false;
+
+    const userIndex = current.messages.findIndex(
+      (message) => message.id === userMessageId && message.role === "user",
+    );
+    if (userIndex < 0) return false;
+
+    const messages = current.messages.filter(
+      (message, index) => !(index > userIndex && message.role === "assistant"),
+    );
+    if (messages.length === current.messages.length) return false;
+
+    current.messages = messages;
+    current.updated_at = new Date().toISOString();
+    return true;
+  }
+
   getConversationSkills(conversationId: string): string[] | null {
     const current = this.records.get(conversationId);
     return current ? [...current.active_skill_ids] : null;
@@ -124,5 +147,43 @@ describe("GatewayConversationService host messages", () => {
     const releaseSecond = await second;
     expect(secondAcquired).toBe(true);
     releaseSecond();
+  });
+
+  it("deletes conversations through the repository contract", () => {
+    const repository = new MemoryConversationRepository();
+    const conversations = new GatewayConversationService(repository);
+    const { conversationId } = conversations.persistUserMessage(undefined, { content: "Delete this conversation" });
+
+    expect(repository.deleteConversation(conversationId)).toBe(true);
+    expect(repository.getConversation(conversationId)).toBeNull();
+    expect(repository.deleteConversation(conversationId)).toBe(false);
+  });
+
+  it("removes assistant messages after the selected user message", () => {
+    const repository = new MemoryConversationRepository();
+    const conversations = new GatewayConversationService(repository);
+    const first = conversations.persistUserMessage(undefined, { content: "First message" });
+    repository.appendMessage(first.conversationId, {
+      id: "assistant-1",
+      role: "assistant",
+      content: "First response",
+      timestamp: "2026-09-28T12:00:01.000Z",
+    });
+    const second = conversations.persistUserMessage(first.conversationId, { content: "Retry this message" });
+    repository.appendMessage(first.conversationId, {
+      id: "assistant-2",
+      role: "assistant",
+      content: "Retry response",
+      timestamp: "2026-09-28T12:00:03.000Z",
+    });
+
+    expect(repository.removeAssistantMessagesAfterUser(first.conversationId, second.message.id)).toBe(true);
+    expect(repository.getConversation(first.conversationId)?.messages.map((message) => message.id)).toEqual([
+      first.message.id,
+      "assistant-1",
+      second.message.id,
+    ]);
+    expect(repository.removeAssistantMessagesAfterUser(first.conversationId, second.message.id)).toBe(false);
+    expect(repository.removeAssistantMessagesAfterUser(first.conversationId, "missing-user")).toBe(false);
   });
 });
