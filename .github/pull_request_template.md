@@ -22,6 +22,8 @@
 |---|---|---|---|
 |  |  |  |  |
 
+<!-- Add one row per check. Use "Not run" with a reason when a check was not executed. -->
+
 ## Manual verification evidence
 
 <!-- Environment, steps, expected result, actual result, and sanitized evidence. State "None" with a reason when no manual check applies. -->
