@@ -49,7 +49,12 @@ The pull request declares either:
 - the exact canonical pages and catalog mappings updated; or
 - `No documentation impact` plus a substantive reason explaining why all relevant contracts remain unchanged.
 
-The pull request template also requires concrete automated verification evidence in a command table, including the command, working directory, result, and CI or local evidence. This keeps verification visible in every PR body instead of relying on status checks alone.
+The pull-request template also requires concrete automated verification evidence
+in a structured command table: the exact command, working directory, result,
+and public-safe CI or status evidence. Checks that were not run must include a
+reason. This keeps implementation, documentation, and verification claims
+reviewable from the pull request itself instead of relying on status checks
+alone.
 
 The Documentation job evaluates changed paths against source mappings on pull requests. On pushes and manual dispatch it evaluates repository structure without inventing a PR body. Repository files do not prove that GitHub makes this job required.
 

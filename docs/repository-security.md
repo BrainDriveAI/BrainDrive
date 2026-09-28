@@ -79,6 +79,18 @@ history is republished, the rule or scanner version changes, or new evidence
 questions the non-authorizing classification. The matched value is deliberately
 absent from this record.
 
+The exception identified publicly as `sha256:62921529f961e06d` is
+`reviewed-false-positive`: authorized BrainDriveAI security reviewer
+`@DJJones66` classified the historical `generic-api-key` match at
+`builds/typescript/client_web/src/components/chat/ChatPanel.test.tsx`, commit
+`73ba96e4e92fd73a93851d5f9a9429c738b8f765`, line 312, as a synthetic test
+identifier and not an authorizing credential, on 2026-09-28. Only that exact
+fingerprint is allowlisted; no path, rule, or test category is excluded.
+Review expires on 2027-09-28 and must run earlier if the affected history is
+republished, the rule or scanner version changes, or new evidence questions
+the non-authorizing classification. The matched value is deliberately absent
+from this record.
+
 History rewriting is not incident containment. Consider it only after any real
 credential is revoked, with explicit maintainer approval, scoped refs,
 recovery backups, force-push coordination, contributor repair instructions,
