@@ -1,0 +1,80 @@
+{
+  "evidence_version": 1,
+  "milestone": 8,
+  "candidate": {
+    "branch": "feature/resume-builder-app",
+    "base_revision": "067f9770468c158f4d2535b09eaf491b102a34c2",
+    "state": "post_freeze_evidence_bound_hold",
+    "immutable_source_revision": "38093eb00d394cf024e1e80f07cdad33ddfd4454",
+    "source_candidate_proof": "source-candidate sha256 15755ef8f5e47d9acf701a9e1575d49baf5e40b7175b7b0e8c9dc0764dd0b82a; entries 1106; revision 38093eb00d394cf024e1e80f07cdad33ddfd4454"
+  },
+  "decision_gates": {
+    "OQ-1": "owner-authorized Brief Builder planning default",
+    "OQ-5": "owner-authorized maximum two active apps; one CPU and 512 MiB per process; three restarts per installation; unchanged Windows group CPU ceiling"
+  },
+  "mapping_convention": {
+    "relative_path_base": "builds/typescript",
+    "repository_root_prefixes": ["builds/", "docs/", "installer/", "tools/"],
+    "named_evidence": ["static forbidden-surface audit"]
+  },
+  "evidence_classes": {
+    "automated": "same-candidate source checks passed: TypeScript 111 files/934 tests, web 26/245, Resume 5/39, Brief 2/5, MCP 2/6, browser mobile 12 passed/14 configured skipped and desktop 7 passed/6 configured skipped, live Docker start/health/HTTP/read-only mounts plus 4 files/23 in-container tests, native desktop 111 files/934 tests plus web 26/245 and Rust 55 passed/1 intentional ignore, documentation structure/projection, and current secret scan; the release-evidence documentation hold is recorded separately",
+    "native_windows": "satisfied: exact-candidate native Windows J-05 passed desktop preflight/test, dynamic health and denial checks, bounded visible signup, two visible first-party app launches with distinct loopback processes, one-app uninstall isolation, authenticated restart/resume, exact task cleanup, and owner-state preservation",
+    "brief_live_human": "blocked: no credentialed live controlled provider run or attributable named human usefulness review was available",
+    "resume_human": "blocked: automated accepted regression paths ran, but no refreshed same-candidate human outcome/trust review was available",
+    "immutable_candidate": "satisfied: this evidence-only matrix binds the clean source commit and canonical source candidate proof",
+    "release_evidence": "blocked: current AI scorecards, live-provider evaluation, and named-human release evidence do not bind the Spec 08 candidate"
+  },
+  "overall_disposition": "hold",
+  "hold_reasons": [
+    "brief_live_human",
+    "resume_human",
+    "release_evidence"
+  ],
+  "requirements": [
+    { "id": "APP8-REQ-001", "code": ["app-platform/contracts/app-registry.ts", "app-platform/registry.ts"], "tests": ["app-platform/registry.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-002", "code": ["app-platform/registry.ts", "app-platform/lifecycle/routes.ts", "app-platform/mcp-host/routes.ts"], "tests": ["app-platform/lifecycle/routes.integration.test.ts", "app-platform/mcp-host/routes.integration.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-003", "code": ["app-platform/registry.ts"], "tests": ["app-platform/registry.test.ts", "app-platform/contracts/contracts.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-004", "code": ["app-platform/contracts/app-registry.ts", "app-platform/registry.ts"], "tests": ["app-platform/registry.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-005", "code": ["app-platform/mcp-host/app-host.ts", "app-capabilities/dispatcher.ts", "app-inference/dispatcher.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "app-platform/mcp-host/routes.integration.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-006", "code": ["app-platform/lifecycle/platform.ts", "app-platform/lifecycle/routes.ts"], "tests": ["app-platform/lifecycle/routes.integration.test.ts", "app-platform/lifecycle/app-lifecycle.m2.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-007", "code": ["app-platform/mcp-host/routes.ts", "app-platform/mcp-host/app-host.ts"], "tests": ["app-platform/mcp-host/routes.integration.test.ts", "app-platform/mcp-host/app-host.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-008", "code": ["app-platform/lifecycle/routes.ts", "app-platform/mcp-host/routes.ts", "client_web/src/api/apps-adapter.ts"], "tests": ["app-platform/lifecycle/routes.integration.test.ts", "client_web/src/api/apps-adapter.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-009", "code": ["app-platform/lifecycle/platform.ts", "app-platform/mcp-host/app-view-registry.ts", "app-capabilities/operations.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "client_web/e2e/two-apps.spec.ts"], "evidence": ["automated", "native_windows"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-010", "code": ["app-platform/lifecycle/routes.ts"], "tests": ["app-platform/lifecycle/routes.integration.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-011", "code": ["app-platform/lifecycle/routes.ts", "client_web/src/components/apps/AppCatalogCard.tsx"], "tests": ["client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-012", "code": ["app-platform/contracts/app-registry.ts", "client_web/src/components/apps/AppCatalogCard.tsx"], "tests": ["app-platform/contracts/security.test.ts", "client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-013", "code": ["client_web/src/api/apps-adapter.ts", "client_web/src/components/apps/AppsPage.tsx"], "tests": ["client_web/src/api/apps-adapter.test.ts", "client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-014", "code": ["app-platform/lifecycle/routes.ts", "client_web/src/components/apps/AppCatalogCard.tsx"], "tests": ["client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-015", "code": ["client_web/src/components/apps/AppCatalogCard.tsx"], "tests": ["client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-016", "code": ["app-capabilities/registry.ts"], "tests": ["app-capabilities/registry.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-017", "code": ["app-capabilities/dispatcher.ts"], "tests": ["app-capabilities/registry.test.ts", "app-platform/two-app-isolation.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-018", "code": ["app-capabilities/dispatcher.ts", "app-capabilities/resume-registry.ts", "app-capabilities/brief-registry.ts"], "tests": ["app-capabilities/registry.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-019", "code": ["app-capabilities/registry.ts", "client_web/src/components/apps/SandboxedAppFrame.tsx"], "tests": ["client_web/src/components/apps/SandboxedAppFrame.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-020", "code": ["app-capabilities/dispatcher.ts", "app-capabilities/operations.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "app-capabilities/operations.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-021", "code": ["app-capabilities/resume-registry.ts", "app-capabilities/brief-registry.ts"], "tests": ["brief-domain/package.test.ts", "app-capabilities/registry.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-022", "code": ["app-inference/registry.ts"], "tests": ["app-inference/capability.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-023", "code": ["app-inference/dispatcher.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "app-inference/capability.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-024", "code": ["app-inference/dispatcher.ts", "brief-inference/broker.ts", "app-inference/resume-adapter.ts"], "tests": ["brief-inference/broker.test.ts", "app-inference/capability.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-025", "code": ["app-inference/dispatcher.ts", "brief-inference/broker.ts"], "tests": ["brief-inference/broker.test.ts", "app-inference/capability.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-026", "code": ["brief-domain/grounding.ts", "resume-inference/validators.ts"], "tests": ["brief-domain/grounding.test.ts", "resume-inference/validators.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-027", "code": ["brief-inference/fixtures/corpus.json", "brief-inference/fixtures/evaluation-rubric.json", "resume-inference"], "tests": ["brief-inference/broker.test.ts", "resume-inference/harness.test.ts"], "evidence": ["automated", "brief_live_human", "resume_human"], "disposition": "human_hold" },
+    { "id": "APP8-REQ-028", "code": ["app-platform/lifecycle/owner-data.ts", "app-platform/first-party-registrations.ts"], "tests": ["app-platform/lifecycle/app-lifecycle.m2.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-029", "code": ["app-platform/lifecycle/platform.ts", "app-platform/lifecycle/owner-data.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "app-platform/lifecycle/app-lifecycle.m2.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-030", "code": ["app-platform/lifecycle/owner-data.ts", "brief-domain/lifecycle.ts", "resume-domain/lifecycle.ts"], "tests": ["app-platform/two-app-isolation.test.ts", "brief-domain/store.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-031", "code": ["app-platform/lifecycle/owner-data.ts", "app-platform/lifecycle/routes.ts"], "tests": ["app-platform/lifecycle/app-lifecycle.m2.test.ts", "client_web/src/components/apps/AppsPage.test.tsx"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-032", "code": ["app-platform/lifecycle/owner-data.ts"], "tests": ["app-platform/lifecycle/app-lifecycle.m2.test.ts", "brief-domain/store.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-033", "code": ["app-platform/lifecycle/owner-data.ts", "app-capabilities/resume-registry.ts"], "tests": ["brief-domain/package.test.ts", "app-platform/two-app-isolation.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-034", "code": ["brief-domain/store.ts", "brief-domain/service.ts"], "tests": ["brief-domain/store.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-035", "code": ["app-platform/lifecycle/owner-data.ts"], "tests": ["app-platform/lifecycle/app-lifecycle.m2.test.ts", "app-platform/two-app-isolation.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-036", "code": ["brief-domain", "brief-inference", "builds/brief_builder"], "tests": ["brief-domain/package.test.ts", "brief-domain/grounding.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-037", "code": ["builds/brief_builder/resources/main.html"], "tests": ["builds/brief_builder/test/ui-resource.test.ts", "client_web/e2e/brief-builder.spec.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-038", "code": ["app-platform/lifecycle/fixture-repository.ts", "app-platform/mcp-host/brief-host-adapter.ts"], "tests": ["brief-domain/package.test.ts", "app-platform/mcp-host/live-fixture.integration.test.ts"], "evidence": ["automated", "native_windows"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-039", "code": ["app-platform", "app-capabilities", "app-inference"], "tests": ["app-platform/two-app-isolation.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-040", "code": ["app-platform/lifecycle/state-migration.ts", "resume-domain/lifecycle.ts"], "tests": ["app-platform/lifecycle/app-lifecycle.m2.test.ts", "resume-domain/resume-data-m5.test.ts"], "evidence": ["automated"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-041", "code": ["resume-domain", "resume-inference", "resume-renderer", "builds/resume_builder"], "tests": ["resume-domain", "resume-inference", "resume-renderer", "client_web/e2e/resume-builder.spec.ts"], "evidence": ["automated", "native_windows", "resume_human", "immutable_candidate"], "disposition": "human_hold" },
+    { "id": "APP8-REQ-042", "code": ["installer/docker/compose.dev.yml", "scripts/desktop-stage-runtime.mjs", "scripts/desktop-stage-runtime.ps1", "src-tauri/src/process_containment.rs"], "tests": ["client_web/e2e/two-apps.spec.ts", "app-platform/two-app-isolation.test.ts", "src-tauri"], "evidence": ["automated", "native_windows", "immutable_candidate"], "disposition": "automated_pass" },
+    { "id": "APP8-REQ-043", "code": ["docs/developers/catalog.json", "docs/developers/verification.md", "docs/developers/releases.md", "docs/developers/integrations/gateway.md", "docs/developers/integrations/mcp-and-tools.md", "builds/typescript/app-platform/contracts/README.md", "builds/typescript/app-platform/lifecycle/README.md", "builds/typescript/app-platform/mcp-host/README.md", "builds/typescript/app-capabilities/README.md", "builds/typescript/app-inference/README.md", "builds/typescript/client_web/README.md", "installer/docker/README.md", "builds/typescript/src-tauri/README.md"], "tests": ["tools/docs/test", "tools/docs/sync-generated.mjs"], "evidence": ["automated", "immutable_candidate", "release_evidence"], "disposition": "evidence_identity_hold" },
+    { "id": "APP8-REQ-044", "code": ["app-platform/contracts", "docs/developers/integrations/mcp-and-tools.md"], "tests": ["app-platform/registry.test.ts", "static forbidden-surface audit"], "evidence": ["automated"], "disposition": "automated_pass" }
+  ]
+}

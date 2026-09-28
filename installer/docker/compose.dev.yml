@@ -7,6 +7,8 @@ services:
       dockerfile: installer/docker/Dockerfile.app
     image: ${BRAINDRIVE_APP_IMAGE_LOCAL:-braindrive-app:local}
     user: "0:0"
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["/bin/bash"]
     command:
       - "-lc"
@@ -16,8 +18,8 @@ services:
         HOST_UID="$${BRAINDRIVE_DEV_HOST_UID:-1000}"
         HOST_GID="$${BRAINDRIVE_DEV_HOST_GID:-1000}"
         DEV_HOME=/tmp/braindrive-dev-home
-        mkdir -p "$${DEV_HOME}/.npm"
-        chown -R "$${HOST_UID}:$${HOST_GID}" "$${PAA_MEMORY_ROOT}" "$${PAA_SECRETS_HOME}" /app/typescript/node_modules "$${DEV_HOME}"
+        mkdir -p "$${DEV_HOME}/.npm" "$${BRAINDRIVE_APP_STATE_ROOT}"
+        chown -R "$${HOST_UID}:$${HOST_GID}" "$${PAA_MEMORY_ROOT}" "$${PAA_SECRETS_HOME}" "$${BRAINDRIVE_APP_STATE_ROOT}" /app/typescript/node_modules "$${DEV_HOME}"
 
         run_as_host() {
           HOME="$${DEV_HOME}" NPM_CONFIG_CACHE="$${DEV_HOME}/.npm" \
@@ -83,6 +85,10 @@ services:
       PAA_AUDIT_FILE_SINK_ENABLED: ${PAA_AUDIT_FILE_SINK_ENABLED:-true}
       PAA_AUDIT_MAX_FILE_BYTES: ${PAA_AUDIT_MAX_FILE_BYTES:-5242880}
       PAA_AUDIT_RETENTION_DAYS: ${PAA_AUDIT_RETENTION_DAYS:-14}
+      BRAINDRIVE_APP_PLATFORM_ENABLED: ${BRAINDRIVE_APP_PLATFORM_ENABLED:-true}
+      BRAINDRIVE_APP_PLATFORM_TARGET: docker_linux_x64
+      BRAINDRIVE_APP_STATE_ROOT: /data/app-platform
+      BRAINDRIVE_DESKTOP_API_TOKEN: ${BRAINDRIVE_DESKTOP_API_TOKEN:-}
       TZ: ${TZ:-UTC}
       BRAINDRIVE_DEV_HOST_UID: ${BRAINDRIVE_DEV_HOST_UID:-1000}
       BRAINDRIVE_DEV_HOST_GID: ${BRAINDRIVE_DEV_HOST_GID:-1000}
@@ -90,9 +96,12 @@ services:
       CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
     volumes:
       - ../../builds/typescript:/app/typescript
+      - ../../builds/resume_builder:/app/resume_builder:ro
+      - ../../builds/brief_builder:/app/brief_builder:ro
       - braindrive_dev_app_node_modules:/app/typescript/node_modules
       - ${PAA_LIBRARY_HOST_PATH:-../../builds/typescript/your-memory}:/data/memory
       - braindrive_secrets:/run/paa-secrets
+      - braindrive_dev_app_platform:/data/app-platform
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
@@ -134,3 +143,5 @@ volumes:
   braindrive_secrets:
     external: true
     name: braindrive_secrets
+  braindrive_dev_app_platform:
+    name: braindrive_dev_app_platform

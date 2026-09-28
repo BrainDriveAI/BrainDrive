@@ -100,7 +100,7 @@
       "properties": {
         "recordIdentityFields": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["SOURCE_TEST_REVISION", "SOURCE_CANDIDATE_PROOF"] } },
         "revisionModelFields": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["SOURCE_TEST_REVISION", "EVIDENCE_REVISION"] } },
-        "approvedPathPatterns": { "type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "approvedPathPatterns": { "type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "releaseRecords": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }
     },

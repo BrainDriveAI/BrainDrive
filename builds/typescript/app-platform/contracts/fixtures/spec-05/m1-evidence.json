@@ -1,0 +1,19 @@
+{
+  "evidence_version": 1,
+  "milestone": "Protocol and Security Contract Foundation",
+  "acceptance_gates": [
+    { "id": "M1-AC1", "owner": "DJJones", "evidence": "decisions.json and ADR-RB-021" },
+    { "id": "M1-AC2", "owner": "mcp-owner", "evidence": "exact lockfile pins and loopback SDK spike" },
+    { "id": "M1-AC3", "owner": "contract-owner", "evidence": "version-1 Zod and generated JSON schemas" },
+    { "id": "M1-AC4", "owner": "security-owner", "evidence": "conformance corpus and forbidden-field tests" },
+    { "id": "M1-AC5", "owner": "verification-owner", "evidence": "REQ-001 through REQ-045 manifest" },
+    { "id": "M1-AC6", "owner": "regression-owner", "evidence": "required build/test/typecheck and diff audit" }
+  ],
+  "runtime_activation": {
+    "app_html": false,
+    "app_capabilities": false,
+    "app_inference": false,
+    "dynamic_server_execution": false
+  },
+  "live_release_evidence_deferred_to": "Milestone 7"
+}

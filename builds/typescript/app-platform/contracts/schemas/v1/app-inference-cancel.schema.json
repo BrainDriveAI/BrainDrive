@@ -1,0 +1,43 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/app-inference-cancel.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "inference_contract_version": {
+      "type": "number",
+      "const": 1
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "owner",
+        "view_closed",
+        "timeout",
+        "lifecycle_revoked"
+      ]
+    }
+  },
+  "required": [
+    "inference_contract_version",
+    "request_id",
+    "operation_id",
+    "idempotency_key",
+    "reason"
+  ],
+  "additionalProperties": false
+}

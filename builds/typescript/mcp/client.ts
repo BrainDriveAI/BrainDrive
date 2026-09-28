@@ -6,6 +6,7 @@ import { auditLog } from "../logger.js";
 import { ToolExecutionFailure } from "../tool-error.js";
 import type { McpServerConfig } from "./config.js";
 import { resolveServerHeaders } from "./config.js";
+import { projectLegacyToolResult, type RawMcpCallResult } from "./result-envelope.js";
 
 type McpListTool = {
   name: string;
@@ -13,12 +14,7 @@ type McpListTool = {
   inputSchema?: Record<string, unknown>;
 };
 
-type McpCallToolResult = {
-  content?: Array<{ type: string; text?: string }>;
-  structuredContent?: Record<string, unknown>;
-  toolResult?: unknown;
-  isError?: boolean;
-};
+type McpCallToolResult = RawMcpCallResult;
 
 export async function listMcpTools(server: McpServerConfig): Promise<McpListTool[]> {
   const headers = resolveServerHeaders(server);
@@ -80,7 +76,7 @@ export function mapMcpToolToDefinition(server: McpServerConfig, tool: McpListToo
           `Timed out calling MCP tool ${tool.name} on server ${server.id}`
         );
 
-        const normalized = normalizeCallResult(response as McpCallToolResult);
+        const normalized = normalizeLegacyCallResult(response as McpCallToolResult);
         auditLog("mcp.tool.result", {
           server_id: server.id,
           tool: tool.name,
@@ -102,34 +98,13 @@ export function mapMcpToolToDefinition(server: McpServerConfig, tool: McpListToo
   };
 }
 
-function normalizeCallResult(result: McpCallToolResult): unknown {
+export function normalizeLegacyCallResult(result: McpCallToolResult): unknown {
   if (result.isError) {
     const errorPayload = extractErrorPayload(result);
     throw new ToolExecutionFailure(errorPayload.code, errorPayload.message, errorPayload.recoverable);
   }
 
-  if (result.structuredContent && typeof result.structuredContent === "object") {
-    return result.structuredContent;
-  }
-
-  if (result.toolResult !== undefined) {
-    return result.toolResult;
-  }
-
-  const text = result.content?.find((item) => item.type === "text")?.text;
-  if (text) {
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (parsed && typeof parsed === "object") {
-        return parsed;
-      }
-    } catch {
-      // non-json text output is allowed
-    }
-    return { text };
-  }
-
-  return {};
+  return projectLegacyToolResult(result);
 }
 
 async function connect(

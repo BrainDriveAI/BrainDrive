@@ -1,0 +1,55 @@
+{
+  "fixture_schema_version": 1,
+  "fixture_id": "m6-revision-successor-synthetic",
+  "synthetic": true,
+  "persona": "early_career",
+  "canary_literals": ["RB6_REVISION_PAIRWISE_CANARY_93C2"],
+  "approved_definition": {
+    "sections": ["Summary", "Experience", "Education"],
+    "logical_lines": [
+      "Summary",
+      "Operations coordinator supporting scheduling and service delivery.",
+      "Experience",
+      "Operations Coordinator | Synthetic Services | 2022 - Present",
+      "Coordinated daily schedules and maintained service records.",
+      "Education",
+      "Associate Degree | Synthetic College | 2021"
+    ]
+  },
+  "expected_recovery": { "section_count": 3, "line_count": 7 },
+  "m6_revision_successor": {
+    "classification": "presentation",
+    "source_logical_lines": [
+      "Summary",
+      "Operations coordinator supporting scheduling and service delivery.",
+      "Experience",
+      "Operations Coordinator | Synthetic Services | 2022 - Present",
+      "Coordinated daily schedules and maintained service records.",
+      "Education",
+      "Associate Degree | Synthetic College | 2021"
+    ],
+    "successor_logical_lines": [
+      "Summary",
+      "Operations coordinator supporting service delivery and scheduling.",
+      "Experience",
+      "Operations Coordinator | Synthetic Services | 2022 - Present",
+      "Coordinated daily schedules and maintained service records.",
+      "Education",
+      "Associate Degree | Synthetic College | 2021"
+    ],
+    "expected_preserved_lines": [
+      "Summary",
+      "Experience",
+      "Operations Coordinator | Synthetic Services | 2022 - Present",
+      "Coordinated daily schedules and maintained service records.",
+      "Education",
+      "Associate Degree | Synthetic College | 2021"
+    ],
+    "rewritten_lines": [{
+      "before": "Operations coordinator supporting scheduling and service delivery.",
+      "after": "Operations coordinator supporting service delivery and scheduling."
+    }],
+    "source_support_revision_ids": ["74000000-0000-4000-8000-000000000001"],
+    "successor_support_revision_ids": ["74000000-0000-4000-8000-000000000001"]
+  }
+}

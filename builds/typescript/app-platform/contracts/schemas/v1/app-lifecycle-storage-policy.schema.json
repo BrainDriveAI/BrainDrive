@@ -1,0 +1,70 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/app-lifecycle-storage-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "minItems": 7,
+  "maxItems": 7,
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "storage_class": {
+        "type": "string",
+        "enum": [
+          "host_lifecycle_state",
+          "verified_package",
+          "non_executable_staging",
+          "disposable_app_cache",
+          "durable_owner_data",
+          "external_owner_export",
+          "host_secret"
+        ]
+      },
+      "root_ref": {
+        "type": "string",
+        "enum": [
+          "host_app_state",
+          "host_app_packages",
+          "host_app_staging",
+          "host_app_cache",
+          "owner_memory",
+          "owner_exports",
+          "host_vault"
+        ]
+      },
+      "authority": {
+        "type": "string",
+        "enum": [
+          "host_only",
+          "host_mediated_owner_data",
+          "owner_external",
+          "vault_only"
+        ]
+      },
+      "execution_policy": {
+        "type": "string",
+        "enum": [
+          "never",
+          "verified_immutable_only"
+        ]
+      },
+      "uninstall_policy": {
+        "type": "string",
+        "enum": [
+          "retain_minimal_tombstone",
+          "remove_reference_and_unshared_bytes",
+          "remove",
+          "preserve",
+          "outside_app_deletion"
+        ]
+      }
+    },
+    "required": [
+      "storage_class",
+      "root_ref",
+      "authority",
+      "execution_policy",
+      "uninstall_policy"
+    ],
+    "additionalProperties": false
+  }
+}

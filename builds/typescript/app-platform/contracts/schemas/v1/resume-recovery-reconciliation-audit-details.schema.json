@@ -1,0 +1,127 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/resume-recovery-reconciliation-audit-details.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostic_version": {
+      "type": "number",
+      "const": 1
+    },
+    "app_id": {
+      "type": "string",
+      "const": "ai.braindrive.resume-builder"
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "semantic_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "expected_revision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "initial_wait_class": {
+      "type": "string",
+      "enum": [
+        "not_observed",
+        "completed_before_initial_wait",
+        "ambiguous_after_initial_wait"
+      ]
+    },
+    "reconciliation_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "reconciliation_class": {
+      "type": "string",
+      "enum": [
+        "none",
+        "operation_read",
+        "workspace_read",
+        "operation_then_workspace"
+      ]
+    },
+    "acknowledgement_timing_class": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "before_initial_wait",
+        "observed_window",
+        "early_reconciliation",
+        "late_reconciliation",
+        "host_deadline",
+        "unavailable"
+      ]
+    },
+    "idempotency_disposition": {
+      "type": "string",
+      "enum": [
+        "created",
+        "coalesced",
+        "replayed",
+        "conflict"
+      ]
+    },
+    "final_disposition": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "committed",
+        "conflict",
+        "cancelled",
+        "failed",
+        "not_saved"
+      ]
+    },
+    "conflict_class": {
+      "type": "string",
+      "enum": [
+        "none",
+        "idempotency_input_mismatch",
+        "cas_revision_mismatch",
+        "durable_binding_mismatch",
+        "durable_value_mismatch"
+      ]
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,127}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "diagnostic_version",
+    "app_id",
+    "operation_id",
+    "semantic_digest",
+    "expected_revision",
+    "initial_wait_class",
+    "reconciliation_count",
+    "reconciliation_class",
+    "acknowledgement_timing_class",
+    "idempotency_disposition",
+    "final_disposition",
+    "conflict_class",
+    "error_code"
+  ],
+  "additionalProperties": false
+}

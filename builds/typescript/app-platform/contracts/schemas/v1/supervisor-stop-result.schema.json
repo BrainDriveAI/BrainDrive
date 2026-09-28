@@ -1,0 +1,91 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/supervisor-stop-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "supervisor_protocol_version": {
+      "type": "number",
+      "const": 1
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "stopped_gracefully",
+        "stopped_forced",
+        "already_stopped",
+        "ambiguous"
+      ]
+    },
+    "termination_acknowledged": {
+      "type": "boolean"
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "runtime_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "installation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endpoint_token_generation": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "runtime_id",
+        "installation_id",
+        "package_digest",
+        "runtime_generation",
+        "endpoint_token_generation"
+      ],
+      "additionalProperties": false
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "descriptor_invalid",
+            "runtime_conflict",
+            "start_failed",
+            "readiness_failed",
+            "health_failed",
+            "registration_failed",
+            "stop_timeout",
+            "ambiguous_runtime_state",
+            "restart_exhausted",
+            "token_revocation_failed",
+            "orphan_cleanup_failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "supervisor_protocol_version",
+    "outcome",
+    "termination_acknowledged",
+    "runtime",
+    "error_code"
+  ],
+  "additionalProperties": false
+}

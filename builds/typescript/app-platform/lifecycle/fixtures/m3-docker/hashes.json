@@ -1,0 +1,12 @@
+{
+  "fixture_version": 1,
+  "private_signing_material": "absent",
+  "files": {
+    "trust-root.json": "sha256:e3ad0a48f8ffb01a8040c12ff576901385f8375c58f02a05b188c4b0f807b969",
+    "source-index.json": "sha256:a14c46bdf285b1d59b360300f5d5abee04b64202cff5db2b1e4b6dbe4590a25a",
+    "revocations.json": "sha256:fdfa8202ef3de4d4dec4c2e8b6bade04027289779f15c92964e347930330224d",
+    "1.0.0.descriptor.json": "sha256:7d1cbe972ce7b9ba3c4b8103bdeade6c0f92f1f042306731c73580dbee328966",
+    "1.0.0.bdapp.base64": "sha256:b9a607ad78299737e85a5c5b00868b577faca24710e18fc333afa30343e34213",
+    "decoded-1.0.0.bdapp": "sha256:760cdc911896cdb347ee7abed3b5c79decf7aa2cb46619a2b3f2cf40024d9454"
+  }
+}

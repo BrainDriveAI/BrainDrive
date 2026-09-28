@@ -1,0 +1,11 @@
+{
+  "evidence_boundary": "synthetic_workflow_and_contract_only",
+  "fixtures": [
+    {
+      "id": "atlas-pilot",
+      "source": "Atlas launched in May. The pilot included twelve owner interviews. The median onboarding time fell from ten minutes to seven minutes.",
+      "expected_supported_quotes": ["Atlas launched in May", "twelve owner interviews", "ten minutes to seven minutes"],
+      "unsupported_mutations": ["Atlas launched in June", "thirteen owner interviews", "revenue doubled"]
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/app-action-execution-plan.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action_plan_version": {
+      "type": "number",
+      "const": 1
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "steps": {
+      "minItems": 1,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "capability.call"
+              },
+              "capability": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+              },
+              "capability_version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              },
+              "input": {},
+              "owner_confirmation": {
+                "default": "inherit",
+                "type": "string",
+                "enum": [
+                  "inherit",
+                  "none"
+                ]
+              }
+            },
+            "required": [
+              "step_id",
+              "type",
+              "capability",
+              "capability_version",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "document.read"
+              },
+              "document_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              }
+            },
+            "required": [
+              "step_id",
+              "type",
+              "document_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "document.write"
+              },
+              "document_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+              },
+              "expected_revision": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "none"
+                ]
+              },
+              "media_type": {
+                "type": "string",
+                "enum": [
+                  "application/json",
+                  "text/markdown",
+                  "text/plain"
+                ]
+              },
+              "retention_class": {
+                "type": "string",
+                "enum": [
+                  "durable_owner_data",
+                  "durable_provenance_while_referenced",
+                  "durable_operation_lookup",
+                  "rollback_recovery_window",
+                  "disposable_preview_cache",
+                  "transient_abandoned_operation"
+                ]
+              },
+              "content": {}
+            },
+            "required": [
+              "step_id",
+              "type",
+              "document_id",
+              "expected_revision",
+              "content"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "export.prepare"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "app_document",
+                      "app_operation",
+                      "runtime_output"
+                    ]
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[a-zA-Z0-9_.:@-]+$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "source_id"
+                ],
+                "additionalProperties": false
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "content_size_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2097152
+              },
+              "retention_class": {
+                "type": "string",
+                "enum": [
+                  "durable_owner_data",
+                  "durable_provenance_while_referenced",
+                  "durable_operation_lookup",
+                  "rollback_recovery_window",
+                  "disposable_preview_cache",
+                  "transient_abandoned_operation"
+                ]
+              },
+              "media_type": {
+                "type": "string",
+                "enum": [
+                  "application/pdf",
+                  "text/plain"
+                ]
+              },
+              "filename": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+$"
+              },
+              "destination_intent": {
+                "type": "string",
+                "enum": [
+                  "new_download",
+                  "replace_existing"
+                ]
+              },
+              "overwrite_confirmed": {
+                "type": "boolean"
+              },
+              "bytes_base64": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2796204,
+                "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+              }
+            },
+            "required": [
+              "step_id",
+              "type",
+              "source",
+              "content_digest",
+              "content_size_bytes",
+              "retention_class",
+              "media_type",
+              "filename",
+              "destination_intent",
+              "overwrite_confirmed",
+              "bytes_base64"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "final_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "step_result"
+            },
+            "step_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_-]*$"
+            }
+          },
+          "required": [
+            "kind",
+            "step_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "literal"
+            },
+            "value": {}
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "action_plan_version",
+    "action_id",
+    "steps"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,114 @@
+{
+  "fixture_schema_version": 1,
+  "fixture_id": "m3-job-evidence-synthetic",
+  "synthetic": true,
+  "persona": "metric_poor",
+  "canary_literals": ["RB6_M3_SYNTHETIC_CANARY_A19C"],
+  "approved_definition": {
+    "sections": ["Summary", "Experience", "Skills"],
+    "logical_lines": [
+      "Synthetic Candidate",
+      "Summary",
+      "Operations support professional with scheduling and customer-service experience.",
+      "Experience",
+      "Operations Coordinator — Synthetic Health",
+      "Coordinated staff schedules across several locations.",
+      "Used spreadsheet tools to maintain scheduling records.",
+      "Service Associate — Synthetic Market",
+      "Helped customers and trained new team members.",
+      "Community Volunteer — Synthetic Pantry",
+      "Supported weekly pickup coordination.",
+      "Skills",
+      "Spreadsheet records management; staff scheduling"
+    ]
+  },
+  "expected_recovery": {
+    "section_count": 3,
+    "line_count": 13
+  },
+  "m3_job_evidence": {
+    "confirmed_evidence_revision_ids": [
+      "74000000-0000-4000-8000-000000000001",
+      "74000000-0000-4000-8000-000000000002",
+      "74000000-0000-4000-8000-000000000003",
+      "74000000-0000-4000-8000-000000000004",
+      "74000000-0000-4000-8000-000000000005",
+      "74000000-0000-4000-8000-000000000006",
+      "74000000-0000-4000-8000-000000000007"
+    ],
+    "roles": [
+      {
+        "job_revision_id": "74000000-0000-4000-8000-000000000001",
+        "role_class": "substantive",
+        "answered_evidence_revision_ids": [
+          "74000000-0000-4000-8000-000000000001",
+          "74000000-0000-4000-8000-000000000002",
+          "74000000-0000-4000-8000-000000000003"
+        ],
+        "output_bullets": [
+          {
+            "text": "Coordinated staff schedules across several locations.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000001", "74000000-0000-4000-8000-000000000002"]
+          },
+          {
+            "text": "Used spreadsheet tools to maintain scheduling records.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000001", "74000000-0000-4000-8000-000000000003"]
+          }
+        ],
+        "contextual_skill_statements": [
+          {
+            "text": "Used spreadsheet tools to maintain scheduling records.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000001", "74000000-0000-4000-8000-000000000003"]
+          }
+        ],
+        "summary_statements": [
+          {
+            "text": "Operations support professional with scheduling experience.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000001", "74000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      {
+        "job_revision_id": "74000000-0000-4000-8000-000000000004",
+        "role_class": "sparse",
+        "answered_evidence_revision_ids": ["74000000-0000-4000-8000-000000000004", "74000000-0000-4000-8000-000000000005"],
+        "output_bullets": [
+          {
+            "text": "Helped customers and trained new team members.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000004", "74000000-0000-4000-8000-000000000005"]
+          }
+        ],
+        "contextual_skill_statements": [],
+        "summary_statements": []
+      },
+      {
+        "job_revision_id": "74000000-0000-4000-8000-000000000006",
+        "role_class": "older",
+        "answered_evidence_revision_ids": ["74000000-0000-4000-8000-000000000006", "74000000-0000-4000-8000-000000000007"],
+        "output_bullets": [
+          {
+            "text": "Supported weekly pickup coordination.",
+            "supporting_revision_ids": ["74000000-0000-4000-8000-000000000006", "74000000-0000-4000-8000-000000000007"]
+          }
+        ],
+        "contextual_skill_statements": [],
+        "summary_statements": []
+      }
+    ],
+    "chronological_job_revision_ids": [
+      "74000000-0000-4000-8000-000000000001",
+      "74000000-0000-4000-8000-000000000004",
+      "74000000-0000-4000-8000-000000000006"
+    ],
+    "output_job_revision_ids": [
+      "74000000-0000-4000-8000-000000000001",
+      "74000000-0000-4000-8000-000000000004",
+      "74000000-0000-4000-8000-000000000006"
+    ],
+    "optional_question_prompts": [
+      "What became better or easier because of your work? A qualitative answer is enough.",
+      "Which tools do you remember using for this role? It is okay not to know.",
+      "Did your responsibilities change over time? It is fine if they did not."
+    ]
+  }
+}

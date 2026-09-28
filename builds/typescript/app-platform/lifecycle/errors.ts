@@ -1,0 +1,103 @@
+import { z } from "zod";
+
+export const AppPlatformErrorCodeSchema = z.enum([
+  "invalid_input",
+  "not_found_within_scope",
+  "denied",
+  "descriptor_invalid",
+  "conflict",
+  "incompatible_schema",
+  "cancelled",
+  "validation_failed",
+  "recoverable_internal_failure",
+  "model_incompatible",
+  "provider_unavailable",
+  "quota_exceeded",
+  "rate_limited",
+  "deadline_exceeded",
+  "schema_validation_failed",
+  "malformed_structured_output",
+  "incomplete_output",
+  "evidence_validation_failed",
+  "provider_schema_unsupported",
+  "provider_authentication_failed",
+  "provider_authorization_failed",
+  "content_filtered",
+  "provider_refused",
+  "unexpected_tool_call",
+  "internal_failure",
+  "ambiguous_runtime_state",
+  "active_app_limit_reached",
+  "app_not_found",
+  "duplicate_identity",
+  "grant_approval_required",
+  "grant_missing",
+  "grant_revoked",
+  "grant_widening_approval_required",
+  "host_incompatible",
+  "idempotency_conflict",
+  "idempotency_key_invalid",
+  "invalid_state_transition",
+  "lifecycle_failed",
+  "operation_cancelled",
+  "operation_not_found",
+  "package_archive_digest_mismatch",
+  "package_archive_invalid",
+  "package_cache_missing",
+  "package_inventory_invalid",
+  "package_identity_mismatch",
+  "package_manifest_invalid",
+  "package_not_found",
+  "package_oversized",
+  "package_path_invalid",
+  "package_revoked",
+  "package_signature_invalid",
+  "package_verification_failed",
+  "protocol_incompatible",
+  "readiness_failed",
+  "resource_invalid",
+  "resource_missing",
+  "resource_oversized",
+  "revision_conflict",
+  "revocation_metadata_stale",
+  "revocation_signature_invalid",
+  "rollback_unavailable",
+  "runtime_conflict",
+  "source_index_signature_invalid",
+  "store_corrupt",
+  "extension_incompatible",
+  "bridge_denied",
+  "bridge_malformed",
+  "bridge_oversized",
+  "bridge_replayed",
+  "bridge_stale",
+  "session_closed",
+  "session_expired",
+  "start_failed",
+  "token_audience_invalid",
+  "token_expired",
+  "token_invalid",
+  "token_replayed",
+  "token_revoked",
+  "token_scope_invalid",
+  "widened_grant",
+]);
+
+export type AppPlatformErrorCode = z.infer<typeof AppPlatformErrorCodeSchema>;
+
+export class AppPlatformError extends Error {
+  constructor(
+    public readonly code: AppPlatformErrorCode,
+    message: string,
+    public readonly statusCode = 409,
+    public readonly details: { currentRevision?: number; [key: string]: unknown } = {},
+  ) {
+    super(message);
+    this.name = "AppPlatformError";
+  }
+}
+
+export function asAppPlatformError(error: unknown, fallbackCode: AppPlatformErrorCode = "lifecycle_failed"): AppPlatformError {
+  if (error instanceof AppPlatformError) return error;
+  return new AppPlatformError(fallbackCode, error instanceof Error ? error.message : "App lifecycle operation failed", 500);
+}

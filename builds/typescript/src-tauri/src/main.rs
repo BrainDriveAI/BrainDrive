@@ -1,8 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod native_export;
+mod process_containment;
 pub mod tailscale_access;
 pub mod tailscale_runtime;
 
+use native_export::save_resume_export;
+use process_containment::ProcessContainment;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(windows)]
@@ -35,6 +39,13 @@ use uuid::Uuid;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "macos")]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_macos_universal";
+#[cfg(windows)]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
+// Preserve the existing fallback on desktop targets whose Apps runtime is not yet claimed.
+#[cfg(not(any(windows, target_os = "macos")))]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
 const BROWSER_ACCESS_DEFAULT_PORT: u16 = 18088;
 const BROWSER_ACCESS_FALLBACK_END_PORT: u16 = 18107;
 const FIREWALL_RULE_NAME: &str = "BrainDrive Browser Access";
@@ -115,6 +126,7 @@ struct RuntimeStartup {
     tailnet_bridge_child: Option<Child>,
     tailscale_status: TailscaleAccessStatus,
     context: RuntimeContext,
+    process_containment: ProcessContainment,
 }
 
 #[derive(Clone)]
@@ -244,6 +256,7 @@ struct RuntimeInner {
     tailscale_status: TailscaleAccessStatus,
     tailscale_operation: Option<String>,
     context: Option<RuntimeContext>,
+    process_containment: Option<ProcessContainment>,
 }
 
 impl RuntimeManager {
@@ -265,6 +278,7 @@ impl RuntimeManager {
                 tailscale_status: tailscale_not_started_status(),
                 tailscale_operation: None,
                 context: None,
+                process_containment: None,
             }),
             tailscale_operations: Mutex::new(()),
         }
@@ -301,6 +315,7 @@ impl RuntimeManager {
                 inner.tailnet_bridge_child = startup.tailnet_bridge_child;
                 inner.tailscale_status = startup.tailscale_status;
                 inner.context = Some(startup.context);
+                inner.process_containment = Some(startup.process_containment);
                 Ok(inner.status.clone())
             }
             Err(error) => {
@@ -338,6 +353,9 @@ impl RuntimeManager {
                 let _ = child.wait();
             }
             inner.children.clear();
+            if let Some(containment) = inner.process_containment.take() {
+                let _ = containment.terminate_all();
+            }
             inner.context = None;
             if inner.status.state != "not-started" {
                 inner.status.state = "stopped".to_string();
@@ -702,6 +720,7 @@ fn main() {
     let setup_launch_state = launch_state.clone();
     let window_runtime = runtime.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(runtime.clone())
         .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![
@@ -716,6 +735,7 @@ fn main() {
             apply_browser_access_firewall_rule,
             restart_runtime,
             open_external_url,
+            save_resume_export,
             frontend_ready
         ])
         .setup(move |app| {
@@ -800,6 +820,7 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
     append_supervisor_log(&paths.log_root, "starting BrainDrive desktop runtime");
 
     let runtime_roots = RuntimeRoots::resolve(app)?;
+    let process_containment = ProcessContainment::new()?;
     let node = resolve_node(app)?;
     let browser_access_config_path = browser_access_settings_path(&paths.config_root);
     let browser_access_settings = ensure_browser_access_settings(&browser_access_config_path)?;
@@ -821,28 +842,31 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
 
     append_supervisor_log(&paths.log_root, "spawning mcp-memory");
     let mut children = Vec::new();
-    children.push(spawn_mcp(
-        &node,
-        &runtime_roots.mcp_root,
-        &paths,
-        "memory",
-        memory_port,
+    children.push(attach_contained_child(
+        &process_containment,
+        spawn_mcp(
+            &node,
+            &runtime_roots.mcp_root,
+            &paths,
+            "memory",
+            memory_port,
+        )?,
     )?);
     append_supervisor_log(&paths.log_root, "spawning mcp-auth");
-    children.push(spawn_mcp(
-        &node,
-        &runtime_roots.mcp_root,
-        &paths,
-        "auth",
-        auth_port,
+    children.push(attach_contained_child(
+        &process_containment,
+        spawn_mcp(&node, &runtime_roots.mcp_root, &paths, "auth", auth_port)?,
     )?);
     append_supervisor_log(&paths.log_root, "spawning mcp-project");
-    children.push(spawn_mcp(
-        &node,
-        &runtime_roots.mcp_root,
-        &paths,
-        "project",
-        project_port,
+    children.push(attach_contained_child(
+        &process_containment,
+        spawn_mcp(
+            &node,
+            &runtime_roots.mcp_root,
+            &paths,
+            "project",
+            project_port,
+        )?,
     )?);
 
     wait_for_health(memory_port, "/healthz", "mcp-memory", &paths.log_root)?;
@@ -850,16 +874,19 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
     wait_for_health(project_port, "/healthz", "mcp-project", &paths.log_root)?;
 
     append_supervisor_log(&paths.log_root, "spawning gateway");
-    children.push(spawn_gateway(GatewayLaunch {
-        node: &node,
-        typescript_root: &runtime_roots.typescript_root,
-        paths: &paths,
-        port: gateway_port,
-        gateway_base_url: &gateway_base_url,
-        desktop_api_token: &desktop_api_token,
-        internal_transport_token: &browser_access_settings.transport_secret,
-        mcp_servers_file: &mcp_servers_file,
-    })?);
+    children.push(attach_contained_child(
+        &process_containment,
+        spawn_gateway(GatewayLaunch {
+            node: &node,
+            typescript_root: &runtime_roots.typescript_root,
+            paths: &paths,
+            port: gateway_port,
+            gateway_base_url: &gateway_base_url,
+            desktop_api_token: &desktop_api_token,
+            internal_transport_token: &browser_access_settings.transport_secret,
+            mcp_servers_file: &mcp_servers_file,
+        })?,
+    )?);
     wait_for_health(gateway_port, "/health", "gateway", &paths.log_root)?;
 
     let context = RuntimeContext {
@@ -913,7 +940,20 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
         tailnet_bridge_child,
         tailscale_status,
         context,
+        process_containment,
     })
+}
+
+fn attach_contained_child(
+    containment: &ProcessContainment,
+    mut child: Child,
+) -> Result<Child, String> {
+    if let Err(error) = containment.attach(&child) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    Ok(child)
 }
 
 fn default_browser_access_settings() -> BrowserAccessSettings {
@@ -1472,6 +1512,15 @@ fn spawn_gateway(launch: GatewayLaunch<'_>) -> Result<Child, String> {
         .env("BRAINDRIVE_TRUST_PROXY", "false")
         .env("BRAINDRIVE_CLIENT_GATEWAY_URL", launch.gateway_base_url)
         .env("BRAINDRIVE_DESKTOP_API_TOKEN", launch.desktop_api_token)
+        .env("BRAINDRIVE_APP_PLATFORM_ENABLED", "true")
+        .env(
+            "BRAINDRIVE_APP_PLATFORM_TARGET",
+            DESKTOP_APP_PLATFORM_TARGET,
+        )
+        .env(
+            "BRAINDRIVE_APP_STATE_ROOT",
+            launch.paths.data_root.join("app-platform"),
+        )
         .env(
             "BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN",
             launch.internal_transport_token,
@@ -1509,7 +1558,14 @@ fn configure_hidden_child_process(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
+fn configure_hidden_child_process(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(not(any(windows, unix)))]
 fn configure_hidden_child_process(_command: &mut Command) {}
 
 fn pipe_to_log<R>(mut reader: R, path: PathBuf)
@@ -1928,8 +1984,29 @@ fn resolve_node(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn append_supervisor_log(log_root: &Path, message: &str) {
     let path = log_root.join("supervisor.log");
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{message}");
+    const MAX_LOG_BYTES: u64 = 1024 * 1024;
+    const MAX_LINE_BYTES: usize = 4096;
+    let mut end = message.len().min(MAX_LINE_BYTES);
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bounded = &message[..end];
+    let projected = fs::metadata(&path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+        .saturating_add(bounded.len() as u64 + 1);
+    let truncate = projected > MAX_LOG_BYTES;
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(!truncate)
+        .truncate(truncate)
+        .open(path)
+    {
+        if truncate {
+            let _ = writeln!(file, "supervisor log restarted at configured size limit");
+        }
+        let _ = writeln!(file, "{bounded}");
     }
 }
 
@@ -1947,6 +2024,22 @@ fn display_error(error: impl std::fmt::Display) -> String {
 mod tailscale_bridge_tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn supervisor_log_bounds_lines_and_total_file_size() {
+        let root = std::env::temp_dir().join(format!("bd-supervisor-log-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let oversized_line = "x".repeat(8192);
+        for _ in 0..300 {
+            append_supervisor_log(&root, &oversized_line);
+        }
+        let log = fs::read(root.join("supervisor.log")).unwrap();
+        assert!(log.len() <= 1024 * 1024);
+        assert!(log
+            .split(|byte| *byte == b'\n')
+            .all(|line| line.len() <= 4096));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn tailnet_port_allocator_prefers_requested_available_port() {

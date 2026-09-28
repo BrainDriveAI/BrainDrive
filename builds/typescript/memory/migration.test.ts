@@ -7,6 +7,9 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import { exportMemoryArchive } from "../git.js";
+import { ResumeDomainService } from "../resume-domain/service.js";
+import { ResumeDataStore } from "../resume-domain/store.js";
+import { authority, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
 import { exportMigrationArchive, importMigrationArchive } from "./migration.js";
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +24,73 @@ async function writeFixtureMemory(memoryRoot: string, marker: string): Promise<v
 }
 
 describe("memory migration archive", () => {
+  it("preserves and revalidates the complete Resume Builder namespace inventory", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-resume-data-test-"));
+    const sourceMemory = path.join(tempRoot, "source-memory");
+    const targetMemory = path.join(tempRoot, "target-memory");
+    const sourceSecrets = path.join(tempRoot, "source-secrets");
+    const targetSecrets = path.join(tempRoot, "target-secrets");
+    try {
+      await writeFixtureMemory(sourceMemory, "source-model");
+      await writeFixtureMemory(targetMemory, "target-model");
+      const sourceStore = new ResumeDataStore(sourceMemory, undefined, {}, false);
+      await sourceStore.initialize(testGrant().owner_id);
+      const proposed = await new ResumeDomainService(sourceStore).proposeFact(
+        proposalInput("Migration archive durable fact"),
+        authority("career.facts.propose"),
+      );
+      const sourceInventory = await sourceStore.integrityScan();
+      const exported = await exportMigrationArchive(sourceMemory, {
+        secretsPaths: { homeDir: sourceSecrets, vaultPath: path.join(sourceSecrets, "vault.json"), keyPath: path.join(sourceSecrets, "master-key.json") },
+      });
+
+      await importMigrationArchive(exported.archive_path, {
+        memoryRoot: targetMemory,
+        secretsPaths: { homeDir: targetSecrets, vaultPath: path.join(targetSecrets, "vault.json"), keyPath: path.join(targetSecrets, "master-key.json") },
+      });
+      const restoredStore = new ResumeDataStore(targetMemory, undefined, {}, false);
+      await restoredStore.initialize(testGrant().owner_id);
+      expect(await restoredStore.integrityScan()).toMatchObject({
+        revision_count: sourceInventory.revision_count,
+        operation_count: sourceInventory.operation_count,
+        orphan_revision_count: 0,
+        staged_transaction_count: 0,
+      });
+      expect((await restoredStore.readHead(proposed.fact.metadata.record_id)).metadata.revision_id)
+        .toBe(proposed.fact.metadata.revision_id);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an incompatible staged Resume Builder graph before replacing current memory", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-resume-invalid-test-"));
+    const sourceMemory = path.join(tempRoot, "source-memory");
+    const targetMemory = path.join(tempRoot, "target-memory");
+    const archivePath = path.join(tempRoot, "incompatible-memory.tar.gz");
+    try {
+      await writeFixtureMemory(sourceMemory, "source-model");
+      await writeFixtureMemory(targetMemory, "target-model");
+      await writeFile(path.join(targetMemory, "documents", "owner-marker.md"), "preserve me\n", "utf8");
+      const namespace = path.join(sourceMemory, "apps", "resume-builder");
+      await mkdir(namespace, { recursive: true });
+      await writeFile(path.join(namespace, "catalog.json"), `${JSON.stringify({
+        catalog_version: 2,
+        data_schema_version: 5,
+        owner_id: testGrant().owner_id,
+      })}\n`, "utf8");
+      await exportMemoryArchive(sourceMemory, archivePath);
+
+      await expect(importMigrationArchive(archivePath, { memoryRoot: targetMemory })).rejects.toMatchObject({
+        code: "incompatible_schema",
+      });
+      expect(await readFile(path.join(targetMemory, "documents", "owner-marker.md"), "utf8")).toBe("preserve me\n");
+      expect(await readFile(path.join(targetMemory, "preferences", "default.json"), "utf8")).toContain("target-model");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("exports and imports memory plus secrets", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-test-"));
     const sourceMemory = path.join(tempRoot, "source-memory");

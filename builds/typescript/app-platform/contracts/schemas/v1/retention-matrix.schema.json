@@ -1,0 +1,50 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/retention-matrix.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "matrix_version": {
+      "type": "number",
+      "const": 1
+    },
+    "records": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "durable_owner_data",
+          "durable_provenance_while_referenced",
+          "durable_operation_lookup",
+          "rollback_recovery_window",
+          "disposable_preview_cache",
+          "transient_abandoned_operation",
+          "external_owner_file",
+          "runtime_authority"
+        ]
+      }
+    },
+    "default_uninstall": {
+      "type": "string",
+      "const": "retain_durable_owner_data_remove_runtime_authority"
+    },
+    "referenced_records_deletable": {
+      "type": "boolean",
+      "const": false
+    },
+    "external_owner_files_managed": {
+      "type": "boolean",
+      "const": false
+    }
+  },
+  "required": [
+    "matrix_version",
+    "records",
+    "default_uninstall",
+    "referenced_records_deletable",
+    "external_owner_files_managed"
+  ],
+  "additionalProperties": false
+}

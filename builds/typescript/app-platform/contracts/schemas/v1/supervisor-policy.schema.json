@@ -1,0 +1,78 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/supervisor-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "isolation": {
+      "type": "string",
+      "const": "one_process_or_container_per_active_installation"
+    },
+    "max_cpu_cores": {
+      "type": "number",
+      "const": 1
+    },
+    "max_memory_bytes": {
+      "type": "number",
+      "const": 536870912
+    },
+    "max_output_bytes_per_request": {
+      "type": "number",
+      "const": 1048576
+    },
+    "request_timeout_ms": {
+      "type": "number",
+      "const": 120000
+    },
+    "startup_timeout_ms": {
+      "type": "number",
+      "const": 30000
+    },
+    "max_crash_restarts": {
+      "type": "number",
+      "const": 3
+    },
+    "restart_backoff_ms": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "const": 1000
+        },
+        {
+          "type": "number",
+          "const": 2000
+        },
+        {
+          "type": "number",
+          "const": 4000
+        }
+      ]
+    },
+    "after_restart_limit": {
+      "type": "string",
+      "const": "owner_retry_required"
+    },
+    "public_bind_allowed": {
+      "type": "boolean",
+      "const": false
+    }
+  },
+  "required": [
+    "policy_version",
+    "isolation",
+    "max_cpu_cores",
+    "max_memory_bytes",
+    "max_output_bytes_per_request",
+    "request_timeout_ms",
+    "startup_timeout_ms",
+    "max_crash_restarts",
+    "restart_backoff_ms",
+    "after_restart_limit",
+    "public_bind_allowed"
+  ],
+  "additionalProperties": false
+}

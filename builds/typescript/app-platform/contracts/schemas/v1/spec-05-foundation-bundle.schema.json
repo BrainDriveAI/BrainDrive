@@ -1,0 +1,508 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/spec-05-foundation-bundle.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "foundation_version": {
+      "type": "number",
+      "const": 1
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "profile_version": {
+          "type": "number",
+          "const": 1
+        },
+        "modern_client": {
+          "type": "string",
+          "const": "@modelcontextprotocol/client@2.0.0"
+        },
+        "modern_core": {
+          "type": "string",
+          "const": "@modelcontextprotocol/core@2.0.0"
+        },
+        "fake_peer_server": {
+          "type": "string",
+          "const": "@modelcontextprotocol/server@2.0.0"
+        },
+        "node_transport": {
+          "type": "string",
+          "const": "@modelcontextprotocol/node@2.0.0"
+        },
+        "legacy_sdk": {
+          "type": "string",
+          "const": "@modelcontextprotocol/sdk@1.30.0"
+        },
+        "apps_sdk": {
+          "type": "string",
+          "const": "@modelcontextprotocol/ext-apps@1.7.5"
+        },
+        "conformance": {
+          "type": "string",
+          "const": "@modelcontextprotocol/conformance@0.2.0-alpha.11"
+        },
+        "runtime_node": {
+          "type": "string",
+          "const": ">=20"
+        },
+        "conformance_cli_node": {
+          "type": "string",
+          "const": ">=22"
+        }
+      },
+      "required": [
+        "profile_version",
+        "modern_client",
+        "modern_core",
+        "fake_peer_server",
+        "node_transport",
+        "legacy_sdk",
+        "apps_sdk",
+        "conformance",
+        "runtime_node",
+        "conformance_cli_node"
+      ],
+      "additionalProperties": false
+    },
+    "protocols": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "profile_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "era": {
+                  "type": "string",
+                  "const": "modern_stateless"
+                },
+                "protocol_version": {
+                  "type": "string",
+                  "const": "2026-07-28"
+                },
+                "negotiation": {
+                  "type": "string",
+                  "const": "version_negotiation_and_optional_server_discover"
+                },
+                "session_header": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "required_methods": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "tools/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "tools/call"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/templates/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/read"
+                    }
+                  ]
+                },
+                "apps": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "const": "io.modelcontextprotocol/ui"
+                    },
+                    "version": {
+                      "type": "string",
+                      "const": "2026-01-26"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "profile_version",
+                "era",
+                "protocol_version",
+                "negotiation",
+                "session_header",
+                "required_methods",
+                "apps"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "profile_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "era": {
+                  "type": "string",
+                  "const": "bounded_legacy_stateful"
+                },
+                "protocol_version": {
+                  "type": "string",
+                  "const": "2025-11-25"
+                },
+                "negotiation": {
+                  "type": "string",
+                  "const": "initialize_initialized"
+                },
+                "session_header": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "required_methods": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "tools/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "tools/call"
+                    }
+                  ]
+                },
+                "apps": {
+                  "type": "null",
+                  "const": null
+                }
+              },
+              "required": [
+                "profile_version",
+                "era",
+                "protocol_version",
+                "negotiation",
+                "session_header",
+                "required_methods",
+                "apps"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "profile_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "era": {
+                  "type": "string",
+                  "const": "modern_stateless"
+                },
+                "protocol_version": {
+                  "type": "string",
+                  "const": "2026-07-28"
+                },
+                "negotiation": {
+                  "type": "string",
+                  "const": "version_negotiation_and_optional_server_discover"
+                },
+                "session_header": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "required_methods": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "tools/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "tools/call"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/templates/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "resources/read"
+                    }
+                  ]
+                },
+                "apps": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "const": "io.modelcontextprotocol/ui"
+                    },
+                    "version": {
+                      "type": "string",
+                      "const": "2026-01-26"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "profile_version",
+                "era",
+                "protocol_version",
+                "negotiation",
+                "session_header",
+                "required_methods",
+                "apps"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "profile_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "era": {
+                  "type": "string",
+                  "const": "bounded_legacy_stateful"
+                },
+                "protocol_version": {
+                  "type": "string",
+                  "const": "2025-11-25"
+                },
+                "negotiation": {
+                  "type": "string",
+                  "const": "initialize_initialized"
+                },
+                "session_header": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "required_methods": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "tools/list"
+                    },
+                    {
+                      "type": "string",
+                      "const": "tools/call"
+                    }
+                  ]
+                },
+                "apps": {
+                  "type": "null",
+                  "const": null
+                }
+              },
+              "required": [
+                "profile_version",
+                "era",
+                "protocol_version",
+                "negotiation",
+                "session_header",
+                "required_methods",
+                "apps"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      ]
+    },
+    "supervisor_policy": {
+      "type": "object",
+      "properties": {
+        "policy_version": {
+          "type": "number",
+          "const": 1
+        },
+        "isolation": {
+          "type": "string",
+          "const": "one_process_or_container_per_active_installation"
+        },
+        "max_cpu_cores": {
+          "type": "number",
+          "const": 1
+        },
+        "max_memory_bytes": {
+          "type": "number",
+          "const": 536870912
+        },
+        "max_output_bytes_per_request": {
+          "type": "number",
+          "const": 1048576
+        },
+        "request_timeout_ms": {
+          "type": "number",
+          "const": 120000
+        },
+        "startup_timeout_ms": {
+          "type": "number",
+          "const": 30000
+        },
+        "max_crash_restarts": {
+          "type": "number",
+          "const": 3
+        },
+        "restart_backoff_ms": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number",
+              "const": 1000
+            },
+            {
+              "type": "number",
+              "const": 2000
+            },
+            {
+              "type": "number",
+              "const": 4000
+            }
+          ]
+        },
+        "after_restart_limit": {
+          "type": "string",
+          "const": "owner_retry_required"
+        },
+        "public_bind_allowed": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "policy_version",
+        "isolation",
+        "max_cpu_cores",
+        "max_memory_bytes",
+        "max_output_bytes_per_request",
+        "request_timeout_ms",
+        "startup_timeout_ms",
+        "max_crash_restarts",
+        "restart_backoff_ms",
+        "after_restart_limit",
+        "public_bind_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "renderer": {
+      "type": "string",
+      "const": "dedicated_web_client_double_iframe_proxy_no_tauri_authority"
+    },
+    "desktop_executable": {
+      "type": "string",
+      "const": "verified_compiled_javascript_on_braindrive_packaged_node"
+    },
+    "release_targets": {
+      "type": "object",
+      "properties": {
+        "docker_dev": {
+          "type": "string",
+          "const": "required"
+        },
+        "windows": {
+          "type": "string",
+          "const": "first_packaged_claim"
+        },
+        "macos": {
+          "type": "string",
+          "const": "configured_unclaimed"
+        },
+        "linux": {
+          "type": "string",
+          "const": "configured_unclaimed"
+        }
+      },
+      "required": [
+        "docker_dev",
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "additionalProperties": false
+    },
+    "optional_facilities": {
+      "type": "object",
+      "properties": {
+        "sampling": {
+          "type": "string",
+          "const": "rejected"
+        },
+        "prompts_completions": {
+          "type": "string",
+          "const": "deferred"
+        },
+        "remote_oauth": {
+          "type": "string",
+          "const": "deferred"
+        },
+        "stdio": {
+          "type": "string",
+          "const": "deferred"
+        },
+        "subscriptions": {
+          "type": "string",
+          "const": "deferred"
+        },
+        "tasks": {
+          "type": "string",
+          "const": "deferred"
+        },
+        "elicitation": {
+          "type": "string",
+          "const": "deferred"
+        }
+      },
+      "required": [
+        "sampling",
+        "prompts_completions",
+        "remote_oauth",
+        "stdio",
+        "subscriptions",
+        "tasks",
+        "elicitation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "foundation_version",
+    "dependencies",
+    "protocols",
+    "supervisor_policy",
+    "renderer",
+    "desktop_executable",
+    "release_targets",
+    "optional_facilities"
+  ],
+  "additionalProperties": false
+}

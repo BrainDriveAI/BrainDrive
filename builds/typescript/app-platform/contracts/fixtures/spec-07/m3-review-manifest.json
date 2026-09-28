@@ -1,0 +1,54 @@
+{
+  "manifest_version": 1,
+  "authority_status": "review_only_pending_accepted_spec_and_test_plan",
+  "scope": "Spec 07 Milestone 3 inspectable strategy and persuasive general generation",
+  "quality_authority": {
+    "id": "braindrive.resume-quality",
+    "version": "3",
+    "status": "accepted"
+  },
+  "open_decisions": ["RB7-OQ-1"],
+  "governing_documents": [
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-implementation-plan.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-prompt-pack.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/resume-quality.md",
+    "AGENTS.md",
+    "docs/developers/catalog.json",
+    "docs/developers/verification.md"
+  ],
+  "requirements": [
+    "RB7-REQ-010-019",
+    "RB7-REQ-026",
+    "RB7-REQ-030-031",
+    "RB7-REQ-033",
+    "RB7-REQ-035",
+    "RB7-REQ-037-045",
+    "RB7-UX-005",
+    "RB7-UX-007",
+    "RB7-OBS-003-004",
+    "RB7-SEC-002-004"
+  ],
+  "implementation": [
+    "builds/resume_builder/resources/main.html",
+    "builds/typescript/app-platform/contracts/data.ts",
+    "builds/typescript/app-platform/contracts/inference.ts",
+    "builds/typescript/resume-domain/service.ts",
+    "builds/typescript/resume-domain/capabilities.ts",
+    "builds/typescript/resume-inference/strategy.ts",
+    "builds/typescript/resume-inference/snapshot.ts",
+    "builds/typescript/resume-inference/results.ts",
+    "builds/typescript/resume-inference/validators.ts",
+    "builds/typescript/resume-inference/broker.ts"
+  ],
+  "verification": [
+    "builds/resume_builder/test/ui-resource.test.ts",
+    "builds/typescript/app-platform/contracts/spec-07-m3.test.ts",
+    "builds/typescript/resume-domain/service.test.ts",
+    "builds/typescript/resume-inference/strategy.test.ts",
+    "builds/typescript/resume-inference/snapshot.test.ts",
+    "builds/typescript/resume-inference/validators.test.ts",
+    "builds/typescript/resume-inference/broker.test.ts"
+  ],
+  "excluded_milestones": ["M4", "M5", "M6", "M7", "M8"]
+}

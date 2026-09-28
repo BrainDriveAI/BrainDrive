@@ -1,0 +1,63 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-catalog-presentation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "icon": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "package_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "media_type": {
+              "type": "string",
+              "enum": [
+                "image/png",
+                "image/webp"
+              ]
+            },
+            "content_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "package_path",
+            "media_type",
+            "content_digest"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retention_summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "display_name",
+    "summary",
+    "icon",
+    "retention_summary"
+  ],
+  "additionalProperties": false
+}

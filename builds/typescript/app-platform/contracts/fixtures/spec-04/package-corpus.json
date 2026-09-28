@@ -1,0 +1,24 @@
+{
+  "corpus_version": 1,
+  "base_vectors": {
+    "trust_root": "../valid/trust-root.json",
+    "source_index": "../valid/package-source-index.json",
+    "revocations": "../valid/revocation-list.json",
+    "manifest": "../valid/package-manifest.json",
+    "package_signature": "../valid/package-signature.json"
+  },
+  "cases": [
+    { "id": "signed-good", "mutation": "none", "accepted": true, "expected_code": "verified" },
+    { "id": "wrong-key", "mutation": "unknown_release_key", "accepted": false, "expected_code": "signing_key_untrusted" },
+    { "id": "tampered", "mutation": "signed_payload_changed", "accepted": false, "expected_code": "package_signature_invalid" },
+    { "id": "malformed", "mutation": "unknown_critical_manifest_field", "accepted": false, "expected_code": "package_descriptor_invalid" },
+    { "id": "incompatible", "mutation": "host_min_version_99_0_0", "accepted": false, "expected_code": "incompatible_version" },
+    { "id": "capability-widened", "mutation": "request_ungranted_capability", "accepted": false, "expected_code": "widened_grant" },
+    { "id": "revoked", "mutation": "explicit_package_digest_revocation", "accepted": false, "expected_code": "package_revoked" },
+    { "id": "traversal", "mutation": "dot_dot_archive_path", "accepted": false, "expected_code": "package_path_invalid" },
+    { "id": "unsafe-link", "mutation": "symbolic_link_archive_entry", "accepted": false, "expected_code": "package_unsafe_link" },
+    { "id": "duplicate-path", "mutation": "duplicate_archive_path", "accepted": false, "expected_code": "package_duplicate_path" },
+    { "id": "case-collision", "mutation": "case_folded_archive_path_collision", "accepted": false, "expected_code": "package_case_collision" },
+    { "id": "oversize", "mutation": "archive_exceeds_64_mib", "accepted": false, "expected_code": "package_oversize" }
+  ]
+}

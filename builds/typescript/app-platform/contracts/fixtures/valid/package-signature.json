@@ -1,0 +1,17 @@
+{
+  "manifest_digest": "sha256:9c7c1ca59504f270e20bfd12d33c982e39f3b9dbf4d0713e5bd914d3eb69c32a",
+  "archive": {
+    "media_type": "application/vnd.braindrive.app+zip",
+    "byte_length": 2048,
+    "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "published_at": "2026-08-07T12:00:00.000Z",
+  "signature": {
+    "signature_version": 1,
+    "domain_separator": "BrainDrive-App-Package-v1",
+    "canonicalization": "braindrive-canonical-json-v1",
+    "signature_algorithm": "ed25519",
+    "signing_key_id": "braindrive-app-release-2026-01",
+    "signature": "b1dOEytjCCCFR3VJJl8VGFN4NK7yGOSlD+pL9rFpISFlwO4hrGcx/QHN82krGNkaCUaymGnrSIKL+qEdfgsgCA=="
+  }
+}

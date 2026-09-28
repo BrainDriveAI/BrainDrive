@@ -7,7 +7,7 @@ import type { Message } from "@/types/ui";
 
 import Composer from "./Composer";
 import ConnectionBanner from "./ConnectionBanner";
-import EmptyState from "./EmptyState";
+import EmptyState, { type ProjectIntro } from "./EmptyState";
 import ErrorMessage from "./ErrorMessage";
 import MessageList from "./MessageList";
 
@@ -38,8 +38,10 @@ type ChatPanelProps = {
   onConversationComplete?: (conversationId: string) => void;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
+  emptyStateIntro?: ProjectIntro;
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
+  queuedMessage?: { id: string; content: string } | null;
 };
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
@@ -62,8 +64,10 @@ export default function ChatPanel({
   onConversationComplete,
   messageMetadata,
   contentOverride,
+  emptyStateIntro,
   onSendMessage,
-  onOpenSettings
+  onOpenSettings,
+  queuedMessage
 }: ChatPanelProps) {
   const [mobileComposerHeight, setMobileComposerHeight] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -75,6 +79,7 @@ export default function ChatPanel({
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
+  const lastQueuedMessageIdRef = useRef<string | null>(null);
 
   const {
     messages,
@@ -93,6 +98,13 @@ export default function ChatPanel({
     draftKey,
     initialMessages: historyMessages
   });
+
+  useEffect(() => {
+    if (!queuedMessage || queuedMessage.id === lastQueuedMessageIdRef.current) return;
+    lastQueuedMessageIdRef.current = queuedMessage.id;
+    append(queuedMessage.content, { metadata: messageMetadata });
+    onSendMessage?.();
+  }, [append, messageMetadata, onSendMessage, queuedMessage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,6 +287,7 @@ export default function ChatPanel({
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
               projectId={activeProjectId}
+              intro={emptyStateIntro}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

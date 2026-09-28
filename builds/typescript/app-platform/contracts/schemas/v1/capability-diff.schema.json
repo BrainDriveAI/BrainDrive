@@ -1,0 +1,74 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/capability-diff.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diff_version": {
+      "type": "number",
+      "const": 1
+    },
+    "prior_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+      }
+    },
+    "requested_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+      }
+    },
+    "added": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+      }
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+      }
+    },
+    "unchanged": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+      }
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "no_change",
+        "narrowing_allowed",
+        "owner_approval_required"
+      ]
+    }
+  },
+  "required": [
+    "diff_version",
+    "prior_capabilities",
+    "requested_capabilities",
+    "added",
+    "removed",
+    "unchanged",
+    "decision"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,87 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/app-retention-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "retention_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "classes": {
+      "minItems": 8,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "retention_class": {
+            "type": "string",
+            "enum": [
+              "runtime_authority",
+              "verified_package",
+              "disposable_cache",
+              "app_storage",
+              "artifact_records",
+              "export_receipts",
+              "owner_exports",
+              "lifecycle_tombstone"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "uninstall_behavior": {
+            "type": "string",
+            "enum": [
+              "remove",
+              "retain",
+              "outside_app_lifecycle",
+              "retain_minimal_tombstone"
+            ]
+          },
+          "owner_controls": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "delete_after_uninstall",
+                "export_after_uninstall",
+                "archive_after_uninstall"
+              ]
+            }
+          },
+          "reinstall_access": {
+            "type": "string",
+            "enum": [
+              "fresh_grant_required",
+              "outside_app_lifecycle",
+              "not_restored"
+            ]
+          }
+        },
+        "required": [
+          "retention_class",
+          "label",
+          "description",
+          "uninstall_behavior",
+          "owner_controls",
+          "reinstall_access"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "retention_policy_version",
+    "classes"
+  ],
+  "additionalProperties": false
+}

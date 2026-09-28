@@ -1,0 +1,16 @@
+{
+  "corpus_version": 3,
+  "fixtures": [
+    { "fixture_id": "ordinary-one-role", "fixture_class": "ordinary", "applicable_purposes": ["interview_assist", "general_resume_draft", "job_description_analyze", "requirement_evidence_match", "tailoring_plan", "targeted_resume_draft", "resume_revision_classify", "resume_revision_draft", "resume_guidance", "resume_strategy", "resume_craft_evaluate", "resume_craft_repair"] },
+    { "fixture_id": "sparse-career", "fixture_class": "sparse", "applicable_purposes": ["resume_guidance"] },
+    { "fixture_id": "long-many-role-history", "fixture_class": "long_many_role", "applicable_purposes": ["resume_strategy"] },
+    { "fixture_id": "career-change-gap-overlap", "fixture_class": "career_change_gap_overlap", "applicable_purposes": ["resume_strategy"] },
+    { "fixture_id": "missing-optional-fields", "fixture_class": "missing_optional", "applicable_purposes": ["resume_strategy", "general_resume_draft"] },
+    { "fixture_id": "large-evidence-long-output", "fixture_class": "large_long_output", "applicable_purposes": ["resume_strategy"] },
+    { "fixture_id": "ambiguous-conflicting-evidence", "fixture_class": "ambiguous_conflicting", "applicable_purposes": ["requirement_evidence_match", "tailoring_plan"] },
+    { "fixture_id": "unicode-non-english", "fixture_class": "unicode_non_english", "applicable_purposes": ["job_description_analyze", "general_resume_draft"] },
+    { "fixture_id": "adversarial-source", "fixture_class": "adversarial", "applicable_purposes": ["job_description_analyze"] },
+    { "fixture_id": "structure-extra-prose", "fixture_class": "structure_deviation", "applicable_purposes": ["general_resume_draft"] },
+    { "fixture_id": "structure-schema-drift", "fixture_class": "structure_deviation", "applicable_purposes": ["interview_assist"] }
+  ]
+}

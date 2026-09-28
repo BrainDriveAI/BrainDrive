@@ -1,0 +1,111 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-presentation-profile.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "profile_version": {
+          "type": "number",
+          "const": 1
+        },
+        "presentation_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "type": {
+          "type": "string",
+          "const": "surface"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "resource_uri": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^ui:\\/\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/[a-z0-9][a-z0-9._/-]*$"
+        },
+        "owner_visibility": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary",
+            "internal"
+          ]
+        }
+      },
+      "required": [
+        "profile_version",
+        "presentation_id",
+        "type",
+        "label",
+        "description",
+        "resource_uri",
+        "owner_visibility"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "profile_version": {
+          "type": "number",
+          "const": 1
+        },
+        "presentation_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "type": {
+          "type": "string",
+          "const": "chat_workspace"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "workspace_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "owner_visibility": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary",
+            "internal"
+          ]
+        }
+      },
+      "required": [
+        "profile_version",
+        "presentation_id",
+        "type",
+        "label",
+        "description",
+        "workspace_id",
+        "owner_visibility"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

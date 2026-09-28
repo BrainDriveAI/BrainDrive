@@ -1,0 +1,83 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/inference-outcome-metadata.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "stage": {
+      "type": "string",
+      "enum": [
+        "request_validation",
+        "compatibility_preflight",
+        "provider_resolution",
+        "provider_request",
+        "finish_reason",
+        "structured_parse",
+        "output_schema_validation",
+        "deterministic_validation",
+        "recovery",
+        "persistence",
+        "cancellation",
+        "completed",
+        "internal"
+      ]
+    },
+    "finish_category": {
+      "type": "string",
+      "enum": [
+        "stop",
+        "length",
+        "content_filter",
+        "refusal",
+        "tool_calls",
+        "unknown",
+        "missing"
+      ]
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "recovery_class": {
+      "type": "string",
+      "enum": [
+        "none",
+        "provider_structural_repair",
+        "provider_validation_repair",
+        "deterministic_fallback",
+        "host_owned_zero_call"
+      ]
+    },
+    "completion_mode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "primary",
+        "provider_repair",
+        "deterministic_fallback",
+        "host_owned"
+      ]
+    },
+    "final_disposition": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    }
+  },
+  "required": [
+    "stage",
+    "finish_category",
+    "attempt_count",
+    "retryable",
+    "recovery_class",
+    "completion_mode",
+    "final_disposition"
+  ],
+  "additionalProperties": false
+}

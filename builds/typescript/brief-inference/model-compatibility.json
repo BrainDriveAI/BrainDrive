@@ -1,0 +1,20 @@
+{
+  "registry_version": 1,
+  "entries": [
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "brief.generate",
+      "output_schema_id": "brief.generate.output.v1",
+      "compatible": true,
+      "prompt_policy_id": "brief.generate.fixed.v2",
+      "validation_policy_id": "brief.grounding.v1",
+      "fixture_corpus_digest": "sha256:52e9600b4ba05f64f9846ee0dee21f300b690f438e5b6ecfaa962831fd988e0a",
+      "tested_at": "2026-08-13T16:54:29.461Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 9176
+    }
+  ]
+}

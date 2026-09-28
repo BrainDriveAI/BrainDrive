@@ -13,7 +13,7 @@ test.describe("Mobile layout regression", () => {
     await loginAsLocalUser(page);
   });
 
-  test("header stays visible on page load", async ({ page }) => {
+  test("header and composer stay pinned on page load", async ({ page }) => {
     // Hamburger menu button
     const menuButton = page.getByRole("button", { name: "Open navigation menu" });
     await expect(menuButton).toBeVisible();
@@ -26,9 +26,7 @@ test.describe("Mobile layout regression", () => {
     const headerBox = await menuButton.boundingBox();
     expect(headerBox).toBeTruthy();
     expect(headerBox!.y).toBeLessThan(100);
-  });
 
-  test("composer stays pinned at bottom", async ({ page }) => {
     const viewport = page.viewportSize()!;
 
     // Composer textarea is visible

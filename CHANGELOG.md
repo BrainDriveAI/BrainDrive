@@ -1,3 +1,18 @@
+## [Unreleased]
+
+### Added
+- Resume Builder now preserves exact interview drafts, guides owners through evidence for each job, supports remembered-detail successors and accessible version comparison, and accepts grounded natural-language revisions.
+- Approved resumes now keep deterministic clean text available alongside confirmed Copy, `.txt`, and PDF actions, with evidence-cited strengths and gaps guidance.
+
+### Changed
+- Resume Builder approvals, rendering, export, and Career publication now enforce the same deterministic quality evidence across every successor version.
+
+### Fixed
+- Resume Builder retries, concurrent saves, response loss, migration, and lifecycle recovery now retain immutable owner history without treating failed or ambiguous work as saved or approved.
+
+### Removed
+- No user-facing removals.
+
 ## [26.7.23] - 2026-07-23
 
 ### Added

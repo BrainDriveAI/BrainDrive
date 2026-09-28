@@ -80,6 +80,9 @@ pnpm-debug.log*
 *.pid.lock
 *.lcov
 
+# Local scratch artifacts from manual verification and agent runs
+.tmp/
+
 # Environment files and local secrets
 .env
 .env.*
@@ -89,6 +92,7 @@ builds/typescript/.env
 installer/docker/.env
 /builds/typescript/.paa-secrets*
 /builds/typescript/your-memory*
+/builds/typescript/app-platform-host/
 builds/typescript/.reset-backups/
 builds/typescript/.your-memory.root-owned.backup/
 

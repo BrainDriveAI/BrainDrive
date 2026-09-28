@@ -21,6 +21,8 @@ Developer routes: [developer documentation index](../../../docs/developers/READM
 
 Runtime data comes from the gateway. Unit and component tests mock API boundaries, but the running application does not use mock users, conversations, or projects.
 
+App-published project documents use the normal read-only `DocumentView`. Optional validated quality metadata appears as a bordered text status in the document header with an accessible name; it never changes the Markdown body or enables editing. Files without this metadata retain the existing generic document behavior.
+
 ## How It Fits
 
 ```text
@@ -90,8 +92,11 @@ Run these from `builds/typescript/client_web/`:
 | `npm run preview` | Serve the production bundle locally |
 | `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
 | `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
+| `npm run test:e2e:browser-access` | Build and test expired-token app launch through the real LAN bridge on non-loopback HTTP |
 
-Playwright commands use `scripts/run-isolated-e2e.mjs`. The runner creates disposable memory, secrets, local-auth, gateway, Vite, and artifact roots; seeds a synthetic local account; selects credential-free Ollama only to suppress provider onboarding; runs the requested projects; and removes only its temporary root. Install the Playwright browsers first, then use `npm run test:e2e` or `npm run test:e2e:mobile`. No provider credential or running model is required for the layout/auth-shell checks. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
+Playwright commands use `scripts/run-isolated-e2e.mjs`. The runner creates disposable memory, secrets, local-auth, gateway, web, and artifact roots; seeds a synthetic local account; selects credential-free Ollama only to suppress provider onboarding; runs the requested projects; and removes only its temporary root. The browser-access command serves the production bundle through the real LAN bridge and requires a reachable non-loopback IPv4 interface. Install the Playwright browsers first. No provider credential or running model is required for these checks. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
+
+By default the runner is disposable with no artifacts retained. An explicitly authorized synthetic evidence run may set `BRAINDRIVE_E2E_RETAIN_EVIDENCE_ROOT` to an absolute external task-owned directory. That opt-in retains only the three allowlisted synthetic screenshots (`resume-builder-owner-review.png`, `resume-builder-career-preview.png`, and `resume-builder-version-comparison.png`), strict content-free recovery and inference manifests (`spec10-browser-recovery-matrix.json` and `spec10-browser-inference-matrix.json`) when their focused tests are selected, and a content-free `sanitized-browser-run.json` summary. Each manifest must pass the runner's exact IDs, fields, counters, states, and size validation before it is copied. The raw Playwright trace is never retained because it may contain credentials, loopback endpoints, or private temporary paths. The task owner is responsible for reviewing and later removing the external evidence directory.
 
 ## Runtime Integration
 
@@ -106,6 +111,8 @@ The client is wired to the current gateway and desktop runtime:
 - `src/api/desktop-browser-access.ts` and `src/api/desktop-tailscale-access.ts` bridge desktop-only remote-access controls.
 
 Keep gateway request and response normalization inside `src/api/`. Components should consume adapter or hook interfaces rather than constructing backend URLs directly.
+
+The Apps surface loads the deterministic host catalog from `/api/apps` and renders every verified first-party entry through one card component. Cards default to the compact view, which retains app identity, status, description, and lifecycle controls while hiding trust, capability, and retention details; owners can reveal those sections with the detail toggle. Each card uses compact host-authored description copy and exposes the verified package summary in an accessible hover/focus tooltip when available. Lifecycle and session calls use the host route key from that catalog; card text remains plain React text, privileged controls come only from `available_actions`, and per-app busy/error/session state cannot disable an unrelated card. After the owner first opens Apps, the shell keeps that workspace mounted but hidden during navigation to other BrainDrive surfaces. Returning to Apps therefore restores the same selected iframe and unsaved in-memory UI state; temporarily hiding the browser tab is also non-terminal. Explicit Close, page teardown, lifecycle invalidation, and host expiry retain their existing teardown behavior. The sandbox frame keeps the opaque-origin proxy, CSP, nonce/window checks, and bridge limits while labeling the selected app generically. Consequential capability confirmations use a host-authored capability identity/title/action projection. For the current Resume Builder evaluation, the owner's in-app action automatically completes the host confirmation replay for an exact allowlist of Resume data mutations, eliminating the redundant second dialog without changing server enforcement; Brief Builder and host export, clipboard, and external-link confirmations remain explicit. Resume export, Career return, and model-settings recovery remain explicit trusted Resume adapters and are not inherited by other apps.
 
 ## Runtime Modes
 
@@ -198,3 +205,5 @@ Use focused Vitest runs while iterating, then run the complete web suite before 
 ## License
 
 BrainDrive is licensed under the [MIT License](../../../LICENSE).
+
+The generic sandbox confirmation dialog consumes host-reviewed presentation for both first-party apps. Brief Builder's product workflow remains inside its signed one-screen package; the shell contributes only app-keyed transport, isolation, and owner confirmation.

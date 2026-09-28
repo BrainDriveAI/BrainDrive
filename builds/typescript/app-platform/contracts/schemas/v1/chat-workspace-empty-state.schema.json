@@ -1,0 +1,53 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/chat-workspace-empty-state.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "empty_state_version": {
+      "type": "number",
+      "const": 1
+    },
+    "heading": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "cta_label": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cta_message": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "empty_state_version",
+    "heading",
+    "description",
+    "cta_label",
+    "cta_message"
+  ],
+  "additionalProperties": false
+}
