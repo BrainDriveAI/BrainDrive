@@ -32,9 +32,9 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
 };
 
 // AC-11.4 requires the stall state by 60 seconds without progress. Trigger it
-// one second early to leave room for browser scheduling and the next paint;
-// the shared surface therefore meets the owner-visible deadline consistently.
-const STALL_NOTICE_AFTER_MS = 59_000;
+// with a small scheduling margin because the shared surface begins measuring
+// after the request enters the async chat lifecycle, not at the click event.
+const STALL_NOTICE_AFTER_MS = 58_000;
 const OPERATION_STATUS_POLL_MS = 100;
 
 function formatToolStatus(toolName: string): string {
