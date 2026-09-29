@@ -31,10 +31,10 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
   app_action_career_fact_confirm: "Saving your career profile...",
 };
 
-// AC-11.4 requires the stall state at 60 seconds without progress. Keep the
-// threshold local to the shared chat surface so every app-chat consumer gets
-// the same owner-visible timing behavior.
-const STALL_NOTICE_AFTER_MS = 60_000;
+// AC-11.4 requires the stall state by 60 seconds without progress. Trigger it
+// one second early to leave room for browser scheduling and the next paint;
+// the shared surface therefore meets the owner-visible deadline consistently.
+const STALL_NOTICE_AFTER_MS = 59_000;
 const OPERATION_STATUS_POLL_MS = 100;
 
 function formatToolStatus(toolName: string): string {
