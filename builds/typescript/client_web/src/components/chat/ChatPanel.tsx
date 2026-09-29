@@ -111,6 +111,7 @@ export default function ChatPanel({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [operationAgeMs, setOperationAgeMs] = useState(0);
+  const [ownerOperationStartedAtMs, setOwnerOperationStartedAtMs] = useState<number | null>(null);
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
@@ -119,7 +120,7 @@ export default function ChatPanel({
   const {
     messages,
     isLoading,
-    operationStartedAtMs,
+    operationStartedAtMs: gatewayOperationStartedAtMs,
     error,
     errorCode,
     conversationId,
@@ -136,9 +137,16 @@ export default function ChatPanel({
     onStreamEvent,
   });
 
+  const operationStartedAtMs = ownerOperationStartedAtMs ?? gatewayOperationStartedAtMs;
+
+  function beginOwnerOperation() {
+    setOwnerOperationStartedAtMs(Date.now());
+  }
+
   useEffect(() => {
     if (!queuedMessage || queuedMessage.id === lastQueuedMessageIdRef.current) return;
     lastQueuedMessageIdRef.current = queuedMessage.id;
+    beginOwnerOperation();
     append(queuedMessage.content, { metadata: messageMetadata });
     onSendMessage?.();
   }, [append, messageMetadata, onSendMessage, queuedMessage]);
@@ -227,6 +235,9 @@ export default function ChatPanel({
 
   useEffect(() => {
     if (!isLoading || operationStartedAtMs === null) {
+      if (!isLoading) {
+        setOwnerOperationStartedAtMs(null);
+      }
       setOperationAgeMs(0);
       return;
     }
@@ -313,6 +324,7 @@ export default function ChatPanel({
       return;
     }
 
+    beginOwnerOperation();
     append(replayContent, {
       metadata: {
         ...messageMetadata,
@@ -332,6 +344,7 @@ export default function ChatPanel({
 
   const composerProps = {
     onSend: (message: string) => {
+      beginOwnerOperation();
       onSendMessage?.();
       append(message, { metadata: messageMetadata });
     },
@@ -385,7 +398,10 @@ export default function ChatPanel({
             <EmptyState
               projectId={activeProjectId}
               intro={emptyStateIntro}
-              onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
+              onSuggestionClick={(suggestion) => {
+                beginOwnerOperation();
+                append(suggestion, { metadata: messageMetadata });
+              }}
             />
           ) : (
             <MessageList
