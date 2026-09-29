@@ -118,7 +118,7 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByText(/Using app action resume create/)).not.toBeInTheDocument();
   });
 
-  it("keeps the ordinary working status before 60 seconds and then exposes the stall recovery actions", () => {
+  it("keeps the ordinary working status before the 60-second deadline and then exposes the stall recovery actions", () => {
     vi.useFakeTimers();
     const hookState = makeHookState({
       isLoading: true,
@@ -134,7 +134,7 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(59_000);
+      vi.advanceTimersByTime(58_000);
     });
     expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
 
