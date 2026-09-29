@@ -34,6 +34,7 @@ function toError(error: unknown): Error {
 type ConversationState = {
   messages: Message[];
   isLoading: boolean;
+  operationStartedAtMs: number | null;
   error: Error | null;
   errorCode: string | null;
   toolStatus: string | null;
@@ -89,6 +90,7 @@ type RecoveryQueueEntry = {
 export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   messages: Message[];
   isLoading: boolean;
+  operationStartedAtMs: number | null;
   error: Error | null;
   errorCode: string | null;
   conversationId: string | null;
@@ -114,6 +116,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? externalMessages);
   const [isLoading, setIsLoading] = useState(cached?.isLoading ?? false);
+  const [operationStartedAtMs, setOperationStartedAtMs] = useState<number | null>(
+    cached?.operationStartedAtMs ?? null
+  );
   const [error, setError] = useState<Error | null>(cached?.error ?? null);
   const [errorCode, setErrorCode] = useState<string | null>(cached?.errorCode ?? null);
   const [conversationId, setConversationId] = useState<string | null>(
@@ -158,6 +163,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       abortControllerRef.current = null;
 
       setIsLoading(false);
+      setOperationStartedAtMs(null);
       setError(null);
       setErrorCode(null);
       setToolStatus(null);
@@ -181,6 +187,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       backgroundStates.set(prevKey, {
         messages: messages,
         isLoading,
+        operationStartedAtMs,
         error,
         errorCode,
         toolStatus,
@@ -202,6 +209,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     if (restored) {
       setMessages(restored.messages);
       setIsLoading(restored.isLoading);
+      setOperationStartedAtMs(restored.operationStartedAtMs);
       setError(restored.error);
       setErrorCode(restored.errorCode);
       setToolStatus(restored.toolStatus);
@@ -221,6 +229,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       // effect repopulates the correct history once async fetch completes.
       setMessages(EMPTY_MESSAGES);
       setIsLoading(false);
+      setOperationStartedAtMs(null);
       setError(null);
       setErrorCode(null);
       setToolStatus(null);
@@ -293,6 +302,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setIsLoading(false);
+    setOperationStartedAtMs(null);
   }
 
   function startNewConversation() {
@@ -304,6 +314,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
     setMessages(EMPTY_MESSAGES);
     setIsLoading(false);
+    setOperationStartedAtMs(null);
     setError(null);
     setErrorCode(null);
     setToolStatus(null);
@@ -357,7 +368,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
       setError(null);
       setErrorCode(null);
+      const startedAtMs = Date.now();
       setIsLoading(true);
+      setOperationStartedAtMs(startedAtMs);
       setToolStatus("Running slash command...");
       if (echoUserMessage) {
         setMessages((current) => [...current, userMessage]);
@@ -383,6 +396,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           setToolStatus(null);
         } finally {
           setIsLoading(false);
+          setOperationStartedAtMs(null);
         }
       })();
 
@@ -422,7 +436,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
     setError(null);
     setErrorCode(null);
+    const startedAtMs = Date.now();
     setIsLoading(true);
+    setOperationStartedAtMs(startedAtMs);
     setContextWindowWarning(null);
     if (echoUserMessage) {
       setMessages((current) => [...current, userMessage]);
@@ -591,6 +607,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 updateBackground(() => ({
                   toolStatus: null,
                   isLoading: false,
+                  operationStartedAtMs: null,
                   error: null,
                   errorCode: null,
                   conversationId: event.conversation_id ?? null,
@@ -619,6 +636,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 updateBackground(() => ({
                   toolStatus: null,
                   isLoading: false,
+                  operationStartedAtMs: null,
                   error: new Error(event.message),
                   errorCode: event.code,
                 }));
@@ -675,6 +693,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                   updateBackground(() => ({
                     toolStatus: null,
                     isLoading: false,
+                    operationStartedAtMs: null,
                     error: toError(approvalError),
                     errorCode: null,
                   }));
@@ -708,6 +727,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           } else {
             updateBackground(() => ({
               isLoading: false,
+              operationStartedAtMs: null,
               error: new Error("The model connection was interrupted before the response finished."),
               errorCode: "stream_incomplete",
             }));
@@ -720,6 +740,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         if (!isActive()) {
           updateBackground(() => ({
             isLoading: false,
+            operationStartedAtMs: null,
             error: toError(caughtError),
             errorCode: null,
           }));
@@ -752,6 +773,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           }
 
           setIsLoading(false);
+          setOperationStartedAtMs(null);
         }
       }
     })();
@@ -799,6 +821,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   return {
     messages,
     isLoading,
+    operationStartedAtMs,
     error,
     errorCode,
     conversationId,

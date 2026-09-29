@@ -119,6 +119,7 @@ export default function ChatPanel({
   const {
     messages,
     isLoading,
+    operationStartedAtMs,
     error,
     errorCode,
     conversationId,
@@ -225,16 +226,16 @@ export default function ChatPanel({
   }, [error, historyError]);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading || operationStartedAtMs === null) {
       setOperationAgeMs(0);
       return;
     }
-    const startedAt = Date.now();
-    const update = () => setOperationAgeMs(Date.now() - startedAt);
+    const startedAt = operationStartedAtMs ?? Date.now();
+    const update = () => setOperationAgeMs(Math.max(0, Date.now() - startedAt));
     update();
     const timer = window.setInterval(update, OPERATION_STATUS_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [isLoading]);
+  }, [isLoading, operationStartedAtMs]);
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && conversationId) {
