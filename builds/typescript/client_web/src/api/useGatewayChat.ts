@@ -604,7 +604,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               }
               if (!receivedAssistantText && isProviderRecoveryError(event.message, event.code)) {
                 const recoveryMessageId = retryOfMessageId ?? userMessage.id;
-                markMessageWaiting(recoveryMessageId, recoveryMessageId);
+                markMessageWaiting(recoveryMessageId);
                 recoveryQueueRef.current = [
                   ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
                   { content: trimmed, messageId: recoveryMessageId },
@@ -737,7 +737,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         }
         if (!receivedAssistantText && isProviderRecoveryError(toError(caughtError).message, null)) {
           const recoveryMessageId = retryOfMessageId ?? userMessage.id;
-          markMessageWaiting(recoveryMessageId, recoveryMessageId);
+          markMessageWaiting(recoveryMessageId);
           recoveryQueueRef.current = [
             ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
             { content: trimmed, messageId: recoveryMessageId },
@@ -757,7 +757,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     })();
   }
 
-  function markMessageWaiting(messageId: string, _logicalMessageId: string) {
+  function markMessageWaiting(messageId: string) {
     const update = (current: Message[]) => current.map((message) => message.id === messageId ? { ...message, status: "waiting_for_model" as const } : message);
     if (cacheKeyRef.current === cacheKey) {
       setMessages(update);

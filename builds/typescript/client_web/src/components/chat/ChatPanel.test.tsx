@@ -309,7 +309,7 @@ describe("ChatPanel typing indicator behavior", () => {
     const hookState = makeHookState();
     useGatewayChatMock.mockReturnValue(hookState);
     const draftKey = "braindrive:app-chat-conversation:resume-builder:owner:install:workspace";
-    window.localStorage.setItem(draftKey, "conversation-123");
+    window.localStorage.setItem(draftKey, "existing-conversation");
 
     render(
       <ChatPanel
@@ -321,7 +321,7 @@ describe("ChatPanel typing indicator behavior", () => {
 
     await user.type(screen.getAllByPlaceholderText("Message your BrainDrive...")[0]!, "Persist my unsent draft");
 
-    expect(window.localStorage.getItem(draftKey)).toBe("conversation-123");
+    expect(window.localStorage.getItem(draftKey)).toBe("existing-conversation");
     expect(window.localStorage.getItem(`${draftKey}:composer`)).toBe("Persist my unsent draft");
     expect(hookState.append).not.toHaveBeenCalled();
 
