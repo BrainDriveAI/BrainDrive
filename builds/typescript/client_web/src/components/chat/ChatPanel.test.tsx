@@ -134,7 +134,7 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(57_000);
+      vi.advanceTimersByTime(54_000);
     });
     expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
 
