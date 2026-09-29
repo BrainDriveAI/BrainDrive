@@ -31,7 +31,10 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
   app_action_career_fact_confirm: "Saving your career profile...",
 };
 
-const STALL_NOTICE_AFTER_MS = 30_000;
+// AC-11.4 requires the stall state at 60 seconds without progress. Keep the
+// threshold local to the shared chat surface so every app-chat consumer gets
+// the same owner-visible timing behavior.
+const STALL_NOTICE_AFTER_MS = 60_000;
 
 function formatToolStatus(toolName: string): string {
   if (toolName.startsWith("Approval")) {

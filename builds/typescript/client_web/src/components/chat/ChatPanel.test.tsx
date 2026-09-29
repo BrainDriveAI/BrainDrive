@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Message } from "@/types/ui";
@@ -48,6 +48,10 @@ describe("ChatPanel typing indicator behavior", () => {
   beforeEach(() => {
     useGatewayChatMock.mockReset();
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("shows typing indicator before first assistant delta", () => {
@@ -112,6 +116,34 @@ describe("ChatPanel typing indicator behavior", () => {
 
     expect(screen.getByText("Creating your resume...")).toBeInTheDocument();
     expect(screen.queryByText(/Using app action resume create/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the ordinary working status before 60 seconds and then exposes the stall recovery actions", () => {
+    vi.useFakeTimers();
+    const hookState = makeHookState({
+      isLoading: true,
+      messages: [{ id: "u-1", role: "user", content: "Wait for the response" }],
+    });
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(<ChatPanel activeConversationId={null} isEmpty={false} />);
+
+    expect(screen.getByText("Thinking...")).toBeInTheDocument();
+    expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(59_000);
+    });
+    expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(screen.getByText("This response is taking longer than expected. You can cancel it or try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
   });
 
   it("renders host status notices in the conversation stream", () => {
