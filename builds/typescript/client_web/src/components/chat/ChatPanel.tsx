@@ -35,6 +35,7 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
 // threshold local to the shared chat surface so every app-chat consumer gets
 // the same owner-visible timing behavior.
 const STALL_NOTICE_AFTER_MS = 60_000;
+const OPERATION_STATUS_POLL_MS = 100;
 
 function formatToolStatus(toolName: string): string {
   if (toolName.startsWith("Approval")) {
@@ -231,7 +232,7 @@ export default function ChatPanel({
     const startedAt = Date.now();
     const update = () => setOperationAgeMs(Date.now() - startedAt);
     update();
-    const timer = window.setInterval(update, 1_000);
+    const timer = window.setInterval(update, OPERATION_STATUS_POLL_MS);
     return () => window.clearInterval(timer);
   }, [isLoading]);
 
