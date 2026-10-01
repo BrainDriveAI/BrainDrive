@@ -213,7 +213,8 @@ function createAppChatActionTools(
             actionInput,
             operationId,
             idempotencyKey,
-            ownerConfirmed: descriptor.confirmation !== "none",
+            // A model render request cannot attest to an owner's gate choice.
+            ownerConfirmed: descriptor.kind !== "render" && descriptor.confirmation !== "none",
             modelCallId: context.modelCallId ?? null,
           });
           const resultValidationErrors = validateJsonValueAgainstActionSchema(result, descriptor.result_schema.schema);

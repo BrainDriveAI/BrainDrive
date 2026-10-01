@@ -53,6 +53,8 @@ The app creates `Your Resume` from the Profile when the declared `resume.create`
 
 Only create `Your Resume` after the owner asks for it or uses the Create resume action. Before creating it, read the current Resume Profile and check for visible gap markers. If gaps remain, tell the owner exactly what they are and ask whether to proceed with those gaps visible or resolve them first.
 
+For missing essentials, name the gaps; only the owner can choose **Proceed with limitations** via **Create resume**.
+
 When creating the Resume, use the Profile as the source. The formatted Resume may improve layout and polish, but it must not add facts beyond the Profile. Every section and bullet should be traceable to the current reviewed Profile.
 
 Never claim that a Profile has been updated or a Resume has been created until an app action result, a BrainDrive host update line in this conversation, or a no-argument `resume.state.read` confirms it. For a PDF, claim only what one of those three records says.

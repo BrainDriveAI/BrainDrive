@@ -218,6 +218,8 @@ describe("SCAF-007 self-contained installed app proof", () => {
         operation_id: profileOperationId,
         idempotency_key: `scaf-007-profile-action-${profileOperationId}`,
       })).resolves.toMatchObject({ status: "ok" });
+      const profileBeforeRender = await host.readAppDocument(launch.session.session_id, "resume.profile");
+      const callsBeforeModelCreate = vi.mocked(router.execute).mock.calls.length;
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
         action_input: { missing_essential_disposition: "proceed_with_limitations" },
         operation_id: createOperationId,
@@ -227,6 +229,33 @@ describe("SCAF-007 self-contained installed app proof", () => {
         output: { action_id: "resume.create", operation_id: createOperationId },
       });
 
+      // A model-supplied disposition must return the gate without creating a revision.
+      expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeModelCreate);
+      const gate = await host.readAppDocument(launch.session.session_id, "resume.action-result");
+      expect(gate).toMatchObject({ record: { content: {
+        status: "missing_essentials",
+        missing_essentials: expect.arrayContaining([expect.objectContaining({ label: "Experience" })]),
+      } } });
+      const resumeBeforeOwner = await host.readAppDocument(launch.session.session_id, "resume.document");
+      expect(resumeBeforeOwner).toMatchObject({ record: { revision: 1 } });
+      // A plain request also surfaces the gate and preserves the existing Resume.
+      const plainOperationId = randomUUID();
+      await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
+        action_input: {}, operation_id: plainOperationId,
+        idempotency_key: `plain-gate-request-${plainOperationId}`,
+      })).resolves.toMatchObject({ status: "ok", output: { result: { record: { content: { status: "missing_essentials" } } } } });
+      expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeModelCreate);
+      expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toEqual(resumeBeforeOwner);
+      const ownerOperationId = randomUUID();
+      await host.executeAppChatAction(launch.session.session_id, "resume.create", {
+        action_input: { missing_essential_disposition: "proceed_with_limitations" },
+        owner_confirmed: true,
+        operation_id: ownerOperationId,
+        idempotency_key: `owner-gate-proceed-${ownerOperationId}`,
+      }, "owner");
+
+      expect(await host.readAppDocument(launch.session.session_id, "resume.profile")).toEqual(profileBeforeRender);
+      expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toMatchObject({ record: { revision: 2 } });
       const calls = vi.mocked(router.execute).mock.calls;
       expect(calls.at(-2)).toEqual([
         "resume.definitions.write",

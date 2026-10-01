@@ -549,7 +549,11 @@ export class ResumeAppHostAdapter {
       storedPackage: descriptor.storedPackage!,
       contextProjection,
       resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
-      executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest(actionRequest),
+      executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest({
+        ...actionRequest,
+        // Only the owner action endpoint can authorize a render with limitations.
+        ownerConfirmed: actionRequest.action.kind === "render" ? false : actionRequest.ownerConfirmed,
+      }),
     });
     return {
       prompt_context: context.promptContext,

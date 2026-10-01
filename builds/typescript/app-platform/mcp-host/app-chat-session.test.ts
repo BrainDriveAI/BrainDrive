@@ -681,15 +681,12 @@ describe("app-chat workspace session authority", () => {
       media_type: "text/markdown",
       content: "# Jordan Lee\n\n## Summary\nProduct leader.",
     });
-    await expect(executor.execute(ownerAuth, {
-      memoryRoot: "/tmp/brain",
-      auth: ownerAuth,
-      correlationId: "rbjc-state-create",
-    }, "app_action_resume_create", {
+    await host.executeAppChatAction(launch.session.session_id, "resume.create", {
       action_input: { missing_essential_disposition: "proceed_with_limitations" },
+      owner_confirmed: true,
       operation_id: randomUUID(),
       idempotency_key: `state-create-${randomUUID()}`,
-    })).resolves.toMatchObject({ status: "ok" });
+    }, "owner");
     const bytes = Buffer.from("%PDF-1.4\n", "latin1");
     const prepared = await host.requestAppExport({
       request_version: 1,
@@ -2110,15 +2107,12 @@ describe("app-chat workspace session authority", () => {
       action_input: profileInput,
     })).resolves.toMatchObject({ status: "ok" });
 
-    await expect(executor.execute(ownerAuth, {
-      memoryRoot: "/tmp/brain",
-      auth: ownerAuth,
-      correlationId: "rbjc-dispatch",
-    }, "app_action_resume_create", {
+    await host.executeAppChatAction(launch.session.session_id, "resume.create", {
       action_input: { missing_essential_disposition: "proceed_with_limitations" },
+      owner_confirmed: true,
       operation_id: createOperationId,
       idempotency_key: `rbjc-dispatch-${createOperationId}`,
-    })).resolves.toMatchObject({ status: "ok" });
+    }, "owner");
 
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
       1,
