@@ -363,8 +363,9 @@ describe("live signed modern MCP Apps fixture", () => {
         "resume.state.read",
       ]);
       expect(actions.find((action) => action.action_id === "resume.export.pdf.request")).toMatchObject({
-        title: "Export PDF from chat",
-        description: expect.stringContaining("never call this to answer about a finished export"),
+        title: "Export PDF",
+        model_exposure: "hidden",
+        description: expect.stringContaining("owner's Export PDF button"),
       });
       expect(actions.find((action) => action.action_id === "resume.state.read")).toMatchObject({
         title: "Read Resume State",

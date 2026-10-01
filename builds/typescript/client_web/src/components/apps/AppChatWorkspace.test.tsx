@@ -285,7 +285,7 @@ function withDirectResumeActions(current: appsApi.AppChatWorkspaceLaunch): appsA
           result_schema_id: "resume.create.result",
           confirmation: "owner_confirmation",
           idempotency_policy: "required",
-          model_exposure: "available",
+          model_exposure: "hidden",
         },
         {
           action_version: 1,
@@ -297,7 +297,7 @@ function withDirectResumeActions(current: appsApi.AppChatWorkspaceLaunch): appsA
           result_schema_id: "resume.export.pdf.result",
           confirmation: "trusted_owner_confirmation",
           idempotency_policy: "required",
-          model_exposure: "available",
+          model_exposure: "hidden",
         },
       ],
     },
@@ -735,7 +735,7 @@ describe("AppChatWorkspace", () => {
     ));
   });
 
-  it("does not report Create success until the missing-essentials gate is explicitly accepted", async () => {
+  it.each(["Proceed with limitations", "Edit the Profile", "Return to chat"])("names every missing item and honors the owner gate choice: %s", async (choice) => {
     const current = withDirectResumeActions(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
     vi.mocked(appsApi.executeAppChatWorkspaceAction)
@@ -748,12 +748,12 @@ describe("AppChatWorkspace", () => {
           record: {
             content: {
               status: "missing_essentials",
-              missing_essentials: [{ label: "Contact identity" }, { label: "Experience details" }],
+              missing_essentials: [{ label: "Contact identity" }, { label: "Experience details" }, { label: "Unresolved gap: employer and role" }],
             },
           },
         },
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         action_id: "resume.create",
         operation_id: "00000000-0000-4000-8000-000000000732",
         idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000732",
@@ -768,8 +768,22 @@ describe("AppChatWorkspace", () => {
     await user.click(await screen.findByRole("button", { name: "Create resume" }));
     expect(await screen.findByText(/Resume creation is paused/)).toBeInTheDocument();
     expect(appsApi.appendConversationHostMessage).not.toHaveBeenCalled();
+    const gate = screen.getByRole("region", { name: "Missing Profile items" });
+    for (const label of ["Contact identity", "Experience details", "Unresolved gap: employer and role"]) {
+      expect(within(gate).getByText(label)).toBeVisible();
+    }
+    expect(within(gate).getByRole("button", { name: "Edit the Profile" })).toBeVisible();
+    expect(within(gate).getByRole("button", { name: "Return to chat" })).toBeVisible();
+    expect(within(gate).getByText(/honest partial resume/i)).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Proceed with limitations" }));
+    await user.click(within(gate).getByRole("button", { name: choice }));
+    if (choice !== "Proceed with limitations") {
+      if (choice === "Edit the Profile") expect(screen.getByRole("textbox", { name: "Profile content" })).toBeVisible();
+      else expect(await screen.findByText("Conversation transcript")).toBeVisible();
+      expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledTimes(1);
+      expect(appsApi.appendConversationHostMessage).not.toHaveBeenCalled();
+      return;
+    }
     await waitFor(() => expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenLastCalledWith("resume-builder", current.session.session_id, "resume.create", {
       actionInput: { missing_essential_disposition: "proceed_with_limitations" },
       ownerConfirmed: true,

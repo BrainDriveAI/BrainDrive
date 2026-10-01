@@ -155,7 +155,6 @@ describe("SCAF-007 self-contained installed app proof", () => {
         "app_action_career_fact_propose",
         "app_action_career_fact_confirm",
         "app_action_resume_profile_update",
-        "app_action_resume_create",
       ]));
       expect(model.tools.find((tool) => tool.name === "app_action_resume_profile_read")?.inputSchema).toMatchObject({
         properties: {
@@ -165,7 +164,12 @@ describe("SCAF-007 self-contained installed app proof", () => {
           },
         },
       });
-      expect(model.prompt_context).toContain("resume.create");
+      expect(model.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["app_action_resume_create"]));
+      expect(model.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["app_action_resume_export_pdf_request"]));
+      expect(model.evidence.action_exposure).toEqual(expect.arrayContaining([
+        { action_id: "resume.create", tool_name: null, model_exposure: "hidden", exposed: false },
+        { action_id: "resume.export.pdf.request", tool_name: null, model_exposure: "hidden", exposed: false },
+      ]));
       expect(model.prompt_context).not.toMatch(/Bearer\s+[A-Za-z0-9._-]+|\/home\/|[A-Za-z]:\\/i);
       const executor = new ToolExecutor(model.tools);
       const readOperationId = randomUUID();
@@ -177,21 +181,6 @@ describe("SCAF-007 self-contained installed app proof", () => {
         current_topic: null,
       };
       const createOperationId = randomUUID();
-      const resumeCreateTool = model.tools.find((tool) => tool.name === "app_action_resume_create");
-      expect(resumeCreateTool?.inputSchema).toMatchObject({
-        properties: {
-          action_input: {
-            required: [],
-            properties: {
-              locale: { type: "string" },
-              missing_essential_disposition: { enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"], type: "string" },
-              page_intent: { type: "string" },
-            },
-          },
-        },
-      });
-      expect(JSON.stringify(resumeCreateTool?.inputSchema)).not.toContain("resume_markdown");
-
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_read", {
         action_input: {},
         operation_id: readOperationId,
@@ -220,30 +209,28 @@ describe("SCAF-007 self-contained installed app proof", () => {
       })).resolves.toMatchObject({ status: "ok" });
       const profileBeforeRender = await host.readAppDocument(launch.session.session_id, "resume.profile");
       const callsBeforeModelCreate = vi.mocked(router.execute).mock.calls.length;
-      await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
-        action_input: { missing_essential_disposition: "proceed_with_limitations" },
-        operation_id: createOperationId,
-        idempotency_key: `scaf-007-resume-create-${createOperationId}`,
-      })).resolves.toMatchObject({
-        status: "ok",
-        output: { action_id: "resume.create", operation_id: createOperationId },
-      });
-
-      // A model-supplied disposition must return the gate without creating a revision.
+      for (const actionInput of [{}, { missing_essential_disposition: "proceed_with_limitations" }]) {
+        await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
+          action_input: actionInput,
+          operation_id: createOperationId,
+          idempotency_key: `scaf-007-resume-create-${createOperationId}`,
+        })).rejects.toThrow("Unknown tool: app_action_resume_create");
+      }
+      await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_export_pdf_request", {
+        action_input: {},
+      })).rejects.toThrow("Unknown tool: app_action_resume_export_pdf_request");
       expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeModelCreate);
-      const gate = await host.readAppDocument(launch.session.session_id, "resume.action-result");
-      expect(gate).toMatchObject({ record: { content: {
-        status: "missing_essentials",
-        missing_essentials: expect.arrayContaining([expect.objectContaining({ label: "Experience" })]),
-      } } });
       const resumeBeforeOwner = await host.readAppDocument(launch.session.session_id, "resume.document");
       expect(resumeBeforeOwner).toMatchObject({ record: { revision: 1 } });
-      // A plain request also surfaces the gate and preserves the existing Resume.
-      const plainOperationId = randomUUID();
-      await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", {
-        action_input: {}, operation_id: plainOperationId,
-        idempotency_key: `plain-gate-request-${plainOperationId}`,
-      })).resolves.toMatchObject({ status: "ok", output: { result: { record: { content: { status: "missing_essentials" } } } } });
+      const gateOperationId = randomUUID();
+      const gate = await host.executeAppChatAction(launch.session.session_id, "resume.create", {
+        action_input: {}, owner_confirmed: true, operation_id: gateOperationId,
+        idempotency_key: `owner-gate-request-${gateOperationId}`,
+      }, "owner");
+      expect(gate).toMatchObject({ result: { record: { content: {
+        status: "missing_essentials",
+        missing_essentials: expect.arrayContaining([expect.objectContaining({ label: "Experience" })]),
+      } } } });
       expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeModelCreate);
       expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toEqual(resumeBeforeOwner);
       const ownerOperationId = randomUUID();
@@ -308,6 +295,24 @@ describe("SCAF-007 self-contained installed app proof", () => {
         }),
         expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
       ]);
+
+      await executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_update", {
+        action_input: { ...profileActionInput, profile_markdown: "# Maya Torres\n\n## Contact\nmaya@example.test\n\n## Experience\n- Product operations leader at Example Co, 2020–2026." },
+      });
+      const completeProfile = await host.readAppDocument(launch.session.session_id, "resume.profile");
+      const resumeBeforeCompleteRequest = await host.readAppDocument(launch.session.session_id, "resume.document");
+      const callsBeforeCompleteRequest = vi.mocked(router.execute).mock.calls.length;
+      await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_create", { action_input: {} }))
+        .rejects.toThrow("Unknown tool: app_action_resume_create");
+      expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeCompleteRequest);
+      expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toEqual(resumeBeforeCompleteRequest);
+      const completeOperationId = randomUUID();
+      await host.executeAppChatAction(launch.session.session_id, "resume.create", {
+        action_input: {}, owner_confirmed: true, operation_id: completeOperationId,
+        idempotency_key: `owner-complete-create-${completeOperationId}`,
+      }, "owner");
+      expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toMatchObject({ record: { revision: 3 } });
+      expect(await host.readAppDocument(launch.session.session_id, "resume.profile")).toEqual(completeProfile);
     } finally {
       await app.close();
       await host.closeAll();

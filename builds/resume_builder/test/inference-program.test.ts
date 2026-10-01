@@ -292,6 +292,26 @@ describe("Resume Builder-owned General draft inference program", () => {
     ["shipped resource", planResumeAction],
     ["source", planSourceResumeAction],
   ])("%s missing-essentials owner authorization", (_name, planner) => {
+    it.each([{}, { missing_essential_disposition: "proceed_with_limitations" }])("rejects model Create for a complete Profile: %j", (actionInput) => {
+      const operationId = crypto.randomUUID();
+      expect(() => planner({
+        action_id: "resume.create",
+        action_input: actionInput,
+        owner_confirmed: false,
+        operation_id: operationId,
+        idempotency_key: `complete-profile-model-${operationId}`,
+        occurred_at: "2026-10-01T12:00:00.000Z",
+        session: {
+          session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+          app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+        },
+        documents: [{
+          document_id: "resume.profile",
+          content: "# Maya Torres\n\n## Contact\nmaya@example.test\n\n## Experience\n- Product operations leader at Example Co, 2020–2026.",
+        }],
+      })).toThrow("resume_create_owner_confirmation_required");
+    });
+
     it.each([
       [false, undefined, false],
       [false, "proceed_with_limitations", false],

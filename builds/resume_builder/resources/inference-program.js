@@ -354,6 +354,8 @@ export function planResumeAction(request, options = {}) {
         documentWriteStep("write-missing-essentials-result", "resume.action-result", buildMissingEssentialsResult(readiness), "application/json", "durable_operation_lookup"),
       ], "write-missing-essentials-result");
     }
+    // Every render needs owner authorization, even when the Profile is complete.
+    if (request.owner_confirmed !== true) throw new Error("resume_create_owner_confirmation_required");
     const input = {
       locale: rawInput.locale,
       page_intent: rawInput.page_intent,
