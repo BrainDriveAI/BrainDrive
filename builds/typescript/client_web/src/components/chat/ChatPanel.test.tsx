@@ -65,7 +65,25 @@ describe("ChatPanel typing indicator behavior", () => {
     render(<ChatPanel activeConversationId={null} isEmpty={false} />);
     expect(screen.getByText(/a tool or app action failed/)).toBeInTheDocument();
     expect(screen.queryByText(/model connection was interrupted/)).not.toBeInTheDocument();
+    expect(screen.getByText(/a tool or app action failed/)).toHaveTextContent("The failed action’s changes could not be confirmed");
     expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+  });
+
+  it("explains a fatal tool failure before any assistant text and retries the owner's last message", () => {
+    const hookState = makeHookState({
+      messages: [{ id: "u-1", role: "user", content: "Where is my PDF?" }],
+      error: new Error("Tool execution failed"), errorCode: "tool_error",
+    });
+    useGatewayChatMock.mockReturnValue(hookState);
+    render(<ChatPanel activeConversationId={null} isEmpty={false} messageMetadata={{ project_id: "career" }} />);
+    expect(screen.getByText(/a tool or app action failed/i)).toHaveTextContent("The failed action’s changes could not be confirmed");
+    expect(screen.getByText(/a tool or app action failed/i)).toHaveTextContent("Your saved conversation and documents remain available");
+    expect(screen.queryByText(/model connection was interrupted/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connection lost/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(hookState.append).toHaveBeenCalledExactlyOnceWith("Where is my PDF?", {
+      metadata: { project_id: "career", retry_of_message_id: "u-1", retry_reason: "tool_error" }, echoUserMessage: false,
+    });
   });
 
   it("shows typing indicator before first assistant delta", () => {

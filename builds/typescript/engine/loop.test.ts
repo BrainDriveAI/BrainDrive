@@ -501,6 +501,60 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it.each(["loop_guard", "tool_unavailable", "execution_guard", "app_failure"])("caps repeated %s failures with shipped defaults", async (kind) => {
+    let calls = 0;
+    const adapter: ModelAdapter = {
+      async complete() {
+        calls += 1;
+        if (calls > 8) throw new Error("Recovery did not terminate");
+        return {
+          assistantText: "", finishReason: "tool_calls",
+          toolCalls: [{ id: `call-${calls}`, name: "app_action_read", input: kind === "app_failure" ? { attempt: calls } : {} }],
+        };
+      },
+    };
+    const executor = new ToolExecutor(kind === "tool_unavailable" ? [] : [{
+      name: "app_action_read", description: "Read app state", requiresApproval: false, readOnly: true,
+      inputSchema: { type: "object" },
+      execute: async () => { throw new ToolExecutionFailure("execution_failed", "App action failed", true); },
+    }]);
+    const events: StreamEvent[] = [];
+    for await (const event of runAgentLoop(adapter, executor, new ApprovalStore(), request, ownerAuth, {
+      memoryRoot: "/tmp/brain",
+      ...(kind === "execution_guard" ? { toolExecutionGuard: () => ({ status: "error" as const, output: { code: "permission_denied" }, recoverable: true }) } : {}),
+    })) events.push(event);
+
+    expect(calls).toBe(3);
+    expect(events.filter((event) => event.type === "tool-result")).toHaveLength(3);
+    if (kind === "loop_guard") expect(events).toContainEqual(expect.objectContaining({ type: "tool-result", output: expect.objectContaining({ code: "loop_guard" }) }));
+    expect(events.at(-2)).toMatchObject({ type: "text-delta", delta: expect.stringMatching(/tool or app action kept failing/) });
+    expect(events.at(-1)).toMatchObject({ type: "done", conversation_id: "conversation-1", finish_reason: "tool_recovery_exhausted" });
+    expect(events.some((event) => event.type === "error")).toBe(false);
+  });
+
+  it("counts failures across successful calls and stops the remaining tool batch at the turn cap", async () => {
+    const executed: number[] = [];
+    const call = (step: number, fail: boolean) => ({ id: `call-${step}`, name: "app_action_read", input: { step, fail } });
+    const adapter = sequenceAdapter([
+      { assistantText: "", finishReason: "tool_calls", toolCalls: [call(1, true), call(2, false)] },
+      { assistantText: "", finishReason: "tool_calls", toolCalls: [call(3, true)] },
+      { assistantText: "", finishReason: "tool_calls", toolCalls: [call(4, false), call(5, true), call(6, false)] },
+    ]);
+    const executor = new ToolExecutor([{
+      name: "app_action_read", description: "Read app state", requiresApproval: false, readOnly: true,
+      inputSchema: { type: "object" },
+      execute: async (_context, input) => {
+        executed.push(input.step as number);
+        if (input.fail) throw new ToolExecutionFailure("execution_failed", "App action failed", true);
+        return {};
+      },
+    }]);
+    const events = await collectEvents(adapter, { executor });
+    expect(executed).toEqual([1, 2, 3, 4, 5]);
+    expect(adapter.calls()).toBe(3);
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "tool_recovery_exhausted" });
+  });
+
   it("passes the request abort signal into model calls", async () => {
     const controller = new AbortController();
     let observedSignal: AbortSignal | undefined;
@@ -724,7 +778,6 @@ async function collectEvents(
     ownerAuth,
     {
       memoryRoot: "/tmp/brain",
-      safetyIterationLimit: 3,
       ...(options.promptAudit ? { promptAudit: options.promptAudit } : {}),
     }
   )) {

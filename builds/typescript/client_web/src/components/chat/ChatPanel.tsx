@@ -223,11 +223,11 @@ export default function ChatPanel({
 
   useEffect(() => {
     if (error) {
-      setConnectionStatus("disconnected");
+      setConnectionStatus(errorCode === "tool_error" ? "connected" : "disconnected");
     } else if (isLoading) {
       setConnectionStatus("connected");
     }
-  }, [error, isLoading]);
+  }, [error, errorCode, isLoading]);
 
   useEffect(() => {
     setDismissedError(null);
@@ -284,7 +284,8 @@ export default function ChatPanel({
     chatError && chatError !== dismissedError ? chatError : null;
   const isContextOverflowError = errorCode === "context_overflow";
   const normalizedVisibleChatError = visibleChatError?.toLowerCase() ?? "";
-  const isProviderError = visibleChatError != null && (
+  const isToolError = errorCode === "tool_error";
+  const isProviderError = !isToolError && visibleChatError != null && (
     normalizedVisibleChatError.includes("credentials") ||
     normalizedVisibleChatError.includes("quota") ||
     normalizedVisibleChatError.includes("credits") ||
@@ -294,9 +295,11 @@ export default function ChatPanel({
     normalizedVisibleChatError.includes("model")
   ) && !isContextOverflowError;
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
-  const visibleRecoveryMessage = isProviderError
-    ? "The model connection was interrupted. Try again, or open settings if this keeps happening."
-    : visibleChatError;
+  const visibleRecoveryMessage = isToolError
+    ? "A tool or app action failed. The failed action’s changes could not be confirmed. Your saved conversation and documents remain available. Check the app’s current state before trying again."
+    : isProviderError
+      ? "The model connection was interrupted. Try again, or open settings if this keeps happening."
+      : visibleChatError;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
   const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.content.trim().length > 0) ?? null;
@@ -454,9 +457,11 @@ export default function ChatPanel({
                   onRetry={
                     isContextOverflowError
                       ? undefined
-                      : isProviderError && lastUserMessage
+                      : (isProviderError || isToolError) && lastUserMessage
                         ? handleRetryCurrentTurn
-                        : () => resetErrorPresentation()
+                        : isToolError
+                          ? undefined
+                          : () => resetErrorPresentation()
                   }
                   onDismiss={() => {
                     setHistoryError(null);

@@ -47,7 +47,10 @@ describe("MessageList incomplete responses", () => {
       incompleteMessageId="partial" incompleteErrorCode={code} onRetryIncomplete={retry} />);
     expect(screen.getByRole("status")).toHaveTextContent(reason);
     expect(screen.getByRole("status")).toHaveTextContent("Your saved conversation and documents remain available");
-    if (code === "tool_error") expect(screen.getByRole("status")).not.toHaveTextContent("model connection");
+    if (code === "tool_error") {
+      expect(screen.getByRole("status")).not.toHaveTextContent("model connection");
+      expect(screen.getByRole("status")).toHaveTextContent("The failed action’s changes could not be confirmed");
+    }
     fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
     expect(retry).toHaveBeenCalledOnce();
   });

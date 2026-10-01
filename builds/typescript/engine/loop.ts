@@ -18,6 +18,9 @@ import { ToolExecutor } from "./tool-executor.js";
 
 const EMPTY_COMPLETION_MAX_RETRIES = 1;
 const INVALID_TOOL_INPUT_MAX_RETRIES = 3;
+const RECOVERABLE_TOOL_FAILURE_LIMIT = 3;
+const TOOL_RECOVERY_FALLBACK =
+  "I couldn't complete your request because a tool or app action kept failing. The failed action's changes could not be confirmed. Your saved conversation and documents remain available. Check the current state before trying again, or rephrase your request.";
 const INVALID_TOOL_INPUT_FALLBACK =
   "I couldn't complete that action because the model kept sending invalid tool input. Please try again, or rephrase the request if it keeps happening.";
 
@@ -55,6 +58,22 @@ export async function* runAgentLoop(
   const repeatToolCallThreshold = options.repeatToolCallThreshold ?? 2;
   let iteration = 0;
   let consecutiveInvalidToolInputs = 0;
+  let recoverableToolFailures = 0;
+
+  // Count every recoverable result, including guards, across the whole turn.
+  function* recoveryLimitEvents(result: ToolExecutionResult): Generator<StreamEvent, boolean> {
+    if (result.status !== "error" || result.recoverable === false) return false;
+    recoverableToolFailures += 1;
+    if (recoverableToolFailures < RECOVERABLE_TOOL_FAILURE_LIMIT) return false;
+    yield { type: "text-delta", delta: TOOL_RECOVERY_FALLBACK };
+    yield {
+      type: "done",
+      conversation_id: request.metadata.conversation_id ?? "",
+      message_id: crypto.randomUUID(),
+      finish_reason: "tool_recovery_exhausted",
+    };
+    return true;
+  }
 
   while (true) {
     if (options.signal?.aborted) {
@@ -311,6 +330,7 @@ export async function* runAgentLoop(
             output: unavailableOutput,
           }),
         });
+        if (yield* recoveryLimitEvents({ status: "error", output: unavailableOutput, recoverable: true })) return;
         continue;
       }
 
@@ -350,6 +370,7 @@ export async function* runAgentLoop(
             output: loopGuardOutput,
           }),
         });
+        if (yield* recoveryLimitEvents({ status: "error", output: loopGuardOutput, recoverable: true })) return;
         continue;
       }
 
@@ -375,6 +396,7 @@ export async function* runAgentLoop(
             output: guardedResult.output,
           }),
         });
+        if (yield* recoveryLimitEvents(guardedResult)) return;
         continue;
       }
 
@@ -419,6 +441,7 @@ export async function* runAgentLoop(
             output: guardOutput,
           }),
         });
+        if (yield* recoveryLimitEvents({ status: "error", output: guardOutput, recoverable: true })) return;
         continue;
       }
 
@@ -519,6 +542,8 @@ export async function* runAgentLoop(
         };
         return;
       }
+
+      if (yield* recoveryLimitEvents(result)) return;
 
       trackNonDestructiveMutationPath(tool.name, tool.readOnly, toolCall.input, result.status, recentNonDestructiveMutationPaths);
     }

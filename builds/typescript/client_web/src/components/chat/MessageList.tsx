@@ -97,7 +97,7 @@ export default function MessageList({
                     <div className="mt-3 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
                       <p role="status" aria-live="polite">
                         {incompleteErrorCode === "tool_error"
-                          ? "This response is incomplete because a tool or app action failed. Your saved conversation and documents remain available. Check the app’s current state before trying again."
+                          ? "This response is incomplete because a tool or app action failed. The failed action’s changes could not be confirmed. Your saved conversation and documents remain available. Check the app’s current state before trying again."
                           : "This response is incomplete because the model connection was interrupted. Your saved conversation and documents remain available. Try again to finish the response."}
                       </p>
                       {onRetryIncomplete ? (

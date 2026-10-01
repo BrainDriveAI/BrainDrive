@@ -17,6 +17,9 @@ import { GenericPackageManifestSchema, type ChatWorkspaceDescriptor } from "../c
 import { canonicalInputDigest } from "../contracts/common.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { ResumeDomainError } from "../../resume-domain/errors.js";
+import { ResumeDataStore } from "../../resume-domain/store.js";
+import { ResumeDomainService } from "../../resume-domain/service.js";
+import { authority, proposalInput, testGrant } from "../../resume-domain/test-helpers.js";
 import { runAgentLoop } from "../../engine/loop.js";
 import { ApprovalStore } from "../../engine/approval-store.js";
 import type { ModelAdapter } from "../../adapters/base.js";
@@ -532,12 +535,13 @@ async function shippedResumeActions() {
   return GenericPackageManifestSchema.parse(descriptor.payload.manifest).presentations!.workspaces[0].actions;
 }
 
-async function actionTurn(executor: ToolExecutor, toolName: string, actionInput: unknown, expectedOutput: unknown) {
+async function actionTurn(executor: ToolExecutor, toolName: string, actionInput: unknown, expectedOutput: unknown, repeat = false) {
   let calls = 0;
   const adapter: ModelAdapter = {
     async complete(request) {
       calls += 1;
-      if (calls === 1) return {
+      if (calls > 8) throw new Error("Recovery did not terminate");
+      if (calls === 1 || repeat) return {
         assistantText: "", finishReason: "tool_calls",
         toolCalls: [{ id: "state-call", name: toolName, input: { action_input: actionInput } }],
       };
@@ -549,7 +553,7 @@ async function actionTurn(executor: ToolExecutor, toolName: string, actionInput:
   for await (const event of runAgentLoop(adapter, executor, new ApprovalStore(), {
     messages: [{ role: "user", content: "What is the current resume state?" }],
     metadata: { correlation_id: randomUUID(), conversation_id: "state-conversation" },
-  }, ownerAuth, { memoryRoot: "/tmp/brain", safetyIterationLimit: 3 })) events.push(event);
+  }, ownerAuth, { memoryRoot: "/tmp/brain" })) events.push(event);
   return { events, calls };
 }
 
@@ -712,12 +716,38 @@ describe("app-chat workspace session authority", () => {
     expect(vi.mocked(router.execute)).not.toHaveBeenCalledWith("resume.operations.read", expect.anything(), expect.anything());
   });
 
+  it("caps repeated invalid shipped state reads including loop guard results", async () => {
+    const actions = (await shippedResumeActions()).filter((action) => action.action_id === "resume.state.read");
+    const { host } = await setup({ requestedCapabilities: ["resume.operations.read"], documents: resumePlannerDocuments(), actions, clientFactory: resumePlannerClientFactory });
+    const launch = await host.launchChatWorkspace();
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    const { events, calls } = await actionTurn(new ToolExecutor(model.tools), "app_action_resume_state_read", {
+      queried_operation_id: "00000000-0000-4000-8000-000000000000",
+    }, {}, true);
+    expect(calls).toBe(3);
+    expect(events.filter((event) => event.type === "tool-result").map((event) => event.type === "tool-result" ? event.output : null)).toMatchObject([
+      { code: "invalid_input" }, { code: "invalid_input" }, { code: "loop_guard" },
+    ]);
+    expect(events.at(-2)).toMatchObject({ type: "text-delta", delta: expect.stringContaining("saved conversation and documents remain available") });
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "tool_recovery_exhausted" });
+  });
+
+  it("caps repeated recoverable app failures with shipped defaults", async () => {
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: emptyObjectSchema(), resultSchema: capabilityResultSchema(),
+      executeAction: async () => { throw new AppPlatformError("provider_unavailable", "Private diagnostic"); },
+    });
+    const { events, calls } = await actionTurn(executor, "app_action_validate_schema", {}, {}, true);
+    expect(calls).toBe(3);
+    expect(events.at(-2)).toMatchObject({ type: "text-delta", delta: expect.stringContaining("could not be confirmed") });
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "tool_recovery_exhausted" });
+  });
+
   it.each([
     ["not_found_within_scope", "not_found"],
     ["operation_not_found", "not_found"],
     ["conflict", "execution_failed"],
     ["revision_conflict", "execution_failed"],
-    ["recoverable_internal_failure", "execution_failed"],
     ["provider_unavailable", "execution_failed"],
     ["rate_limited", "execution_failed"],
     ["quota_exceeded", "execution_failed"],
@@ -738,7 +768,7 @@ describe("app-chat workspace session authority", () => {
     expect(JSON.stringify(events)).not.toContain("Private diagnostic detail");
   });
 
-  it.each(["store_corrupt", "ambiguous_runtime_state", "package_archive_digest_mismatch", "package_path_invalid", "internal_failure", "unrecognized_failure"])("keeps unsafe or unknown app failure %s fatal", async (code) => {
+  it.each(["recoverable_internal_failure", "store_corrupt", "ambiguous_runtime_state", "package_archive_digest_mismatch", "package_path_invalid", "internal_failure", "unrecognized_failure"])("keeps unsafe or unknown app failure %s fatal", async (code) => {
     const executor = await buildSyntheticActionExecutor({
       inputSchema: emptyObjectSchema(), resultSchema: capabilityResultSchema(),
       executeAction: async () => { throw Object.assign(new Error("Private detail"), { code }); },
@@ -748,6 +778,38 @@ describe("app-chat workspace session authority", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "tool-result", status: "error", output: expect.objectContaining({ recoverable: false }) }));
     expect(events.at(-1)).toMatchObject({ type: "error", code: "tool_error" });
     expect(events.some((event) => event.type === "done")).toBe(false);
+  });
+
+  it("keeps an actual post-commit storage failure fatal while preserving operation recovery", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-chat-post-commit-"));
+    roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {
+      afterCatalogCommit: async () => { throw new Error("synthetic response loss"); },
+    }, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const service = new ResumeDomainService(store);
+    const operationId = randomUUID();
+    const mutationAuthority = authority("career.facts.propose", operationId);
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: emptyObjectSchema(), resultSchema: capabilityResultSchema(),
+      executeAction: async () => service.proposeFact(proposalInput(), mutationAuthority),
+    });
+    const { events, calls } = await actionTurn(executor, "app_action_validate_schema", {}, {});
+    expect(calls).toBe(1);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool-result", status: "error", output: expect.objectContaining({
+        code: "execution_failed", recoverable: false, message: expect.stringContaining("changes could not be confirmed"),
+      }),
+    }));
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "tool_error" });
+    expect(await store.list("career_fact")).toHaveLength(1);
+    const operation = await store.operation(operationId, grant.installation_id);
+    expect(operation.record.commit_outcome).toBe("committed");
+    const recovered = await service.proposeFact(proposalInput(), mutationAuthority);
+    expect(recovered.reused).toBe(true);
+    expect(recovered.fact.metadata.revision_id).toBe(operation.record.result_ref);
+    expect(JSON.stringify(events)).not.toContain("synthetic response loss");
   });
 
   it("rejects malformed model metadata before prompt or action assembly", () => {
