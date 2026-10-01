@@ -107,3 +107,37 @@ No changes to readiness gating, model calls, Profile writes, entry formatting, o
 - `node tools/docs/sync-generated.mjs --check` and `git diff --check`: **pass**.
 
 The package README now describes the fixed standard-section behavior. No platform documentation changes are needed: package delivery, host authority, capability contracts, provider mediation, storage, and export boundaries are unchanged.
+
+
+## Review corrections — consistent Resume/PDF text, entry titles, and Projects
+
+This follow-up supersedes the earlier statement that Projects nesting remains outside the change. The owner's review explicitly authorizes retaining a standard `Projects` parent heading and rendering its nested entry titles separately. Projects remains an extra section at its existing position after the standard block, in Profile encounter order alongside other extras. Review Notes and other extra-section classification/placement remain unchanged; the open owner question is not resolved here.
+
+Governing context remains `AGENTS.md`, `docs/developers/README.md`, the `installed-apps` and `verification` routes in `docs/developers/catalog.json`, `docs/developers/integrations/installed-apps.md`, `builds/typescript/app-inference/README.md`, `builds/typescript/app-platform/mcp-host/README.md`, and `docs/developers/verification.md`. Product authority is the accepted Template Standard §2–§6 and the owner's review request. No provider calls or Profile writes were added.
+
+- Shipped `resources/inference-program.js` and source `src/chat-workspace.ts` protect bare URLs, emails, and code spans before pairing emphasis delimiters. Code delimiters are presentation; their contents remain literal. Wrapping assembles words across formatting runs and uses only actual source whitespace. PDF font faces remain regular/bold; italic delimiters produce regular text on both surfaces.
+- `client_web/src/components/apps/AppChatWorkspace.tsx` uses `client_web/src/lib/paper-inline-markdown.ts` with the same inline grammar. The paper preview preserves whitespace, uses uppercase only for section headings, and renders deeper entry headings in bold with their original case. PDF entry headings use 10.5pt bold rather than uppercase section styling. Nested pipe-form role headings consume their heading markers before splitting title and metadata.
+- Projects retains deeper headings within its parent, including P1's Campus Transit Survey Project, bullets and visible date gap. Empty bullet markers do not become body text or bullet glyphs on either surface.
+- Experience detection strips heading emphasis, accepts title/employer content from a substantive entry heading, and removes all gap markers and inline formatting before checking body content. Empty headings and gap-only subtrees still name Experience as missing as well as listing unresolved gaps.
+
+Regression evidence: initial regressions were added before the implementation changes and extended during review. The initial package red run reproduced 14 failures. A final regression recheck against unchanged `bb28414` reproduced 15 package failures (including the added PDF entry-style/empty-bullet assertion), and the paper-view regression also fails against that unchanged component. Two further regressions reproduced code literals being parsed twice during heading/contact normalization; those failed before that correction. Display values now retain their markup until the final inline parse, while classification and field labels use normalized text. The fixed package suite passes 262 tests. Inline and gate regressions compare shipped/source logical text and named gate results rather than opaque IDs or binary PDF identities.
+
+P1/P2 parity tests in `AppChatWorkspace.test.tsx` create the formatted Resume using both planners, mount the actual Your Resume view, and compare its rendered logical text with both PDFs using `pdftotext -layout` when Poppler is available. The portable fallback decodes PDF text commands when Poppler is absent. On this worktree Poppler is installed and all four comparisons pass exact whitespace-normalized equality. Independent assertions require the fixed section order, P1's Projects parent and original-case project title, visible date gap, and absence of empty bullets. Temporary exports are removed by the tests. These are synthetic source-side checks, not a new installed-app persona qualification run.
+
+Platform documentation has no contract impact: package delivery, authority, capability, inference, provider mediation, storage, export transport and receipt boundaries are unchanged. The package README and this fix note document the rendering/readiness corrections; the existing canonical integration pages do not prescribe a different inline grammar or entry style.
+
+### Resumed review and verification
+
+Resumed on 2026-10-01 at `bb28414` on `fix/rb-render-small-three`, retaining the previous run's uncommitted implementation. Inspection against sibling `packets/p69.prompt.md` found coverage for all seven listed defects and the additional P1 Projects finding; no clearly missing item or new feature was identified. The commit includes the new `builds/typescript/client_web/src/lib/paper-inline-markdown.ts` alongside the shipped/source changes and regressions described above.
+
+The owner reports that the interrupted run already passed package tests/build, web lint/typecheck/tests/build, the full runtime suite (1,439 tests on Node 22), and P1/P2 `pdftotext` parity. Those broader checks were not repeated during this resume. Fresh requested checks used Node **22.23.3**:
+
+| Command / working directory | Fresh result |
+|---|---|
+| `npm test` in `builds/resume_builder` | Exit 0; **10 files / 262 tests passed**. |
+| `npm run web:test` in `builds/typescript` | Exit 0; **27 files / 340 tests passed**, including P1/P2 shipped/source PDF-to-Your-Resume parity. Poppler is available, so the tests use `pdftotext -layout`. |
+| `npm run web:typecheck` in `builds/typescript` | Exit 0; `tsc --noEmit` passed. |
+| `npm run docs:check` in `builds/typescript` | Exit 0; **269 scoped candidates / zero diagnostics**. |
+| `git diff --check` at repository root | Exit 0. |
+
+The web suite emits `Not implemented: navigation to another Document` but reports no test failures. Existing live qualification and visual-review limitations remain as recorded above.

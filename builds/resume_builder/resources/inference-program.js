@@ -579,7 +579,11 @@ function hasUsableSection(profileMarkdown, headingPattern) {
     if (heading) {
       const depth = heading[1].length;
       if (sectionDepth === 0 || depth <= sectionDepth) {
-        sectionDepth = headingPattern.test(heading[2]?.trim() ?? "") ? depth : 0;
+        sectionDepth = headingPattern.test(stripResumeInlineMarkup(heading[2] ?? "")) ? depth : 0;
+      } else {
+        // A title with an employer is an entry even when its details are all on this line.
+        const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
+        if (title.split(/\s+[—–|]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
       }
       continue;
     }
@@ -589,9 +593,9 @@ function hasUsableSection(profileMarkdown, headingPattern) {
 }
 
 function isUsableProfileContentLine(line) {
-  const text = line.replace(/^[-*+]\s+/, "").trim();
-  if (!text) return false;
-  return !/^\[gap:\s*[^\]]+\]$/i.test(text);
+  const text = stripResumeInlineMarkup(line.replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
+    .replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
+  return /[\p{L}\p{N}]/u.test(text);
 }
 
 function extractGapMarkers(profileMarkdown) {
@@ -660,12 +664,13 @@ const TEMPLATE_SECTION_NAMES = {
   skills: /^skills?$/i,
   certifications: /^(?:certifications?|licenses?)$/i,
   contact: /^(?:contact|contact\s+identity|personal\s+details)$/i,
+  projects: /^projects?$/i,
 };
 
 function renderResumeTemplateStandard(profileMarkdown) {
   const parsed = parseResumeProfileSections(profileMarkdown);
   const contact = parseResumeContact(parsed.contact?.lines ?? []);
-  const profileTitle = parsed.title && !GENERIC_PROFILE_HEADINGS.test(parsed.title) ? parsed.title : undefined;
+  const profileTitle = parsed.title && !GENERIC_PROFILE_HEADINGS.test(stripResumeInlineMarkup(parsed.title)) ? parsed.title : undefined;
   const name = contact.name ?? profileTitle;
   const lines = [];
   if (name) lines.push(`# ${name}`);
@@ -691,18 +696,18 @@ function parseResumeProfileSections(markdown) {
     const h1 = /^#\s+(.+)$/.exec(line.trim());
     const heading = /^(#{2,6})\s+(.+)$/.exec(line.trim());
     if (h1) {
-      title ??= stripResumeInlineMarkup(h1[1]);
+      title ??= h1[1];
       current = null;
       continue;
     }
     if (heading) {
       // Entry/group headings belong to their standard section; extras retain their existing handling.
-      if (current && heading[1].length > currentDepth && Object.values(TEMPLATE_SECTION_NAMES).some((pattern) => pattern.test(current.heading))) {
+      if (current && heading[1].length > currentDepth && Object.values(TEMPLATE_SECTION_NAMES).some((pattern) => pattern.test(stripResumeInlineMarkup(current.heading)))) {
         current.lines.push(line);
         continue;
       }
       currentDepth = heading[1].length;
-      current = { heading: stripResumeInlineMarkup(heading[2]), lines: [] };
+      current = { heading: TEMPLATE_SECTION_NAMES.projects.test(stripResumeInlineMarkup(heading[2])) ? "Projects" : heading[2], lines: [] };
       sections.push(current);
       continue;
     }
@@ -710,12 +715,12 @@ function parseResumeProfileSections(markdown) {
   }
   const classified = { title, contact: undefined, summary: undefined, experience: undefined, education: undefined, skills: undefined, certifications: undefined, other: [] };
   for (const section of sections) {
-    if (TEMPLATE_SECTION_NAMES.contact.test(section.heading)) classified.contact ??= section;
-    else if (TEMPLATE_SECTION_NAMES.summary.test(section.heading)) classified.summary ??= section;
-    else if (TEMPLATE_SECTION_NAMES.experience.test(section.heading)) classified.experience ??= section;
-    else if (TEMPLATE_SECTION_NAMES.education.test(section.heading)) classified.education ??= section;
-    else if (TEMPLATE_SECTION_NAMES.skills.test(section.heading)) classified.skills ??= section;
-    else if (TEMPLATE_SECTION_NAMES.certifications.test(section.heading)) classified.certifications ??= section;
+    if (TEMPLATE_SECTION_NAMES.contact.test(stripResumeInlineMarkup(section.heading))) classified.contact ??= section;
+    else if (TEMPLATE_SECTION_NAMES.summary.test(stripResumeInlineMarkup(section.heading))) classified.summary ??= section;
+    else if (TEMPLATE_SECTION_NAMES.experience.test(stripResumeInlineMarkup(section.heading))) classified.experience ??= section;
+    else if (TEMPLATE_SECTION_NAMES.education.test(stripResumeInlineMarkup(section.heading))) classified.education ??= section;
+    else if (TEMPLATE_SECTION_NAMES.skills.test(stripResumeInlineMarkup(section.heading))) classified.skills ??= section;
+    else if (TEMPLATE_SECTION_NAMES.certifications.test(stripResumeInlineMarkup(section.heading))) classified.certifications ??= section;
     else classified.other.push(section);
   }
   return classified;
@@ -724,11 +729,13 @@ function parseResumeProfileSections(markdown) {
 function parseResumeContact(lines) {
   const contact = {};
   for (const rawLine of lines) {
-    const line = stripResumeInlineMarkup(rawLine.replace(/^\s*[-*+]\s+/, "").trim());
-    const match = /^([^:*]+?):\s*(.+)$/.exec(line);
+    // Normalize the field label only; values retain markup for one final inline parse.
+    const line = rawLine.replace(/^\s*[-*+]\s+/, "").trim()
+      .replace(/^(\*{1,3}|_{1,3})([^:*_]+):\1\s*/, "$2: ");
+    const match = /^([^:]+?):\s*(.+)$/.exec(line);
     if (!match) continue;
-    const key = match[1].trim().toLowerCase();
-    const value = stripResumeInlineMarkup(match[2]).trim();
+    const key = stripResumeInlineMarkup(match[1]).toLowerCase();
+    const value = match[2].trim();
     if (!value) continue;
     if (key === "name" || key === "full name") contact.name ??= value;
     else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
@@ -739,14 +746,14 @@ function parseResumeContact(lines) {
 }
 
 function appendResumeTemplateSection(lines, heading, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push(`## ${heading}`, ...content);
 }
 
 function appendResumeExperienceSection(lines, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push("## Experience");
@@ -756,14 +763,15 @@ function appendResumeExperienceSection(lines, rawLines) {
       lines.push(`- ${bullet[1]}`);
       continue;
     }
-    const parts = line.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length >= 2) lines.push(parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`, parts.slice(1).join("  \u00b7  "));
+    const heading = /^(#{3,6})\s+(.+)$/.exec(line);
+    const parts = (heading?.[2] ?? line).split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) lines.push(heading ? `### ${parts[0]}` : (parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`), parts.slice(1).join("  \u00b7  "));
     else lines.push(line);
   }
 }
 
 function appendResumeEducationSection(lines, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push("## Education");
@@ -777,7 +785,7 @@ function appendResumeEducationSection(lines, rawLines) {
 }
 
 function stripResumeInlineMarkup(value) {
-  return value.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").trim();
+  return runsPlainText(parsePdfInlineMarkdown(value)).trim();
 }
 
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
@@ -933,6 +941,7 @@ function markdownToPdfBlocks(markdown) {
       if (blocks.length > 0 && blocks.at(-1)?.kind !== "spacer") blocks.push({ kind: "spacer" });
       continue;
     }
+    if (/^(?:[-*+]|\d+[.)])\s*$/.test(line)) continue;
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
       blocks.push({ kind: "heading", depth: heading[1].length, runs: parsePdfInlineMarkdown(heading[2]) });
@@ -940,7 +949,8 @@ function markdownToPdfBlocks(markdown) {
     }
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     if (bullet) {
-      blocks.push({ kind: "bullet", runs: parsePdfInlineMarkdown(bullet[1]) });
+      const runs = parsePdfInlineMarkdown(bullet[1]);
+      if (runsPlainText(runs).trim()) blocks.push({ kind: "bullet", runs });
       continue;
     }
     blocks.push({ kind: "paragraph", runs: parsePdfInlineMarkdown(line) });
@@ -994,6 +1004,13 @@ function renderPdfPages(blocks, fontUsage) {
         const fontSize = 22;
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
+      } else if (block.depth > 2) {
+        ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
+        for (const line of wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 10.5)) {
+          drawRuns(line.runs, left, y, 10.5);
+          y -= 15;
+        }
+        y -= 7;
       } else {
         ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         y -= 10;
@@ -1045,7 +1062,7 @@ function pdfSectionIntroRequiredHeight(blocks, headingIndex, contentWidth) {
 
 function pdfBlockRequiredHeight(block, contentWidth) {
   if (block.kind === "spacer") return 8;
-  if (block.kind === "heading") return block.depth === 1 ? 38 : 38;
+  if (block.kind === "heading") return block.depth > 2 ? wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 10.5).length * 15 + 7 : 38;
   if (block.kind === "bullet") return wrapPdfRuns(block.runs, contentWidth - 20, 10).length * 15 + 6;
   return wrapPdfRuns(block.runs, contentWidth, 10).length * 15 + 8;
 }
@@ -1059,6 +1076,39 @@ function parsePdfInlineMarkdown(text) {
   const whitespace = (character) => !character || /\s/u.test(character);
   const punctuation = (character) => /[\p{P}\p{S}]/u.test(character);
   for (let index = 0; index < text.length; index += 1) {
+    // Code spans and bare URLs/emails are literal; emphasis can still surround them.
+    if (text[index] === "`") {
+      const ticks = /^`+/.exec(text.slice(index))[0];
+      let closing = index + ticks.length;
+      while (closing < text.length) {
+        const match = /`+/.exec(text.slice(closing));
+        if (!match) break;
+        closing += match.index;
+        if (match[0].length === ticks.length) {
+          for (let offset = 0; offset < ticks.length; offset += 1) {
+            removed.add(index + offset);
+            removed.add(closing + offset);
+          }
+          const content = text.slice(index + ticks.length, closing);
+          if (content.startsWith(" ") && content.endsWith(" ") && content.trim()) {
+            removed.add(index + ticks.length);
+            removed.add(closing - 1);
+          }
+          index = closing + ticks.length - 1;
+          break;
+        }
+        closing += match[0].length;
+      }
+      if (removed.has(index - ticks.length + 1)) continue;
+    }
+    const literal = /^(?:(?:https?:\/\/|www\.)[^\s<>`]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.exec(text.slice(index));
+    if (literal) {
+      let length = literal[0].length;
+      const opener = delimiters.at(-1);
+      if (opener?.open && literal[0].endsWith(opener.marker.repeat(opener.remaining))) length -= opener.remaining;
+      index += length - 1;
+      continue;
+    }
     if (text[index] === "\\" && /[\\*_]/.test(text[index + 1] ?? "")) {
       removed.add(index);
       index += 1;
@@ -1136,22 +1186,30 @@ function wrapPdfRuns(runs, maxWidth, fontSize) {
     currentWidth = 0;
   };
 
+  // Assemble words across style boundaries; only source whitespace separates them.
+  const tokens = [];
   for (const run of runs) {
-    for (const word of run.text.split(/\s+/).filter(Boolean)) {
-      const prefix = current.length > 0 ? " " : "";
-      const piece = `${prefix}${word}`;
-      const pieceWidth = textWidth(piece, fontSize, run.bold);
-      if (current.length > 0 && currentWidth + pieceWidth > maxWidth) flush();
-      if (pieceWidth > maxWidth) {
-        const chunkSize = Math.max(8, Math.floor(maxWidth / (fontSize * 0.55)));
-        for (let index = 0; index < word.length; index += chunkSize) {
-          const chunkPrefix = current.length > 0 ? " " : "";
-          pushRun({ text: `${chunkPrefix}${word.slice(index, index + chunkSize)}`, bold: run.bold });
-          flush();
-        }
-        continue;
+    for (const text of run.text.split(/(\s+)/).filter(Boolean)) {
+      const whitespace = /^\s+$/.test(text);
+      const last = tokens.at(-1);
+      if (last && last.whitespace === whitespace) last.runs.push({ text, bold: run.bold });
+      else tokens.push({ runs: [{ text, bold: run.bold }], whitespace });
+    }
+  }
+  let pending = [];
+  for (const token of tokens) {
+    if (token.whitespace) { pending = token.runs; continue; }
+    const wordWidth = token.runs.reduce((sum, run) => sum + textWidth(run.text, fontSize, run.bold), 0);
+    const spaceWidth = pending.reduce((sum, run) => sum + textWidth(run.text, fontSize, run.bold), 0);
+    if (current.length > 0 && currentWidth + spaceWidth + wordWidth > maxWidth) flush();
+    if (current.length > 0) pending.forEach(pushRun);
+    pending = [];
+    for (const run of token.runs) {
+      // Oversized words flow at character boundaries without inserting spaces.
+      for (const character of run.text) {
+        if (currentWidth + textWidth(character, fontSize, run.bold) > maxWidth) flush();
+        pushRun({ text: character, bold: run.bold });
       }
-      pushRun({ text: current.length > 0 ? piece : word, bold: run.bold });
     }
   }
   flush();
@@ -1182,7 +1240,7 @@ function round(value) {
 
 function normalizePdfText(value, trim = true) {
   const normalized = String(value ?? "")
-    .replace(/[ \t]+/g, " ")
+    .replace(/\t/g, " ")
     .replace(/\u00a0/g, " ");
   return trim ? normalized.trim() : normalized;
 }

@@ -1,3 +1,8 @@
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -662,6 +667,123 @@ describe("AppChatWorkspace", () => {
     expect(screen.queryByRole("textbox", { name: "Profile content" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Experience" })).toBeInTheDocument();
     expect(screen.queryByText("**Experience**")).not.toBeInTheDocument();
+  });
+
+  it("renders paper emphasis, protected literals, spacing and case-preserving entry titles", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1, state: "current", document_id: "resume", document_binding_id: "resume.current",
+      record: { revision: 1, media_type: "text/markdown", content: [
+        "# Test Person", "## Experience", "### Marketing Manager",
+        "*September 2025–Present*", "**strong *nested italic* text**", "__strong _nested italic_ text__",
+        "foo***bar***baz ***bold***.", "https://example.com/_private_/first_last",
+        "`*wildcard*` and first_last@example.test and snake_case", "plain  **bold** tail",
+        "## Projects", "### Campus Transit Survey Project", "-", "- Led a survey", "- **Date:** [gap: date]",
+      ].join("\n") } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+    const rendered = render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    await screen.findByRole("heading", { name: "Marketing Manager", level: 3 });
+    const paper = rendered.container.querySelector("article")!;
+    const paragraphs = Array.from(paper.querySelectorAll("p"), (node) => node.textContent);
+    expect(paragraphs).toEqual([
+      "September 2025–Present", "strong nested italic text", "strong nested italic text",
+      "foobarbaz bold.", "https://example.com/_private_/first_last",
+      "*wildcard* and first_last@example.test and snake_case", "plain  bold tail", "Led a survey", "Date: [gap: date]",
+    ]);
+    expect(screen.getByRole("heading", { name: "Campus Transit Survey Project", level: 3 })).not.toHaveClass("uppercase");
+    expect(paper.querySelectorAll("p strong").length).toBeGreaterThan(0);
+  });
+
+  it.each(["p1", "p2"])("keeps %s shipped/source PDF text equal to the rendered Your Resume", async (persona) => {
+    const profile = readFileSync(join(process.cwd(), `../../resume_builder/test/fixtures/${persona}-experience-profile.txt`), "utf8");
+    // Run app-owned planners in Node: the web bundler must not import the app runtime.
+    const projections = JSON.parse(execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", `
+      import { readFileSync } from "node:fs";
+      import { pathToFileURL } from "node:url";
+      const { profile, root } = JSON.parse(readFileSync(0, "utf8"));
+      const request = (action, document, content) => ({
+        action_planning_contract_version: 1, action_id: action, owner_confirmed: true,
+        action_input: { missing_essential_disposition: "proceed_with_limitations" },
+        operation_id: "00000000-0000-4000-8000-000000000001", idempotency_key: "paper-parity-" + action,
+        occurred_at: "2026-10-01T12:00:00.000Z",
+        session: { session_id: "00000000-0000-4000-8000-000000000002", view_id: "00000000-0000-4000-8000-000000000003",
+          installation_id: "00000000-0000-4000-8000-000000000004", app_id: "ai.braindrive.resume-builder" },
+        documents: [{ document_id: document, content }],
+      });
+      const results = [];
+      for (const file of ["resources/inference-program.js", "src/chat-workspace.ts"]) {
+        const { planResumeAction } = await import(pathToFileURL(root + "/" + file).href);
+        const markdown = planResumeAction(request("resume.create", "resume.profile", profile)).steps.find((step) => step.step_id === "write-resume-document").content;
+        const bytes = planResumeAction(request("resume.export.pdf.request", "resume.document", markdown)).steps.find((step) => step.step_id === "prepare-pdf-export").bytes_base64;
+        results.push({ markdown, bytes });
+      }
+      process.stdout.write(JSON.stringify(results));
+    `], { input: JSON.stringify({ profile, root: join(process.cwd(), "../../resume_builder") }), encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })) as Array<{ markdown: string; bytes: string }>;
+    const markdown = projections[0].markdown;
+    expect(projections[1].markdown).toBe(markdown);
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValueOnce({
+      result_version: 1, state: "current", document_id: "resume", document_binding_id: "resume.current",
+      record: { revision: 1, media_type: "text/markdown", content: markdown } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+    const rendered = render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    await screen.findByRole("heading", { name: "Experience", level: 2 });
+    const paper = rendered.container.querySelector("article")!;
+    const logicalLines = Array.from(paper.children, (node) => {
+      const text = node.textContent ?? "";
+      if (node.tagName === "H2") return text.toUpperCase();
+      if (node.querySelector("span")) return `• ${node.querySelector("p")!.textContent}`;
+      return text;
+    }).filter(Boolean);
+    expect(logicalLines).not.toContain("• ");
+    const sections = Array.from(paper.querySelectorAll("h2"), (node) => node.textContent);
+    expect(sections).toEqual(persona === "p1"
+      ? ["Professional Summary", "Experience", "Education", "Skills", "Certifications", "Projects", "Additional Information", "Profile Review Notes"]
+      : ["Professional Summary", "Experience", "Education", "Skills", "Target Direction"]);
+    if (persona === "p1") {
+      expect(screen.getByRole("heading", { name: "Campus Transit Survey Project", level: 3 })).not.toHaveClass("uppercase");
+      expect(logicalLines).toContain("• Date: [gap: project date not yet provided]");
+    }
+    const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
+    const directory = mkdtempSync(join(tmpdir(), "resume-paper-parity-"));
+    try {
+      for (const projection of projections) {
+        const bytes = Buffer.from(projection.bytes, "base64");
+        const pdfPath = join(directory, `${persona}.pdf`);
+        writeFileSync(pdfPath, bytes);
+        let extracted: string;
+        if (!spawnSync("pdftotext", ["-v"]).error) {
+          extracted = execFileSync("pdftotext", ["-layout", pdfPath, "-"], { encoding: "utf8" });
+        } else {
+          // Portable fallback still verifies text commands when Poppler is unavailable.
+          const raw = bytes.toString("latin1");
+          const lines: string[] = [];
+          for (const match of raw.matchAll(/stream\n([\s\S]*?)\nendstream/g)) {
+            const start = match.index! + "stream\n".length;
+            if (!raw.slice(raw.lastIndexOf("<<", match.index), match.index).includes("/FlateDecode")) continue;
+            const stream = inflateSync(bytes.subarray(start, start + match[1].length)).toString("utf8");
+            let baseline = "";
+            for (const command of stream.matchAll(/[\d.]+ ([\d.]+) Td <([0-9A-F]+)> Tj/g)) {
+              const text = Buffer.from(command[2], "hex").swap16().toString("utf16le");
+              if (command[1] === baseline) lines[lines.length - 1] += text;
+              else { lines.push(text); baseline = command[1]; }
+            }
+          }
+          extracted = lines.join("\n");
+        }
+        expect(normalize(extracted)).toBe(normalize(logicalLines.join("\n")));
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("executes Create resume directly from the header action without queueing a chat prompt", async () => {

@@ -35,7 +35,7 @@ describe("AC-9.1 shipped Profile template section order", () => {
     const profile = readFileSync(new URL(`./fixtures/${persona}-experience-profile.txt`, import.meta.url), "utf8");
     const rendered = renderProfile(profile);
     expect(headings(rendered)).toEqual(persona === "p1"
-      ? ["Professional Summary", "Experience", "Education", "Skills", "Certifications", "Campus Transit Survey Project", "Additional Information", "Profile Review Notes"]
+      ? ["Professional Summary", "Experience", "Education", "Skills", "Certifications", "Projects", "Additional Information", "Profile Review Notes"]
       : ["Professional Summary", "Experience", "Education", "Skills", "Target Direction"]);
     expect(sectionBody(rendered, "Experience")).toBe(sectionBody(profile, "Experience"));
     expect(sectionBody(rendered, "Education")).toBe(sectionBody(profile, "Education")?.replace(/^[-*+]\s+/gm, ""));
@@ -56,6 +56,32 @@ describe("AC-9.1 shipped Profile template section order", () => {
     const reordered = [title, ...standard.reverse(), ...extras].join("");
     expect(renderProfile(reordered)).toBe(renderProfile(profile));
     expect(renderProfile(reordered, sourcePlan)).toBe(renderProfile(profile));
+  });
+
+  it.each(["# `*wildcard*`", "# Resume Profile\n## Contact\n- **Name:** `*wildcard*`\n- __Email:__ first_last@example.test"])("preserves code literals through heading/contact normalization: %s", (header) => {
+    const rendered = renderProfile(`${header}\n## **Experience**\nRole | Company | 2020\n## Custom \`*heading*\`\n\`*body*\``);
+    expect(rendered).toContain("# `*wildcard*`");
+    expect(rendered).toContain("## Custom `*heading*`");
+    expect(rendered).toContain("`*body*`");
+    expect(renderProfile(`${header}\n## **Experience**\nRole | Company | 2020\n## Custom \`*heading*\`\n\`*body*\``, sourcePlan)).toBe(rendered);
+  });
+
+  it("consumes nested pipe heading markers and preserves entry-title case", () => {
+    const profile = "# Test Person\n## Experience\n### Marketing Manager | BrightPath Learning | 2020–present\n- Led campaigns";
+    const rendered = renderProfile(profile);
+    expect(rendered).toContain("### Marketing Manager\nBrightPath Learning  ·  2020–present");
+    expect(rendered).not.toContain("**###");
+    expect(renderProfile(profile, sourcePlan)).toBe(rendered);
+  });
+
+  it("retains the P1 Projects parent, nested title, date gap and bullets without empty bullets", () => {
+    const profile = readFileSync(new URL("./fixtures/p1-experience-profile.txt", import.meta.url), "utf8")
+      .replace("- **Date:**", "-\n- **Date:**");
+    const rendered = renderProfile(profile);
+    expect(rendered).toContain("## Projects\n### Campus Transit Survey Project\n- Led a four-person class project");
+    expect(rendered).toContain("- **Date:** [gap: project date not yet provided]");
+    expect(rendered).not.toMatch(/^[-*+]\s*$/m);
+    expect(renderProfile(profile, sourcePlan)).toBe(rendered);
   });
 
   it("uses standard headings for aliases and keeps grouped Skills within Skills", () => {
