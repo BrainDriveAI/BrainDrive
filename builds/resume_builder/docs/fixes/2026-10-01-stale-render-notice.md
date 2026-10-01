@@ -132,6 +132,30 @@ Shipped-path follow-up results:
 
 Check logs and the runtime JSON report are task-owned temporary diagnostics under `/private/tmp/rb-shipped-*`, not committed release evidence. No live release acceptance run was performed.
 
+### Owner-facing source-label follow-up
+
+The updated development install exposed a descriptor mismatch that the earlier component mocks hid: the modern Resume Builder manifest generated in `builds/typescript/app-platform/lifecycle/fixture-repository.ts` declares `resume.profile.title` as **Your Resume Profile**, but `resume.profile.presentation.title` as **resume-profile.md**. Navigation uses the former; the stale notice incorrectly preferred the latter.
+
+The generic host now uses the source document's navigation/display title (`document.title`), with **The source document** for an empty or whitespace-only label. It never falls back to the presentation's file heading. No Resume Builder strings were added to host implementation code. Render behavior, descriptor/package bytes, and package version are unchanged.
+
+Changed files in this follow-up:
+
+- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx`: use the owner-facing source label in the notice.
+- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.test.tsx`: two parameterized regression cases mirror the shipped manifest's actual document IDs, binding IDs, owner title, filename presentation title, and source reference. Real file-backed records produce a stale notice; assertions check the navigation label, complete notice copy, filename absence, generic fallback, and no action/write during detection. Existing synthetic-fixture assertions now correctly expect their navigation label, **Profile**.
+- This fix note.
+
+Both new cases failed before the host change, displaying **resume-profile.md**. Final checks:
+
+| Check | Result |
+| --- | --- |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:build` | PASS, exit 0. Existing unresolved font-path and large-chunk build warnings remain. |
+| `builds/typescript`: `npm run web:test` | PASS: 27 files, 345 tests. Focused workspace suite: 41 tests passed. |
+| `builds/resume_builder`: `npm test` | PASS: 9 files, 221 tests. |
+| `builds/typescript`: `npm run docs:verify`, final `npm run docs:check` | PASS: 166 passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check`, `tools/security/scan-secrets.sh --current` | PASS. |
+
+Canonical documentation impact: the mapped host/installed-app documentation already promises an owner-visible changed-source notice and generic descriptor-driven behavior. This correction restores that promise without changing the contract, lifecycle, action semantics, or package; no canonical page update is required. Verification here covers the rendered component with shipped descriptor values, not a new live app/browser or release acceptance run.
+
 ## Still needs live verification
 
 On the frozen Candidate 14 package and host combination, repeat E-6 through the real owner editor on web and claimed desktop platforms: capture the confirmed save, edited Profile revision/hash, notice DOM text/status and screenshot before Create resume, unchanged old Resume, explicit Create resume action (including gap disposition if needed), current fresh Resume, notice disappearance, zero render model calls, and unchanged Profile hashes around rendering and later chat. Check mobile notice/action reachability and capture save/model-turn occurrence/sequence from the accepted event producers. Include all required personas and sealed evidence. Local component/unit tests do not satisfy that release evidence gate. No candidate/live-provider run or real-owner screenshot was performed here.

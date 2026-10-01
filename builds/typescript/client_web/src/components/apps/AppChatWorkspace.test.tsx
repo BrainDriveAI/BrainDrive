@@ -690,6 +690,73 @@ describe("AppChatWorkspace", () => {
   });
 
   it.each([
+    { missingLabel: false, expectedLabel: "Your Resume Profile" },
+    { missingLabel: true, expectedLabel: "The source document" },
+  ])("names the stale source from the shipped navigation descriptor (missingLabel=$missingLabel)", async ({ missingLabel, expectedLabel }) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-stale-source-label-"));
+    try {
+      // Mirrors the modern Resume Builder manifest in lifecycle/fixture-repository.ts:
+      // the navigation title is owner-facing; the presentation title is a file name.
+      const workspace = withDirectResumeActions(launch()).workspace;
+      workspace.documents = workspace.documents.map((document) => document.document_id === "profile" ? {
+        ...document, document_id: "resume.profile", title: "Your Resume Profile", data_binding_id: "resume.profile.current",
+        presentation: { ...document.presentation!, title: "resume-profile.md", subtitle: "Resume Profile" },
+      } : document.document_id === "resume" ? {
+        ...document, document_id: "resume.document", title: "Your Resume", data_binding_id: "resume.definition.current.general",
+        presentation: { ...document.presentation!, read_only_explanation: {
+          ...document.presentation!.read_only_explanation!, source_document_id: "resume.profile",
+        } },
+      } : document);
+      const profile = workspace.documents.find((document) => document.document_id === "resume.profile")!;
+      expect(profile.title).toBe("Your Resume Profile");
+      expect(profile.presentation?.title).toBe("resume-profile.md");
+      const current = launch({ workspace: {
+        ...workspace,
+        documents: workspace.documents.map((document) => missingLabel && document.document_id === profile.document_id
+          ? { ...document, title: " " } : document),
+      } });
+      vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+      const store = new AppDocumentStorageService(path.join(root, "documents"));
+      const authority: AppDocumentStorageAuthority = {
+        authority_version: 1, owner_id: current.session.owner_id, actor_id: current.session.actor_id,
+        app_id: current.session.app_id, publisher_id: current.session.publisher_id,
+        installation_id: current.session.installation_id, package_digest: current.session.package_digest,
+        lifecycle_generation: current.session.lifecycle_generation, grant_id: current.session.grant_id,
+        grant_revision: current.session.grant_revision, revocation_generation: current.session.revocation_generation,
+      };
+      await store.initialize();
+      await store.bindActiveAuthority(authority);
+      for (const documentId of ["resume.profile", "resume.document"]) {
+        const document = workspace.documents.find((candidate) => candidate.document_id === documentId)!;
+        await store.writeDocument({
+          request_version: 1, authority, document_id: documentId, document_binding_id: document.data_binding_id!,
+          record_kind: "document", role: documentId === "resume.profile" ? "source_document" : "derived_document", retention_class: "durable_owner_data", media_type: "text/markdown",
+          expected_revision: null, operation_id: current.session.operation_id, idempotency_key: `label-${documentId}`,
+          content: "# Saved document",
+          ...(documentId === "resume.document" ? { derived_from: { document_id: profile.document_id, revision_id: "00000000-0000-4000-8000-000000000999" } } : {}),
+        });
+      }
+      vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, documentId) => ({
+        result_version: 1, state: "current", document_id: documentId,
+        document_binding_id: workspace.documents.find((document) => document.document_id === documentId)!.data_binding_id!,
+        record: await store.readDocument(authority, documentId) as appsApi.AppDocumentRecord | null,
+      }));
+      const user = userEvent.setup();
+      render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+      await screen.findByText("Conversation transcript");
+      if (!missingLabel) expect(screen.getByRole("button", { name: expectedLabel })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Your Resume" }));
+      const notice = await screen.findByRole("status", { name: "Source document changed" });
+      expect(notice).toHaveTextContent(`${expectedLabel} changed since this document was created. Choose Create resume again to update it.`);
+      expect(notice).not.toHaveTextContent("resume-profile.md");
+      expect(appsApi.writeAppChatWorkspaceDocument).not.toHaveBeenCalled();
+      expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
     { legacy: false, delayed: null },
     { legacy: true, delayed: null },
     { legacy: false, delayed: "profile" },
@@ -769,7 +836,7 @@ describe("AppChatWorkspace", () => {
       expect(screen.getByRole("status", { name: "Source document changed" })).toBeInTheDocument();
       expect(screen.queryByText("This workspace document binding is unavailable.")).not.toBeInTheDocument();
     }
-    expect(notice).toHaveTextContent("Your Resume Profile changed since this document was created. Choose Create resume again to update it.");
+    expect(notice).toHaveTextContent("Profile changed since this document was created. Choose Create resume again to update it.");
     expect(screen.getByText("Target: sustainability coordinator")).toBeInTheDocument();
     expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
     await user.click(within(notice).getByRole("button", { name: "Create resume" }));
@@ -842,7 +909,7 @@ describe("AppChatWorkspace", () => {
       render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={reinstalled} onSessionClosed={() => undefined} />);
       await screen.findByText("Conversation transcript");
       await user.click(screen.getByRole("button", { name: "Resume" }));
-      expect(await screen.findByRole("status", { name: "Source document changed" })).toHaveTextContent("Your Resume Profile changed");
+      expect(await screen.findByRole("status", { name: "Source document changed" })).toHaveTextContent("Profile changed");
       expect(screen.getByText("Target: sustainability coordinator")).toBeInTheDocument();
       expect(await store.readDocument(authority, "profile")).toMatchObject({
         content: savedProfile!.content, revision_id: savedProfile!.revision_id,

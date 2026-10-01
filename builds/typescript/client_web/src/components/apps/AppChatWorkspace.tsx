@@ -1331,7 +1331,7 @@ function WorkspaceDetail({
 
         {sourceIsStale && sourceDocument ? (
           <aside role="status" aria-label="Source document changed" className="mt-4 rounded-md border border-bd-amber bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
-            <p>{sourceDocument.presentation?.title ?? sourceDocument.title} changed since this document was created.{sourceRenderAction ? ` Choose ${sourceRenderAction.label} again to update it.` : " Open the source document to update it."}</p>
+            <p>{sourceDocument.title.trim() || "The source document"} changed since this document was created.{sourceRenderAction ? ` Choose ${sourceRenderAction.label} again to update it.` : " Open the source document to update it."}</p>
             <Button type="button" size="sm" className="mt-2" disabled={runningActionId !== null} onClick={() => sourceRenderAction ? void executeDirectHeaderAction(sourceRenderAction) : onOpenWorkspaceItem(sourceDocument.document_id)}>
               {sourceRenderAction?.label ?? "Open source document"}
             </Button>
