@@ -1053,15 +1053,19 @@ function WorkspaceDetail({
       setDocumentResult(result);
       setDraftContent(draftFromRecord(result.record));
       setDocumentStatus("ready");
-      if (result.record && currentDocument.role === "derived_document" && sourceDocument) {
-        const source = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, sourceDocument.document_id));
-        if (generation !== documentLoadGenerationRef.current) return;
-        if (source.record) {
-          const lineage = result.record.derived_from;
-          // Older renders have no lineage. Their save timestamps provide a compatibility fallback.
-          setSourceIsStale(lineage?.document_id === sourceDocument.document_id
-            ? lineage.revision_id !== source.record.revision_id
-            : Date.parse(source.record.updated_at) > Date.parse(result.record.updated_at));
+      if (result.record && currentDocument.role === "derived_document" && sourceDocument?.data_binding_id && sourceDocument.role !== "conversation") {
+        try {
+          const source = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, sourceDocument.document_id));
+          if (generation !== documentLoadGenerationRef.current) return;
+          if (source.record) {
+            const lineage = result.record.derived_from;
+            // Older renders have no lineage. Their save timestamps provide a compatibility fallback.
+            setSourceIsStale(lineage?.document_id === sourceDocument.document_id
+              ? lineage.revision_id !== source.record.revision_id
+              : Date.parse(source.record.updated_at) > Date.parse(result.record.updated_at));
+          }
+        } catch {
+          // Freshness is optional: a failed source read must not discard the loaded document.
         }
       }
     } catch (error) {

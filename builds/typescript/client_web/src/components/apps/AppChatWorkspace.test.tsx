@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { AppDocumentStorageService } from "../../../../app-platform/storage/app-document-store";
 import type { AppDocumentStorageAuthority } from "../../../../app-platform/contracts/app-storage";
+import { WorkspaceDocumentDescriptorSchema } from "../../../../app-platform/contracts/app-registry";
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -687,6 +688,55 @@ describe("AppChatWorkspace", () => {
     }));
     expect(await screen.findByRole("status")).toHaveTextContent("Create resume completed.");
     expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please create"))).toBe(false);
+  });
+
+  it.each(["unbound", "failed read"])("opens a derived document without a freshness notice for an unavailable source (%s)", async (scenario) => {
+    const current = withDirectResumeActions(launch());
+    if (scenario === "unbound") {
+      current.workspace.documents = current.workspace.documents.map((document) => document.document_id === "profile"
+        ? { ...document, data_binding_id: null } : document);
+    }
+    for (const document of current.workspace.documents) {
+      expect(WorkspaceDocumentDescriptorSchema.safeParse(document).success).toBe(true);
+    }
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const content = "# Saved derived document\nKeep this document visible.";
+    const result: appsApi.AppDocumentReadResult = {
+      result_version: 1, state: "current", document_id: "resume", document_binding_id: "resume.current",
+      record: {
+        ...current.session,
+        record_version: 1, record_kind: "document", document_id: "resume", document_binding_id: "resume.current",
+        role: "derived_document", retention_class: "durable_owner_data", media_type: "text/markdown", revision: 3,
+        revision_id: "00000000-0000-4000-8000-000000000103", prior_revision_id: null,
+        operation_id: current.session.operation_id, idempotency_key: "unavailable-source-test",
+        content_digest: `sha256:${"d".repeat(64)}`, content_size_bytes: content.length, content,
+        created_at: "2026-10-01T12:00:00.000Z", updated_at: "2026-10-01T12:00:00.000Z",
+        created_by: {}, updated_by: {},
+        derived_from: { document_id: "profile", revision_id: "00000000-0000-4000-8000-000000000102" },
+      },
+    };
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, documentId) => {
+      if (documentId === "resume") return result;
+      throw new appsApi.AppDocumentError("Source storage is unavailable.", 403, "denied", {
+        state_version: 1, state: "unavailable", safe_message: "Source storage is unavailable.",
+        retryable: true, refresh_required: false, current_revision: null,
+      });
+    });
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(await screen.findByText("Keep this document visible.")).toBeInTheDocument();
+    expect(screen.getByText("Revision 3")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
+    expect(appsApi.readAppChatWorkspaceDocument).toHaveBeenCalledTimes(scenario === "unbound" ? 1 : 2);
+    if (scenario === "unbound") {
+      expect(appsApi.readAppChatWorkspaceDocument).not.toHaveBeenCalledWith("test-builder", current.session.session_id, "profile");
+    }
+    expect(appsApi.writeAppChatWorkspaceDocument).not.toHaveBeenCalled();
+    expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
   });
 
   it.each([

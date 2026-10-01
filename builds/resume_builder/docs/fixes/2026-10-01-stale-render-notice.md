@@ -176,6 +176,26 @@ Test-first regression: **keeps an unsaved Profile draft when a pending stale-not
 
 The initial broader typecheck/build caught a test assertion passing the record's `unknown` content field to `toHaveValue`; using the typed fixture string corrected it, and all four web checks passed on rerun. Verification covers the rendered component and deferred-action race, without a new live browser or release acceptance run. One local commit is requested; no push.
 
+### Optional freshness-read follow-up
+
+Review found that a schema-valid derived-document descriptor can reference an unbound source. The generic document view read that source through storage without checking eligibility, and the shared load-error handler discarded the successfully loaded derived record when the source read failed.
+
+The host now checks the source's storage eligibility (a data binding and a non-conversation role) before reading it. Source-read failures are caught separately from document-load failures. An unbound source or a failed source read leaves the saved derived document visible, ready, and without a stale notice. Actual document-load errors retain their existing error handling; successful freshness checks retain the existing lineage/timestamp comparisons and generation guard.
+
+Changed files: `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx`, its colocated `AppChatWorkspace.test.tsx`, and this fix note. Governing context remains the repository paths recorded in Spec check above; the accepted review request supplies change authority. The mapped MCP-host and Resume Builder documentation already promise readable existing documents and generic descriptor-driven freshness detection. This restores those contracts without changing them, so no canonical documentation update is required.
+
+Two parameterized regressions were added before implementation: an unbound source and a bound source whose read rejects with `AppDocumentError`. Both validate the document descriptors against the real schema, open the derived document through the rendered workspace, and verify saved content/revision, no error or stale notice, no write/action, and no source storage read for the unbound case. Before the fix, both failed because the source error cleared the loaded record (42 other workspace tests passed). After the fix, all 44 workspace tests pass.
+
+| Check | Result |
+| --- | --- |
+| `builds/typescript`: `npm run web:test -- src/components/apps/AppChatWorkspace.test.tsx` | PASS: 44 tests. |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:build` | PASS, exit 0. Existing unresolved font-path and large-chunk build warnings remain. |
+| `builds/typescript`: `npm run web:test` | PASS: 27 files, 348 tests. The existing jsdom navigation diagnostic remains. No TMPDIR workaround was needed. |
+| `builds/typescript`: `npm run docs:verify` (includes `docs:test` and `docs:check`) | PASS: 166 passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check` | PASS. |
+
+This follow-up uses component verification; no new live browser or release acceptance run is claimed. One local commit is requested; no push.
+
 ## Still needs live verification
 
 On the frozen Candidate 14 package and host combination, repeat E-6 through the real owner editor on web and claimed desktop platforms: capture the confirmed save, edited Profile revision/hash, notice DOM text/status and screenshot before Create resume, unchanged old Resume, explicit Create resume action (including gap disposition if needed), current fresh Resume, notice disappearance, zero render model calls, and unchanged Profile hashes around rendering and later chat. Check mobile notice/action reachability and capture save/model-turn occurrence/sequence from the accepted event producers. Include all required personas and sealed evidence. Local component/unit tests do not satisfy that release evidence gate. No candidate/live-provider run or real-owner screenshot was performed here.
