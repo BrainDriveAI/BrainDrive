@@ -196,6 +196,28 @@ Two parameterized regressions were added before implementation: an unbound sourc
 
 This follow-up uses component verification; no new live browser or release acceptance run is claimed. One local commit is requested; no push.
 
+### Session-renewal draft-preservation follow-up
+
+Review identified a branch regression: the document-load effect added `sessionId` to the base dependencies `[boundDocument?.document_id, loadDocument]`. A session-only prop renewal therefore called `loadDocument()` and replaced an unsaved Profile draft with saved content.
+
+Document loading now uses the base dependencies again. A separate session effect updates the active session reference and invalidates outstanding document/source reads through the existing generation guard. Loaded documents, drafts, edit mode, and freshness state remain intact on renewal; no freshness read is started merely because the session changed. Freshness is checked when the derived document is reopened or explicitly refreshed. If renewal interrupts the initial document load, only that pending load is retried with the new session so the view does not remain stuck loading. No automatic Profile write or render is added.
+
+The stateful regression wrapper renders the exported `WorkspaceDetail` and changes its `sessionId` prop while the real Profile editor has unsaved changes. Before the behavioral fix, it failed because the draft became `# Saved Profile` (44 other workspace tests passed). After the fix, it asserts the draft survives, Save remains enabled, renewal performs no additional document read or write, and an explicit save uses the renewed session with the original expected revision. Two deferred-read cases additionally verify that an old document response cannot replace the renewed load and that an old source response cannot change the notice after renewal. The latter performs no replacement document/source read.
+
+Pre-existing issue outside this fix: the AppsPage renewal flow updates the selected launch; the existing outer AppChatWorkspace session-loading state then unmounts its editor. That behavior is already present on `origin/feature/internet-search-capability` and is separate from this branch's document-effect regression. AppsPage and the outer loading-state behavior are unchanged. The direct detail-component wrapper isolates the requested regression; these tests do not claim the complete AppsPage renewal flow preserves drafts.
+
+Changed files: `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx`, its colocated `AppChatWorkspace.test.tsx`, and this fix note. Governing context remains the repository paths recorded in Spec check above; the accepted review request supplies change authority. Source-mapped MCP-host and Resume Builder documentation already describe read invalidation, authoritative source documents, and preservation of owner drafts. This restores those contracts without changing them, so no canonical documentation update is required.
+
+| Check | Result |
+| --- | --- |
+| `builds/typescript`: `npm run web:test -- src/components/apps/AppChatWorkspace.test.tsx` | PASS: 47 tests. |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:build` | PASS, exit 0. Existing unresolved font-path and large-chunk build warnings remain. |
+| `builds/typescript`: `npm run web:test` | PASS: 27 files, 351 tests. The existing jsdom navigation diagnostic remains. |
+| `builds/typescript`: `npm run docs:verify` (includes `docs:test` and `docs:check`) | PASS: 166 passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check`, `tools/security/scan-secrets.sh --current` | PASS: zero secret findings. |
+
+Verification covers the rendered detail component and deferred reads; no new live browser or release acceptance run is claimed. One local commit: `Resume Builder: keep unsaved drafts across session renewal`. No push.
+
 ## Still needs live verification
 
 On the frozen Candidate 14 package and host combination, repeat E-6 through the real owner editor on web and claimed desktop platforms: capture the confirmed save, edited Profile revision/hash, notice DOM text/status and screenshot before Create resume, unchanged old Resume, explicit Create resume action (including gap disposition if needed), current fresh Resume, notice disappearance, zero render model calls, and unchanged Profile hashes around rendering and later chat. Check mobile notice/action reachability and capture save/model-turn occurrence/sequence from the accepted event producers. Include all required personas and sealed evidence. Local component/unit tests do not satisfy that release evidence gate. No candidate/live-provider run or real-owner screenshot was performed here.

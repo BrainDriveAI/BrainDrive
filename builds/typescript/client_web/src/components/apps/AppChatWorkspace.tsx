@@ -929,7 +929,7 @@ function AppWorkspaceProfileControl({
   );
 }
 
-function WorkspaceDetail({
+export function WorkspaceDetail({
   appKey,
   appName,
   sessionId,
@@ -991,6 +991,8 @@ function WorkspaceDetail({
   const packageResource = boundDocument ? null : resource;
   const canResetToPackageDefault = Boolean(boundDocument?.resource_id && editable);
   const sessionIdRef = useRef(sessionId);
+  const previousSessionIdRef = useRef(sessionId);
+  const documentStatusRef = useRef(documentStatus);
   const boundDocumentRef = useRef(boundDocument);
   const documentLoadGenerationRef = useRef(0);
   const resourceRef = useRef(packageResource);
@@ -1002,7 +1004,13 @@ function WorkspaceDetail({
   const shouldShowEditor = Boolean(boundDocument && editable && (isEditing || renderer === "json_editor" || !isDocumentChrome));
 
   useEffect(() => {
+    documentStatusRef.current = documentStatus;
+  }, [documentStatus]);
+
+  useEffect(() => {
     sessionIdRef.current = sessionId;
+    const loadGeneration = documentLoadGenerationRef;
+    return () => { ++loadGeneration.current; };
   }, [sessionId]);
 
   useEffect(() => {
@@ -1109,7 +1117,15 @@ function WorkspaceDetail({
     const loadGeneration = documentLoadGenerationRef;
     void loadDocument();
     return () => { ++loadGeneration.current; };
-  }, [boundDocument?.document_id, loadDocument, sessionId]);
+  }, [boundDocument?.document_id, loadDocument]);
+
+  useEffect(() => {
+    if (previousSessionIdRef.current === sessionId) return;
+    previousSessionIdRef.current = sessionId;
+    // Renewal invalidates old reads, but must not reload an already loaded owner draft.
+    // Retry only an interrupted document load; source freshness is checked on reopening.
+    if (documentStatusRef.current === "loading") void loadDocument();
+  }, [loadDocument, sessionId]);
 
   useEffect(() => {
     void loadResource();
