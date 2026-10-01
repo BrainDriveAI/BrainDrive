@@ -100,6 +100,27 @@ function renderAction(actionId: string, documentId: string, content: string) {
 
 describe("shipped render regressions", () => {
   it.each([
+    ["**Name:** **Test Person**\n**Email:** **_first_last@x.com_**", "**Test Person**", "**_first_last@x.com_**", "Test Person", "first_last@x.com"],
+    ["**Name: Test Person**\n**Email: first_last@x.com**", "**Test Person**", "**first_last@x.com**", "Test Person", "first_last@x.com"],
+    ["_Name: Test Person_\n_Email: first_last@x.com_", "_Test Person_", "_first_last@x.com_", "Test Person", "first_last@x.com"],
+    ["__Name: Test Person__\n__Email: first_last@x.com__", "__Test Person__", "__first_last@x.com__", "Test Person", "first_last@x.com"],
+    ["**Name:** `*Test Person*`\n**Email:** `first_last@x.com`", "`*Test Person*`", "`first_last@x.com`", "*Test Person*", "first_last@x.com"],
+    ["**Name: `*Test Person*`**\n**Email: _first_last@x.com_**", "**`*Test Person*`**", "**_first_last@x.com_**", "*Test Person*", "first_last@x.com"],
+  ])("keeps emphasized contact fields and literal values: %s", (fields, nameMarkup, emailMarkup, name, email) => {
+    const profile = `# Resume Profile\n## Contact\n${fields}\n## Experience\n### Role | Company | 2020`;
+    const plan = renderAction("resume.create", "resume.profile", profile);
+    const markdown = plan.steps.find((step: any) => step.step_id === "write-resume-document")?.content;
+    expect(markdown).toBeDefined();
+    expect(markdown).toContain(`# ${nameMarkup}\n${emailMarkup}\n`);
+    const pdf = renderAction("resume.export.pdf.request", "resume.document", markdown);
+    const step = pdf.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+    expect(decodedPdfLogicalLines(Buffer.from(step.bytes_base64, "base64")).slice(0, 2)).toEqual([name, email]);
+  });
+
+  it.each([
+    ["_first_last@x.com_", "first_last@x.com"],
+    ["__first_last@x.com__", "first_last@x.com"],
+    ["___first_last@x.com___", "first_last@x.com"],
     ["*September 2025–Present*", "September 2025–Present"],
     ["**June 2024–Present**", "June 2024–Present"],
     ["_September 2025–Present_", "September 2025–Present"],
@@ -137,6 +158,7 @@ describe("shipped render regressions", () => {
   });
 
   it.each([
+    "## Experience\n### Role|Company|2020",
     "## **Experience**\n### Coordinator — Employer\n- Scheduled work",
     "## Experience\n### Director of Data Platforms — Horizon Health Systems, 2020–present",
   ])("gate accepts substantive experience with normalized headings: %s", (sections) => {
@@ -165,6 +187,8 @@ describe("shipped render regressions", () => {
   });
 
   it.each([
+    "## Experience\n### [gap: role]\n**Company:** [gap: employer]\n**Dates:** [gap: dates]",
+    "## Experience\n### Unfilled entry\n**Company:**\n**Dates:**",
     "## Experience\n### [gap: role and employer]\n[gap: dates and duties]",
     "## Experience\n### [gap: role]\n**[gap: dates]**",
     "## Experience\n### [gap: role]\n[gap: dates] [gap: duties]",

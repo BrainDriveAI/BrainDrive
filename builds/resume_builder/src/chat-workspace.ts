@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 
+import { parseInlineMarkdown } from "./inline-markdown.js";
+
 import { INTERVIEW_TOPICS, type DurableWorkflowSnapshot, type InterviewTopic } from "./workflow.js";
 
 export const RESUME_CHAT_PRESENTATION_ID = "just.chat" as const;
@@ -709,7 +711,7 @@ function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): bool
       } else {
         // A title with an employer is an entry even when its details are all on this line.
         const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
-        if (title.split(/\s+[—–|]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
+        if (title.split(/\s*\|\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
       }
       continue;
     }
@@ -719,7 +721,8 @@ function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): bool
 }
 
 function isUsableProfileContentLine(line: string): boolean {
-  const text = stripResumeInlineMarkup(line.replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
+  const content = line.replace(/^(?:[-*+]|\d+[.)])\s+/, "").replace(/\[gap:\s*[^\]]*\]/gi, "");
+  const text = stripResumeInlineMarkup(parseResumeField(content)?.value ?? content)
     .replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
   return /[\p{L}\p{N}]/u.test(text);
 }
@@ -908,16 +911,23 @@ function parseResumeProfileSections(markdown: string): {
   return classified;
 }
 
+function parseResumeField(rawLine: string): { key: string; value: string } | null {
+  // Move whole-field emphasis onto the value; parse that value only at final display.
+  // Label-only emphasis is removed without touching code or nested value markup.
+  const line = rawLine.trim().replace(/^(\*{1,3}|_{1,3})([^:*_`]+):\1\s*/, "$2: ");
+  const whole = /^(\*{1,3}|_{1,3})([^:*_`]+):\s*(.+)\1$/.exec(line);
+  const normalized = whole ? `${whole[2]}: ${whole[1]}${whole[3]}${whole[1]}`
+    : line;
+  const match = /^([^:]+?):\s*(.*)$/.exec(normalized);
+  return match ? { key: stripResumeInlineMarkup(match[1]).toLowerCase(), value: match[2].trim() } : null;
+}
+
 function parseResumeContact(lines: readonly string[]): ResumeContact {
   const contact: ResumeContact = {};
   for (const rawLine of lines) {
-    // Normalize the field label only; values retain markup for one final inline parse.
-    const line = rawLine.replace(/^\s*[-*+]\s+/, "").trim()
-      .replace(/^(\*{1,3}|_{1,3})([^:*_]+):\1\s*/, "$2: ");
-    const match = /^([^:]+?):\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const key = stripResumeInlineMarkup(match[1]).toLowerCase();
-    const value = match[2].trim();
+    const field = parseResumeField(rawLine.replace(/^\s*[-*+]\s+/, ""));
+    if (!field) continue;
+    const { key, value } = field;
     if (!value) continue;
     if (key === "name" || key === "full name") contact.name ??= value;
     else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
@@ -1298,105 +1308,9 @@ function pdfBlockRequiredHeight(block: PdfBlock, contentWidth: number): number {
 }
 
 function parsePdfInlineMarkdown(text: string): PdfTextRun[] {
-  // Pair emphasis delimiters; unmatched/escaped punctuation remains literal.
-  // Italics use plain text in the two-face PDF font set; strong stays bold.
-  const removed = new Set<number>();
-  const boldChanges = new Int16Array(text.length + 1);
-  const delimiters: { marker: string; start: number; length: number; remaining: number; open: boolean; close: boolean }[] = [];
-  const whitespace = (character: string) => !character || /\s/u.test(character);
-  const punctuation = (character: string) => /[\p{P}\p{S}]/u.test(character);
-  for (let index = 0; index < text.length; index += 1) {
-    // Code spans and bare URLs/emails are literal; emphasis can still surround them.
-    if (text[index] === "`") {
-      const ticks = /^`+/.exec(text.slice(index))![0];
-      let closing = index + ticks.length;
-      while (closing < text.length) {
-        const match = /`+/.exec(text.slice(closing));
-        if (!match) break;
-        closing += match.index;
-        if (match[0].length === ticks.length) {
-          for (let offset = 0; offset < ticks.length; offset += 1) {
-            removed.add(index + offset);
-            removed.add(closing + offset);
-          }
-          const content = text.slice(index + ticks.length, closing);
-          if (content.startsWith(" ") && content.endsWith(" ") && content.trim()) {
-            removed.add(index + ticks.length);
-            removed.add(closing - 1);
-          }
-          index = closing + ticks.length - 1;
-          break;
-        }
-        closing += match[0].length;
-      }
-      if (removed.has(index - ticks.length + 1)) continue;
-    }
-    const literal = /^(?:(?:https?:\/\/|www\.)[^\s<>`]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.exec(text.slice(index));
-    if (literal) {
-      let length = literal[0].length;
-      const opener = delimiters.at(-1);
-      if (opener?.open && literal[0].endsWith(opener.marker.repeat(opener.remaining))) length -= opener.remaining;
-      index += length - 1;
-      continue;
-    }
-    if (text[index] === "\\" && /[\\*_]/.test(text[index + 1] ?? "")) {
-      removed.add(index);
-      index += 1;
-      continue;
-    }
-    const marker = text[index];
-    if (marker !== "*" && marker !== "_") continue;
-    const start = index;
-    while (text[index + 1] === marker) index += 1;
-    const before = text[start - 1] ?? "";
-    const after = text[index + 1] ?? "";
-    const left = !whitespace(after) && (!punctuation(after) || whitespace(before) || punctuation(before));
-    const right = !whitespace(before) && (!punctuation(before) || whitespace(after) || punctuation(after));
-    delimiters.push({
-      marker, start, length: index - start + 1, remaining: index - start + 1,
-      open: left && (marker === "*" || !right || punctuation(before)),
-      close: right && (marker === "*" || !left || punctuation(after)),
-    });
-  }
-  for (let closerIndex = 0; closerIndex < delimiters.length; closerIndex += 1) {
-    const closer = delimiters[closerIndex];
-    if (!closer.close) continue;
-    for (let openerIndex = closerIndex - 1; openerIndex >= 0 && closer.remaining > 0; openerIndex -= 1) {
-      const opener = delimiters[openerIndex];
-      if (!opener.open || !opener.remaining || opener.marker !== closer.marker) continue;
-      // Ambiguous runs follow Markdown's rule of three.
-      if ((opener.close || closer.open) && (opener.length + closer.length) % 3 === 0
-        && (opener.length % 3 !== 0 || closer.length % 3 !== 0)) continue;
-      while (opener.remaining > 0 && closer.remaining > 0) {
-        const width = opener.remaining >= 2 && closer.remaining >= 2 ? 2 : 1;
-        const openStart = opener.start + opener.remaining - width;
-        const closeStart = closer.start + closer.length - closer.remaining;
-        for (let offset = 0; offset < width; offset += 1) {
-          removed.add(openStart + offset);
-          removed.add(closeStart + offset);
-        }
-        if (width === 2) {
-          boldChanges[openStart + width] += 1;
-          boldChanges[closeStart] -= 1;
-        }
-        opener.remaining -= width;
-        closer.remaining -= width;
-      }
-      // Matched pairs enclose, rather than cross, intervening delimiters.
-      for (let index = openerIndex + 1; index < closerIndex; index += 1) delimiters[index].open = false;
-    }
-  }
-  const runs: PdfTextRun[] = [];
-  let boldDepth = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    boldDepth += boldChanges[index];
-    if (removed.has(index)) continue;
-    const bold = boldDepth > 0;
-    const last = runs.at(-1);
-    if (last && last.bold === bold) last.text += text[index];
-    else runs.push({ text: text[index], bold });
-  }
-  return runs.map((run) => ({ ...run, text: normalizePdfText(run.text, false) })).filter((run) => run.text.length > 0);
+  return parseInlineMarkdown(text)
+    .map((run) => ({ ...run, text: normalizePdfText(run.text, false) }))
+    .filter((run) => run.text.length > 0);
 }
 
 function wrapPdfRuns(runs: PdfTextRun[], maxWidth: number, fontSize: number): PdfLine[] {

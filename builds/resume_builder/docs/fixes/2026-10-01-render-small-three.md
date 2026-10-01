@@ -141,3 +141,24 @@ The owner reports that the interrupted run already passed package tests/build, w
 | `git diff --check` at repository root | Exit 0. |
 
 The web suite emits `Not implemented: navigation to another Document` but reports no test failures. Existing live qualification and visual-review limitations remain as recorded above.
+
+### Contact/email and experience review corrections
+
+Follow-up to `c0c761b` on `fix/rb-render-small-three`, 2026-10-01. The four review defects are corrected in the shipped program and source planner, with shared paper/PDF inline behavior. Whole-field emphasis now moves onto the contact value after label-only emphasis is removed, retaining Name/Email content, nested value markup, and code literals until final rendering. A regression also protects separately emphasized labels and values from being mistaken for whole-field emphasis. Experience headings accept unspaced pipes, consistent with the renderer; empty/gap-only field values exclude their labels from substantive-content checks. All gap markers remain named by the existing gate.
+
+`src/inline-markdown.ts` is now the canonical pure grammar. The source PDF renderer and `client_web/src/lib/paper-inline-markdown.ts` consume it directly. `node scripts/sync-inline-markdown.mjs` (from `builds/resume_builder`) embeds its compiled function in the standalone shipped `resources/inference-program.js`; the package suite runs `--check` to reject drift. Leading underscore emphasis is recognized before email content is protected, while intraword underscores, escaped punctuation, URLs, and code literals remain intact. PDF-specific text normalization stays in the PDF adapter.
+
+Tests were added before correcting the defects: the isolated contact run reproduced four lost-field failures; PDF email cases reproduced three literal-delimiter failures; gate cases reproduced the unspaced-pipe false negative and two label-only false positives; paper parser cases reproduced three email-emphasis failures. The separately emphasized label/value overlap found during final review also failed before its correction. Package regressions compare shipped/source render and gate outputs, and the actual paper-view test checks email text and strong styling. Review Notes and extra-section classification/order are untouched and retain existing regression coverage.
+
+Fresh final verification:
+
+| Command / working directory | Result |
+|---|---|
+| `npm test`, `npm run build` in `builds/resume_builder` | Pass: **11 files / 285 tests**, TypeScript build. |
+| `npm run web:typecheck`, `npm run web:test` in `builds/typescript` | Pass: **28 files / 348 tests**, typecheck. |
+| `npm run web:build` in `builds/typescript` | Pass; existing unresolved font URL and chunk-size warnings remain. |
+| P1/P2 parity within `AppChatWorkspace.test.tsx` | Pass: all four shipped/source PDFs match mounted Your Resume text and heading order after whitespace normalization using **Poppler 26.03.0 `pdftotext -layout`**, with temporary exports removed. |
+| `npm run docs:test`, `npm run docs:check`, `npm run docs:verify` in `builds/typescript` | Pass: docs suite **166 passed / 1 skipped / 0 failures**; validation **zero diagnostics**. |
+| `node tools/docs/sync-generated.mjs --check`, `git diff --check` at root | Pass. |
+
+The web suite emits its existing jsdom navigation notice without failures. The package README and this note describe the corrections; canonical platform documentation has no additional impact because no package-delivery, host authority, inference, storage, export transport, or receipt contract changed. These are synthetic source-side checks, with the previously recorded installed-app and visual qualification limits still applicable.

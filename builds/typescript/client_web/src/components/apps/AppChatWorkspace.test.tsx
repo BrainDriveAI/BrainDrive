@@ -678,6 +678,7 @@ describe("AppChatWorkspace", () => {
         "# Test Person", "## Experience", "### Marketing Manager",
         "*September 2025–Present*", "**strong *nested italic* text**", "__strong _nested italic_ text__",
         "foo***bar***baz ***bold***.", "https://example.com/_private_/first_last",
+        "_first_last@x.com_", "__first_last@x.com__",
         "`*wildcard*` and first_last@example.test and snake_case", "plain  **bold** tail",
         "## Projects", "### Campus Transit Survey Project", "-", "- Led a survey", "- **Date:** [gap: date]",
       ].join("\n") } as appsApi.AppDocumentRecord,
@@ -692,9 +693,11 @@ describe("AppChatWorkspace", () => {
     expect(paragraphs).toEqual([
       "September 2025–Present", "strong nested italic text", "strong nested italic text",
       "foobarbaz bold.", "https://example.com/_private_/first_last",
+      "first_last@x.com", "first_last@x.com",
       "*wildcard* and first_last@example.test and snake_case", "plain  bold tail", "Led a survey", "Date: [gap: date]",
     ]);
     expect(screen.getByRole("heading", { name: "Campus Transit Survey Project", level: 3 })).not.toHaveClass("uppercase");
+    expect(Array.from(paper.querySelectorAll("p strong"), (node) => node.textContent)).toContain("first_last@x.com");
     expect(paper.querySelectorAll("p strong").length).toBeGreaterThan(0);
   });
 
