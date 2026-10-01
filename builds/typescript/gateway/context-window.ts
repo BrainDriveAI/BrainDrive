@@ -10,6 +10,13 @@ const DEFAULT_WARNING_THRESHOLD = 0.8;
 const MIN_MESSAGE_BUDGET_TOKENS = 2_048;
 const SUMMARY_MAX_LINES = 24;
 
+const MAX_CONTENT_CHARS: Record<GatewayMessage["role"], number> = {
+  system: 24_000,
+  user: 8_000,
+  assistant: 12_000,
+  tool: 4_000,
+};
+
 type ContextUnit = {
   messages: GatewayMessage[];
   estimatedTokens: number;
@@ -39,7 +46,6 @@ export type ContextWindowUsage = {
   threshold: number;
   droppedUnits: number;
   droppedMessages: number;
-  truncatedMessages: number;
   summaryApplied: boolean;
   summaryArtifactPath: string | null;
   summaryArtifactWriteError: string | null;
@@ -57,6 +63,9 @@ export type PrepareContextWindowInput = {
   correlationId: string;
   messages: GatewayMessage[];
   tools: ToolDefinition[];
+  // Only the host-assembled prefix is trusted. Replayed/generated summaries
+  // remain ordinary context even though their wire role is system.
+  systemInstructionCount?: number;
   settings?: Partial<ContextWindowSettings>;
 };
 
@@ -91,7 +100,6 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
         threshold: settings.warningThreshold,
         droppedUnits: 0,
         droppedMessages: 0,
-        truncatedMessages: 0,
         summaryApplied: false,
         summaryArtifactPath: null,
         summaryArtifactWriteError: null,
@@ -107,21 +115,34 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
   );
   const messageBudgetTokens = Math.max(MIN_MESSAGE_BUDGET_TOKENS, promptBudgetTokens - toolTokens);
 
-  const estimatedPromptTokensBefore = estimateMessagesTokens(input.messages) + toolTokens;
+  const requestedInstructionCount = input.systemInstructionCount ?? 1;
+  let instructionCount = 0;
+  while (instructionCount < requestedInstructionCount && input.messages[instructionCount]?.role === "system") {
+    instructionCount += 1;
+  }
+  const boundedMessages = input.messages.map((message, index) =>
+    index < instructionCount ? message : boundedMessage(message)
+  );
+  const estimatedPromptTokensBefore = estimateMessagesTokens(boundedMessages, instructionCount) + toolTokens;
   const ratioBefore = safeRatio(estimatedPromptTokensBefore, promptBudgetTokens);
 
-  // Active instruction layers are protected together, even when supplied as
-  // multiple system messages. Only conversation units participate in eviction.
-  const systemMessages = input.messages.filter((message) => message.role === "system");
-  if (systemMessages.length === 0) {
-    systemMessages.push({ role: "system", content: "" });
+  // Keep the base safe fallback if trusted instructions alone cannot fit.
+  // Their original estimate and any shortening remain visible in the warning.
+  if (estimateMessagesTokens(boundedMessages.slice(0, instructionCount), instructionCount) > messageBudgetTokens) {
+    for (let index = 0; index < instructionCount; index += 1) {
+      boundedMessages[index] = boundedMessage(boundedMessages[index]);
+    }
   }
-  const replayMessages = input.messages.filter((message) => message.role !== "system");
+  const systemMessages: GatewayMessage[] = instructionCount > 0
+    ? boundedMessages.slice(0, instructionCount)
+    : [{ role: "system", content: "" }];
+  const managedInstructionCount = systemMessages.length;
+  const replayMessages = boundedMessages.slice(instructionCount);
   const replayUnits = buildReplayUnits(replayMessages);
 
   const selectedUnits: ContextUnit[] = [];
   const droppedUnits: ContextUnit[] = [];
-  let usedTokens = estimateMessagesTokens(systemMessages);
+  let usedTokens = estimateMessagesTokens(systemMessages, managedInstructionCount);
 
   for (let index = replayUnits.length - 1; index >= 0; index -= 1) {
     const unit = replayUnits[index];
@@ -148,13 +169,13 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
   };
 
   let managedMessages = rebuildMessages();
-  let managedMessageTokens = estimateMessagesTokens(managedMessages);
+  let managedMessageTokens = estimateMessagesTokens(managedMessages, managedInstructionCount);
 
   while (summaryLines.length > 1 && managedMessageTokens > messageBudgetTokens) {
     summaryLines = summaryLines.slice(0, Math.max(1, summaryLines.length - 2));
     summaryMessage = buildSummaryMessage(summaryLines);
     managedMessages = rebuildMessages();
-    managedMessageTokens = estimateMessagesTokens(managedMessages);
+    managedMessageTokens = estimateMessagesTokens(managedMessages, managedInstructionCount);
   }
 
   while (managedMessageTokens > messageBudgetTokens && selectedUnits.length > 1) {
@@ -166,22 +187,19 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
     summaryLines = buildSummaryLines(droppedUnits);
     summaryMessage = buildSummaryMessage(summaryLines);
     managedMessages = rebuildMessages();
-    managedMessageTokens = estimateMessagesTokens(managedMessages);
+    managedMessageTokens = estimateMessagesTokens(managedMessages, managedInstructionCount);
 
     while (summaryLines.length > 1 && managedMessageTokens > messageBudgetTokens) {
       summaryLines = summaryLines.slice(0, Math.max(1, summaryLines.length - 2));
       summaryMessage = buildSummaryMessage(summaryLines);
       managedMessages = rebuildMessages();
-      managedMessageTokens = estimateMessagesTokens(managedMessages);
+      managedMessageTokens = estimateMessagesTokens(managedMessages, managedInstructionCount);
     }
   }
 
-  let truncatedMessages = 0;
   if (managedMessageTokens > messageBudgetTokens) {
-    const trimmedMessages = aggressivelyTrimForBudget(managedMessages, messageBudgetTokens);
-    truncatedMessages = trimmedMessages.filter((message, index) => message.content !== managedMessages[index].content).length;
-    managedMessages = trimmedMessages;
-    managedMessageTokens = estimateMessagesTokens(managedMessages);
+    managedMessages = aggressivelyTrimForBudget(managedMessages, messageBudgetTokens, managedInstructionCount);
+    managedMessageTokens = estimateMessagesTokens(managedMessages, managedInstructionCount);
   }
 
   const summaryApplied = droppedUnits.length > 0 && summaryMessage !== null;
@@ -209,21 +227,22 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
   const ratioAfter = safeRatio(estimatedPromptTokensAfter, promptBudgetTokens);
   const droppedMessages = droppedUnits.reduce((count, unit) => count + unit.messages.length, 0);
 
-  const warningNeeded = ratioBefore >= settings.warningThreshold || droppedUnits.length > 0 || truncatedMessages > 0;
+  const instructionsShortened = input.messages.slice(0, instructionCount).some(
+    (message, index) => message.content !== managedMessages[index]?.content
+  );
+  const warningNeeded = ratioBefore >= settings.warningThreshold || droppedUnits.length > 0 || instructionsShortened;
   const warning: ContextWindowWarning | null = warningNeeded
     ? {
         estimated_tokens: estimatedPromptTokensBefore,
         budget_tokens: promptBudgetTokens,
         ratio: roundTo(ratioBefore, 3),
         threshold: settings.warningThreshold,
-        managed: summaryApplied || truncatedMessages > 0,
-        message: managedMessageTokens > messageBudgetTokens
-          ? `This request still exceeds the context budget after preserving active instructions.${truncatedMessages > 0 ? " Some conversation content was shortened." : ""} Try a shorter message or start a new conversation.`
-          : truncatedMessages > 0
-            ? "This session exceeded the context budget. Some conversation content was shortened to fit; active instructions were preserved."
-            : summaryApplied
-              ? "This session is getting long. Earlier turns were compacted so you can keep chatting."
-              : "This session is getting long. Consider starting a new conversation soon.",
+        managed: summaryApplied || instructionsShortened,
+        message: instructionsShortened
+          ? "System instructions exceeded the available context budget and were shortened. Use fewer instructions or increase the configured context budget."
+          : summaryApplied
+          ? "This session is getting long. Earlier turns were compacted so you can keep chatting."
+          : "This session is getting long. Consider starting a new conversation soon.",
       }
     : null;
 
@@ -238,7 +257,6 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
       threshold: settings.warningThreshold,
       droppedUnits: droppedUnits.length,
       droppedMessages,
-      truncatedMessages,
       summaryApplied,
       summaryArtifactPath,
       summaryArtifactWriteError,
@@ -294,14 +312,21 @@ function estimateTokens(value: string): number {
   return Math.ceil(value.length / 4);
 }
 
-function estimateMessageTokens(message: GatewayMessage): number {
-  const toolCallsTokens = message.tool_calls ? estimateTokens(JSON.stringify(message.tool_calls)) : 0;
-  const toolCallIdTokens = message.tool_call_id ? estimateTokens(message.tool_call_id) : 0;
-  return 6 + estimateTokens(message.content) + toolCallsTokens + toolCallIdTokens;
+function estimateInstructionTokens(value: string): number {
+  // ASCII prose: at least chars/3. Digits and non-ASCII: one token per UTF-8
+  // byte, avoiding the chars/4 underestimate for numeric/multilingual prompts.
+  const expensiveCharacters = value.match(/[0-9\u0080-\uFFFF]/g)?.join("") ?? "";
+  return Math.ceil((value.length - expensiveCharacters.length) / 3) + Buffer.byteLength(expensiveCharacters, "utf8");
 }
 
-function estimateMessagesTokens(messages: GatewayMessage[]): number {
-  return messages.reduce((total, message) => total + estimateMessageTokens(message), 0);
+function estimateMessageTokens(message: GatewayMessage, isInstruction = false): number {
+  const toolCallsTokens = message.tool_calls ? estimateTokens(JSON.stringify(message.tool_calls)) : 0;
+  const toolCallIdTokens = message.tool_call_id ? estimateTokens(message.tool_call_id) : 0;
+  return 6 + (isInstruction ? estimateInstructionTokens(message.content) : estimateTokens(message.content)) + toolCallsTokens + toolCallIdTokens;
+}
+
+function estimateMessagesTokens(messages: GatewayMessage[], instructionCount = 0): number {
+  return messages.reduce((total, message, index) => total + estimateMessageTokens(message, index < instructionCount), 0);
 }
 
 function estimateToolDefinitionTokens(tools: ToolDefinition[]): number {
@@ -315,6 +340,15 @@ function estimateToolDefinitionTokens(tools: ToolDefinition[]): number {
   }));
 
   return estimateTokens(JSON.stringify(serializable));
+}
+
+function boundedMessage(message: GatewayMessage): GatewayMessage {
+  const maxChars = MAX_CONTENT_CHARS[message.role] ?? 8_000;
+  const boundedContent = truncateMiddle(message.content, maxChars);
+  return {
+    ...message,
+    content: boundedContent,
+  };
 }
 
 function truncateMiddle(value: string, maxChars: number): string {
@@ -426,14 +460,14 @@ function buildSummaryMessage(lines: string[]): GatewayMessage {
   };
 }
 
-function aggressivelyTrimForBudget(messages: GatewayMessage[], budgetTokens: number): GatewayMessage[] {
+function aggressivelyTrimForBudget(messages: GatewayMessage[], budgetTokens: number, instructionCount: number): GatewayMessage[] {
   const caps = [2_000, 1_200, 700, 400];
   let candidate = [...messages];
 
   for (const cap of caps) {
-    candidate = candidate.map((message) => {
-      if (message.role === "system") {
-        return message;
+    candidate = candidate.map((message, index) => {
+      if (index < instructionCount) {
+        return { ...message, content: truncateMiddle(message.content, Math.max(cap * 2, cap)) };
       }
 
       return {
@@ -442,13 +476,15 @@ function aggressivelyTrimForBudget(messages: GatewayMessage[], budgetTokens: num
       };
     });
 
-    if (estimateMessagesTokens(candidate) <= budgetTokens) {
+    if (estimateMessagesTokens(candidate, instructionCount) <= budgetTokens) {
       return candidate;
     }
   }
 
-  // Instruction layers and the last assistant/tool block may themselves exceed
-  // the budget. Preserve their structure and report the remaining overflow.
+  while (candidate.length > instructionCount + 1 && estimateMessagesTokens(candidate, instructionCount) > budgetTokens) {
+    candidate = [...candidate.slice(0, instructionCount), ...candidate.slice(instructionCount + 1)];
+  }
+
   return candidate;
 }
 
