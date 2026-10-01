@@ -54,6 +54,20 @@ describe("ChatPanel typing indicator behavior", () => {
     vi.useRealTimers();
   });
 
+  it("passes app-tool failure context to an incomplete reply", () => {
+    useGatewayChatMock.mockReturnValue(makeHookState({
+      messages: [
+        { id: "u-1", role: "user", content: "Where is my PDF?" },
+        { id: "a-1", role: "assistant", content: "Checking the current state.", status: "incomplete" },
+      ],
+      error: new Error("Tool execution failed"), errorCode: "tool_error",
+    }));
+    render(<ChatPanel activeConversationId={null} isEmpty={false} />);
+    expect(screen.getByText(/a tool or app action failed/)).toBeInTheDocument();
+    expect(screen.queryByText(/model connection was interrupted/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+  });
+
   it("shows typing indicator before first assistant delta", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({

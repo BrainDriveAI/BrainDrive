@@ -420,6 +420,10 @@ export function planResumeAction(request: ResumeActionPlanRequest, options: Resu
     ]);
   }
   if (request.action_id === "resume.state.read") {
+    const input = request.action_input;
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) {
+      throw new Error("resume_state_read_requires_empty_input");
+    }
     return actionPlan(request.action_id, [
       capabilityStep("read-state", "resume.operations.read", request.action_input, "none"),
     ]);

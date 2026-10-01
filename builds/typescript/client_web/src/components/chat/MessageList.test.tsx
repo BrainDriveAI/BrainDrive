@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { Message } from "@/types/ui";
 
@@ -33,5 +33,22 @@ describe("MessageList scroll behavior", () => {
     rerender(<MessageList messages={[userMessage]} />);
 
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("MessageList incomplete responses", () => {
+  it.each([
+    ["tool_error", "a tool or app action failed"],
+    ["stream_incomplete", "the model connection was interrupted"],
+  ])("explains %s and offers recovery", (code, reason) => {
+    const retry = vi.fn();
+    render(<MessageList messages={[{ id: "partial", role: "assistant", content: "Partial answer", status: "incomplete" }]}
+      incompleteMessageId="partial" incompleteErrorCode={code} onRetryIncomplete={retry} />);
+    expect(screen.getByRole("status")).toHaveTextContent(reason);
+    expect(screen.getByRole("status")).toHaveTextContent("Your saved conversation and documents remain available");
+    if (code === "tool_error") expect(screen.getByRole("status")).not.toHaveTextContent("model connection");
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(retry).toHaveBeenCalledOnce();
   });
 });

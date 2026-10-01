@@ -513,6 +513,18 @@ function toAppChatToolFailure(error: unknown): ToolExecutionFailure {
     const invalidCodes = new Set(["invalid_input", "descriptor_invalid", "incompatible_schema", "idempotency_conflict", "validation_failed"]);
     if (permissionCodes.has(platformError.code)) return new ToolExecutionFailure("permission_denied", safeActionErrorMessage(platformError), true);
     if (invalidCodes.has(platformError.code)) return new ToolExecutionFailure("invalid_input", safeActionErrorMessage(platformError), true);
+    // These scoped absences and bounded action failures are safe to report back
+    // to the model. Integrity failures and unknown runtime outcomes remain fatal.
+    if (["not_found_within_scope", "operation_not_found"].includes(platformError.code)) {
+      return new ToolExecutionFailure("not_found", "The requested app item or operation was not found in this workspace. Check the current app state before retrying.", true);
+    }
+    const recoverableCodes = new Set([
+      "conflict", "revision_conflict", "recoverable_internal_failure",
+      "provider_unavailable", "rate_limited", "quota_exceeded", "deadline_exceeded", "operation_cancelled",
+    ]);
+    if (recoverableCodes.has(platformError.code)) {
+      return new ToolExecutionFailure("execution_failed", "The app action could not be completed. Check the current app state before retrying; do not assume a change was saved.", true);
+    }
     return new ToolExecutionFailure("execution_failed", "Installed app action could not be completed safely", false);
   }
   return new ToolExecutionFailure("execution_failed", "Installed app action could not be completed safely", false);

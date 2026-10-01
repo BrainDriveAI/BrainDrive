@@ -578,9 +578,7 @@ function stateReadInputSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
-    properties: {
-      queried_operation_id: { type: "string", format: "uuid" },
-    },
+    properties: {},
     required: [],
   };
 }

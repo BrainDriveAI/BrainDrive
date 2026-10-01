@@ -1,21 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createSyntheticFirstPartyFixtureRepository } from "../lifecycle/fixture-repository.js";
+import { createFixtureRepository, MODERN_FIXTURE_VERSION, createSyntheticFirstPartyFixtureRepository } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 import { ResumeAppHostAdapter } from "./resume-host-adapter.js";
 import type { AppChatWorkspaceLaunch } from "./app-host-types.js";
 import { buildAppChatModelContext, parseAppChatModelMetadata, type AppChatModelMetadata } from "./app-chat-model.js";
 import { AppChatSessionRegistry } from "./app-chat-session.js";
-import type { ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
+import { GenericPackageManifestSchema, type ChatWorkspaceDescriptor } from "../contracts/app-registry.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
+import { ResumeDomainError } from "../../resume-domain/errors.js";
+import { runAgentLoop } from "../../engine/loop.js";
+import { ApprovalStore } from "../../engine/approval-store.js";
+import type { ModelAdapter } from "../../adapters/base.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
 import type { AuthContext } from "../../contracts.js";
 import { preserveMcpResult } from "../../mcp/result-envelope.js";
@@ -166,56 +170,6 @@ function resumeCreateInputSchema(): Record<string, unknown> {
       missing_essential_disposition: { type: "string", enum: ["provide", "omit", "mark_unknown", "proceed_with_limitations"] },
     },
     required: [],
-  };
-}
-
-function stateReadResultSchema(): Record<string, unknown> {
-  const documentStateSchema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      document_id: { type: "string", minLength: 1, maxLength: 128 },
-      state: { type: "string", enum: ["current", "missing"] },
-      revision: { type: ["number", "null"] },
-      revision_id: { type: ["string", "null"] },
-    },
-    required: ["document_id", "state", "revision", "revision_id"],
-  };
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      result_version: { type: "number", enum: [1] },
-      state: { type: "string", enum: ["current"] },
-      profile: documentStateSchema,
-      resume: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          ...documentStateSchema.properties,
-          status: { type: "string", enum: ["missing", "draft", "proposed", "approved"] },
-          definition_revision_id: { type: ["string", "null"] },
-        },
-        required: ["document_id", "state", "revision", "revision_id", "status", "definition_revision_id"],
-      },
-      last_export_receipt: {
-        type: ["object", "null"],
-        additionalProperties: false,
-        properties: {
-          projection_version: { type: "number", enum: [1] },
-          status: { type: "string", enum: ["completed"] },
-          receipt_revision_id: { type: "string", format: "uuid" },
-          artifact_revision_id: { type: "string", format: "uuid" },
-          content_digest: { type: "string", minLength: 71, maxLength: 71 },
-          media_type: { type: "string", enum: ["application/pdf", "text/plain"] },
-          outcome: { type: "string", enum: ["completed", "cancelled", "failed"] },
-          safe_destination_label: { type: "string", minLength: 1, maxLength: 256 },
-          replayed: { type: "boolean" },
-        },
-        required: ["projection_version", "status", "receipt_revision_id", "artifact_revision_id", "content_digest", "media_type", "outcome", "safe_destination_label", "replayed"],
-      },
-    },
-    required: ["result_version", "state", "profile", "resume", "last_export_receipt"],
   };
 }
 
@@ -570,6 +524,35 @@ async function buildSyntheticActionExecutor(input: {
   return new ToolExecutor(model.tools);
 }
 
+async function shippedResumeActions() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bd-shipped-actions-"));
+  roots.push(root);
+  const repository = await createFixtureRepository(root);
+  const descriptor = JSON.parse(await readFile(repository.packages[MODERN_FIXTURE_VERSION].descriptorPath, "utf8"));
+  return GenericPackageManifestSchema.parse(descriptor.payload.manifest).presentations!.workspaces[0].actions;
+}
+
+async function actionTurn(executor: ToolExecutor, toolName: string, actionInput: unknown, expectedOutput: unknown) {
+  let calls = 0;
+  const adapter: ModelAdapter = {
+    async complete(request) {
+      calls += 1;
+      if (calls === 1) return {
+        assistantText: "", finishReason: "tool_calls",
+        toolCalls: [{ id: "state-call", name: toolName, input: { action_input: actionInput } }],
+      };
+      expect(JSON.parse(request.messages.at(-1)!.content!)).toMatchObject({ status: "error", output: expectedOutput });
+      return { assistantText: "I could not complete that action. I can check the current workspace again.", finishReason: "completed", toolCalls: [] };
+    },
+  };
+  const events = [];
+  for await (const event of runAgentLoop(adapter, executor, new ApprovalStore(), {
+    messages: [{ role: "user", content: "What is the current resume state?" }],
+    metadata: { correlation_id: randomUUID(), conversation_id: "state-conversation" },
+  }, ownerAuth, { memoryRoot: "/tmp/brain", safetyIterationLimit: 3 })) events.push(event);
+  return { events, calls };
+}
+
 describe("app-chat workspace session authority", () => {
   it("does not fall through to the legacy export broker after generic receipt finalization", async () => {
     const legacyExportBroker = {
@@ -617,6 +600,7 @@ describe("app-chat workspace session authority", () => {
   });
 
   it("returns current Profile, Resume, and export receipt state for no-arg resume.state.read", async () => {
+    const shippedActions = await shippedResumeActions();
     const definitionRevisionId = randomUUID();
     const definition = {
       record_type: "resume_definition",
@@ -639,34 +623,7 @@ describe("app-chat workspace session authority", () => {
     const { host } = await setup({
       requestedCapabilities: ["resume.definitions.write", "resume.operations.read", "resume.export.request"],
       documents: resumePlannerDocuments(),
-      actions: [
-        {
-          action_version: 1,
-          action_id: "resume.create",
-          kind: "render",
-          title: "Create Resume",
-          description: "Create the current general Resume.",
-          ...actionSchemas("resume.create.input.v1", "resume.create.result.v1", resumeCreateInputSchema(), resumeCreateResultSchema()),
-          confirmation: "owner_confirmation",
-          idempotency_policy: "required",
-          model_exposure: "available",
-          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
-          required_inference_purposes: [],
-        },
-        {
-          action_version: 1,
-          action_id: "resume.state.read",
-          kind: "inspect",
-          title: "Read Resume State",
-          description: "Read current Resume Builder workspace state.",
-          ...actionSchemas("resume.state.read.input.v1", "resume.state.read.result.v1", emptyObjectSchema(), stateReadResultSchema()),
-          confirmation: "none",
-          idempotency_policy: "not_applicable",
-          model_exposure: "available",
-          required_capabilities: [{ name: "resume.operations.read", version: 1 }],
-          required_inference_purposes: [],
-        },
-      ],
+      actions: shippedActions.filter((action) => ["resume.create", "resume.state.read"].includes(action.action_id)),
       router,
       clientFactory: resumePlannerClientFactory,
       exportBroker: {} as never,
@@ -741,8 +698,56 @@ describe("app-chat workspace session authority", () => {
         },
       },
     });
+    const stateAction = shippedActions.find((action) => action.action_id === "resume.state.read")!;
+    expect(stateAction.input_schema.schema).toEqual({ type: "object", additionalProperties: false, properties: {}, required: [] });
+    const { events, calls } = await actionTurn(executor, "app_action_resume_state_read", {
+      queried_operation_id: "00000000-0000-4000-8000-000000000000",
+    }, { code: "invalid_input", recoverable: true });
+    expect(calls).toBe(2);
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool-result", status: "error", output: expect.objectContaining({ code: "invalid_input", recoverable: true }) }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "text-delta" }));
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "completed" });
+    expect(events.some((event) => event.type === "error")).toBe(false);
     expect(vi.mocked(router.execute)).toHaveBeenCalledWith("resume.definitions.write", expect.anything(), expect.anything());
     expect(vi.mocked(router.execute)).not.toHaveBeenCalledWith("resume.operations.read", expect.anything(), expect.anything());
+  });
+
+  it.each([
+    ["not_found_within_scope", "not_found"],
+    ["operation_not_found", "not_found"],
+    ["conflict", "execution_failed"],
+    ["revision_conflict", "execution_failed"],
+    ["recoverable_internal_failure", "execution_failed"],
+    ["provider_unavailable", "execution_failed"],
+    ["rate_limited", "execution_failed"],
+    ["quota_exceeded", "execution_failed"],
+    ["deadline_exceeded", "execution_failed"],
+    ["operation_cancelled", "execution_failed"],
+  ] as const)("lets the model answer after recoverable app action error %s", async (code, toolCode) => {
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: emptyObjectSchema(), resultSchema: capabilityResultSchema(),
+      executeAction: async () => {
+        if (code === "not_found_within_scope") throw new ResumeDomainError(code, "Scoped operation missing", 404);
+        throw new AppPlatformError(code, "Private diagnostic detail");
+      },
+    });
+    const { events, calls } = await actionTurn(executor, "app_action_validate_schema", {}, { code: toolCode, recoverable: true });
+    expect(calls).toBe(2);
+    expect(events).toContainEqual(expect.objectContaining({ type: "text-delta" }));
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "completed" });
+    expect(JSON.stringify(events)).not.toContain("Private diagnostic detail");
+  });
+
+  it.each(["store_corrupt", "ambiguous_runtime_state", "package_archive_digest_mismatch", "package_path_invalid", "internal_failure", "unrecognized_failure"])("keeps unsafe or unknown app failure %s fatal", async (code) => {
+    const executor = await buildSyntheticActionExecutor({
+      inputSchema: emptyObjectSchema(), resultSchema: capabilityResultSchema(),
+      executeAction: async () => { throw Object.assign(new Error("Private detail"), { code }); },
+    });
+    const { events, calls } = await actionTurn(executor, "app_action_validate_schema", {}, {});
+    expect(calls).toBe(1);
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool-result", status: "error", output: expect.objectContaining({ recoverable: false }) }));
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "tool_error" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
   });
 
   it("rejects malformed model metadata before prompt or action assembly", () => {

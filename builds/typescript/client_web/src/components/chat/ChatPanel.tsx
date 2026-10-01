@@ -409,6 +409,7 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
               incompleteMessageId={incompleteMessageId}
+              incompleteErrorCode={errorCode}
               onRetryIncomplete={renderIncompleteRetry()}
             >
               {isSlow ? (
