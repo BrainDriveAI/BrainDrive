@@ -73,3 +73,5 @@ Commands:
 npm run test
 npm run build
 ```
+
+The shipped Profile render gate recognizes experience entries nested under the Experience heading. PDF export renders star/underscore emphasis as bold or plain text while preserving literal punctuation. See the [product fix 5 diagnostic note](docs/fixes/2026-10-01-render-small-three.md) for regression evidence, the unresolved review-notes spec question, and remaining live checks.

@@ -1,4 +1,5 @@
 import { inflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -53,6 +54,67 @@ function decodedPdfTextPages(pdfBytes: Buffer): string[] {
     return runs.join("\n");
   }).filter(Boolean);
 }
+
+function renderAction(actionId: string, documentId: string, content: string) {
+  const operationId = crypto.randomUUID();
+  return planResumeAction({
+    action_planning_contract_version: 1,
+    action_id: actionId,
+    action_input: {},
+    owner_confirmed: true,
+    operation_id: operationId,
+    idempotency_key: `render-regression-${operationId}`,
+    occurred_at: "2026-10-01T12:00:00.000Z",
+    session: {
+      session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+      app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+    },
+    documents: [{ document_id: documentId, content }],
+  });
+}
+
+describe("shipped render regressions", () => {
+  it.each([
+    ["*September 2025–Present*", "September 2025–Present"],
+    ["**June 2024–Present**", "June 2024–Present"],
+    ["_September 2025–Present_", "September 2025–Present"],
+    ["__June 2024–Present__", "June 2024–Present"],
+    ["***nested emphasis***", "nested emphasis"],
+    ["**strong *nested italic* text**", "strong nested italic text"],
+    ["*italic **nested strong** text*", "italic nested strong text"],
+    ["__strong _nested italic_ text__", "strong nested italic text"],
+    ["___nested emphasis___", "nested emphasis"],
+    ["a*b*c", "abc"],
+    ["C* uses *real emphasis*", "C* uses real emphasis"],
+    ["**strong _nested italic_ text**", "strong nested italic text"],
+    ["C* and snake_case and unmatched *", "C* and snake_case and unmatched *"],
+    [String.raw`\*literal stars\* and \_literal underscores\_`, "*literal stars* and _literal underscores_"],
+  ])("PDF preserves logical text for %s", (markdown, expected) => {
+    const plan = renderAction("resume.export.pdf.request", "resume.document", `# Test Person\n\n## Experience\n${markdown}`);
+    const step = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64: string };
+    const text = decodedPdfTextRuns(Buffer.from(step.bytes_base64, "base64")).split(/\s+/).join(" ");
+    expect(text).toBe(`Test Person EXPERIENCE ${expected}`);
+  });
+
+  it.each(["p1", "p2"])("gate recognizes %s nested experience entries", (persona) => {
+    const profile = readFileSync(new URL(`./fixtures/${persona}-experience-profile.txt`, import.meta.url), "utf8");
+    const plan = renderAction("resume.create", "resume.profile", profile);
+    const result = plan.steps.find((step: any) => step.step_id === "write-missing-essentials-result") as { content: any } | undefined;
+    expect(result?.content.missing_essentials ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+    if (persona === "p1") expect(result?.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Unresolved gap: name not yet provided" })]));
+    else expect(plan.steps).toEqual(expect.arrayContaining([expect.objectContaining({ document_id: "resume.document" })]));
+  });
+
+  it.each([
+    "## Experience\n### [gap: role and employer]\n[gap: dates and duties]",
+    "## Experience\n### Unfilled entry\n\n## Education\nDegree, School — 2020",
+    "## Experience\n### Unfilled entry\n\n## Skills\nScheduling",
+  ])("gate still detects an empty experience subtree: %s", (sections) => {
+    const plan = renderAction("resume.create", "resume.profile", `# Test Person\n${sections}`);
+    const result = plan.steps[0] as { content: any };
+    expect(result.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+  });
+});
 
 const jobId = "10000000-0000-4000-8000-000000000001";
 const evidenceId = "10000000-0000-4000-8000-000000000002";

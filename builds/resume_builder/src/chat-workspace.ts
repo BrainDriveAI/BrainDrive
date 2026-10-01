@@ -698,15 +698,18 @@ function hasResumeIdentity(profileMarkdown: string): boolean {
 }
 
 function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): boolean {
-  let inSection = false;
+  let sectionDepth = 0;
   for (const rawLine of profileMarkdown.split(/\r?\n/)) {
     const line = rawLine.trim();
-    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
-      inSection = headingPattern.test(heading[1]?.trim() ?? "");
+      const depth = heading[1].length;
+      if (sectionDepth === 0 || depth <= sectionDepth) {
+        sectionDepth = headingPattern.test(heading[2]?.trim() ?? "") ? depth : 0;
+      }
       continue;
     }
-    if (inSection && isUsableProfileContentLine(line)) return true;
+    if (sectionDepth > 0 && isUsableProfileContentLine(line)) return true;
   }
   return false;
 }
@@ -1271,10 +1274,72 @@ function pdfBlockRequiredHeight(block: PdfBlock, contentWidth: number): number {
 }
 
 function parsePdfInlineMarkdown(text: string): PdfTextRun[] {
-  return text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g).filter(Boolean).map((part) => {
-    const strong = /^(\*\*|__)(.+)\1$/.exec(part);
-    return strong ? { text: normalizePdfText(strong[2], true), bold: true } : { text: normalizePdfText(part, false), bold: false };
-  }).filter((run) => run.text.length > 0);
+  // Pair emphasis delimiters; unmatched/escaped punctuation remains literal.
+  // Italics use plain text in the two-face PDF font set; strong stays bold.
+  const removed = new Set<number>();
+  const boldChanges = new Int16Array(text.length + 1);
+  const delimiters: { marker: string; start: number; length: number; remaining: number; open: boolean; close: boolean }[] = [];
+  const whitespace = (character: string) => !character || /\s/u.test(character);
+  const punctuation = (character: string) => /[\p{P}\p{S}]/u.test(character);
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\\" && /[\\*_]/.test(text[index + 1] ?? "")) {
+      removed.add(index);
+      index += 1;
+      continue;
+    }
+    const marker = text[index];
+    if (marker !== "*" && marker !== "_") continue;
+    const start = index;
+    while (text[index + 1] === marker) index += 1;
+    const before = text[start - 1] ?? "";
+    const after = text[index + 1] ?? "";
+    const left = !whitespace(after) && (!punctuation(after) || whitespace(before) || punctuation(before));
+    const right = !whitespace(before) && (!punctuation(before) || whitespace(after) || punctuation(after));
+    delimiters.push({
+      marker, start, length: index - start + 1, remaining: index - start + 1,
+      open: left && (marker === "*" || !right || punctuation(before)),
+      close: right && (marker === "*" || !left || punctuation(after)),
+    });
+  }
+  for (let closerIndex = 0; closerIndex < delimiters.length; closerIndex += 1) {
+    const closer = delimiters[closerIndex];
+    if (!closer.close) continue;
+    for (let openerIndex = closerIndex - 1; openerIndex >= 0 && closer.remaining > 0; openerIndex -= 1) {
+      const opener = delimiters[openerIndex];
+      if (!opener.open || !opener.remaining || opener.marker !== closer.marker) continue;
+      // Ambiguous runs follow Markdown's rule of three.
+      if ((opener.close || closer.open) && (opener.length + closer.length) % 3 === 0
+        && (opener.length % 3 !== 0 || closer.length % 3 !== 0)) continue;
+      while (opener.remaining > 0 && closer.remaining > 0) {
+        const width = opener.remaining >= 2 && closer.remaining >= 2 ? 2 : 1;
+        const openStart = opener.start + opener.remaining - width;
+        const closeStart = closer.start + closer.length - closer.remaining;
+        for (let offset = 0; offset < width; offset += 1) {
+          removed.add(openStart + offset);
+          removed.add(closeStart + offset);
+        }
+        if (width === 2) {
+          boldChanges[openStart + width] += 1;
+          boldChanges[closeStart] -= 1;
+        }
+        opener.remaining -= width;
+        closer.remaining -= width;
+      }
+      // Matched pairs enclose, rather than cross, intervening delimiters.
+      for (let index = openerIndex + 1; index < closerIndex; index += 1) delimiters[index].open = false;
+    }
+  }
+  const runs: PdfTextRun[] = [];
+  let boldDepth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    boldDepth += boldChanges[index];
+    if (removed.has(index)) continue;
+    const bold = boldDepth > 0;
+    const last = runs.at(-1);
+    if (last && last.bold === bold) last.text += text[index];
+    else runs.push({ text: text[index], bold });
+  }
+  return runs.map((run) => ({ ...run, text: normalizePdfText(run.text, false) })).filter((run) => run.text.length > 0);
 }
 
 function wrapPdfRuns(runs: PdfTextRun[], maxWidth: number, fontSize: number): PdfLine[] {
