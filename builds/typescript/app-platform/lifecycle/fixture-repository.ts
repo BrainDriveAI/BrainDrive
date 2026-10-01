@@ -575,14 +575,11 @@ function exportPreparedResultSchema(): Record<string, unknown> {
 }
 
 function stateReadInputSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      queried_operation_id: { type: "string", format: "uuid" },
-    },
-    required: [],
-  };
+  // The owner-facing app action reads the current workspace state and takes
+  // no arguments.  `queried_operation_id` belongs to the lower-level
+  // resume.operations.read reconciliation capability and must not be exposed
+  // through the model-facing action schema.
+  return emptyActionSchema();
 }
 
 function stateReadResultSchema(): Record<string, unknown> {

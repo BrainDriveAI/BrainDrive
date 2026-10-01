@@ -369,6 +369,14 @@ describe("live signed modern MCP Apps fixture", () => {
       expect(actions.find((action) => action.action_id === "resume.state.read")).toMatchObject({
         title: "Read Resume State",
         description: expect.stringContaining("latest export receipt state"),
+        input_schema: {
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {},
+            required: [],
+          },
+        },
       });
       expect(JSON.stringify(launch)).not.toMatch(/payload\/ui\/main\.html|connection_token|private_key|\/home\/|[A-Za-z]:\\/i);
     } finally {
