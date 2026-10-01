@@ -857,17 +857,24 @@ function parseResumeProfileSections(markdown: string): {
   const sections: ResumeProfileSection[] = [];
   let title: string | undefined;
   let current: ResumeProfileSection | null = null;
+  let currentDepth = 0;
   for (const rawLine of normalizeResumeMarkdown(markdown).split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     const h1 = /^#\s+(.+)$/.exec(line.trim());
-    const heading = /^#{2,6}\s+(.+)$/.exec(line.trim());
+    const heading = /^(#{2,6})\s+(.+)$/.exec(line.trim());
     if (h1) {
       title ??= stripResumeInlineMarkup(h1[1]);
       current = null;
       continue;
     }
     if (heading) {
-      current = { heading: stripResumeInlineMarkup(heading[1]), lines: [] };
+      // Entry/group headings belong to their standard section; extras retain their existing handling.
+      if (current && heading[1].length > currentDepth && Object.values(TEMPLATE_SECTION_NAMES).some((pattern) => pattern.test(current!.heading))) {
+        current.lines.push(line);
+        continue;
+      }
+      currentDepth = heading[1].length;
+      current = { heading: stripResumeInlineMarkup(heading[2]), lines: [] };
       sections.push(current);
       continue;
     }

@@ -1,4 +1,4 @@
-# Resume Builder product fix 5 — PDF emphasis and experience gate
+# Resume Builder product fix 5 — PDF emphasis, experience gate, and standard section order
 
 Revision-bound diagnostic fix note, 2026-10-01. Base: `2756b32`, branch `fix/rb-render-small-three`. This records implementation evidence, not candidate qualification or acceptance.
 
@@ -38,7 +38,7 @@ The exact question is recorded outside the product repository in sibling `packet
 - Spec failure behavior: “Name the missing item. Let the owner edit the Profile, return to chat, or knowingly create an honest partial render.”
 - Evaluation CF-3: “Invalid/incomplete Profile → name the missing item; owner may edit, return, or knowingly render partial”; the method requires “confirmation names exact items”. A present Experience subtree must not be listed as missing. P1's actual gap markers still require confirmation; P2 can create directly.
 
-**Reported only: section order and missing headings are covered defects.** AC-9.1 binds Template Standard §3: “Order is fixed”, with Professional Summary, Experience, Education, Skills, Certifications after the header, and §6: “Sections appear in standard order; no empty sections, no resolved-none sections”. The Experience and Education headings are required when those sections contain content. Evaluation AC-9.1 checks Template Standard §2–§3, and AC-9.2 checks §6 on both surfaces. The renderer's separate treatment of every nested heading as a top-level section causes the diagnostic order/heading findings; that parser is outside this change's scope and remains unchanged.
+**Section order and missing headings — covered; fixed in the AC-9.1 follow-up below.** AC-9.1 binds Template Standard §3: “Order is fixed”, with Professional Summary, Experience, Education, Skills, Certifications after the header, and §6: “Sections appear in standard order; no empty sections, no resolved-none sections”. The Experience and Education headings are required when those sections contain content. Evaluation AC-9.1 checks Template Standard §2–§3, and AC-9.2 checks §6 on both surfaces. The initial PDF/gate change left the renderer's separate treatment of every nested heading as a top-level section unchanged; the follow-up corrects that parsing for recognized standard sections.
 
 ## Design and files
 
@@ -72,4 +72,38 @@ Dependency setup: the worktree initially had no dependencies (`vitest: command n
 
 ## Still needs live
 
-Reinstall/repackage this exact candidate and rerun the real Create Resume and Export PDF controls with P1/P2 Profiles. Check gate items, unchanged Profile, deterministic repeat render, `pdftotext` parity, and a standard PDF reader's visual layout with fonts and page geometry. Local PDF extraction is supporting evidence only; no calibrated reviewer or Candidate 14 qualification has run here. B requires the accepted spec ruling; section order/headings remain known separate defects.
+Reinstall/repackage this exact candidate and rerun the real Create Resume and Export PDF controls with P1/P2 Profiles. Check gate items, unchanged Profile, deterministic repeat render, `pdftotext` parity, and a standard PDF reader's visual layout with fonts and page geometry. Local PDF extraction is supporting evidence only; no calibrated reviewer or Candidate 14 qualification has run here. B requires the accepted spec ruling. The section-order/headings correction has the local evidence below; this does not establish the full AC-9.2 visual checklist.
+
+## AC-9.1 follow-up — standard section order and headings
+
+Follow-up base: `4d2a9ff`, branch `fix/rb-render-small-three`, 2026-10-01. Change authority: the owner's explicit request to fix section order/headings in the shipped renderer while retaining unknown/extra Profile handling. Governing context and catalog routes are the same as above. Diagnostic trigger: sibling `e9-slice/REPORT.md` line 17 reports Summary, Skills, Certifications, Experience, Education, Projects, with no Experience/Education headings.
+
+### Bound specification
+
+Accepted authority remains `docs/apps/resume-builder/resume-builder-spec.md` and `docs/apps/resume-builder/resume-template-standard.md` in the separate BrainDrive Library accepted checkout, rather than the package's abbreviated advanced-workspace guidance.
+
+- AC-9.1: “Given an owner chooses Create Resume, the app uses one conservative, single-column, reverse-chronological format with standard resume headings, as defined by the Resume Template Standard.”
+- Template Standard §3: “Order is fixed”: Header (without a section heading), Professional Summary, Experience, Education, Skills, Certifications. “Sections render **only when they contain content** (only-when-filled).” Skills preserves the Profile structure, “grouped headings or flat list”.
+- Template Standard §6: “Sections appear in standard order; no empty sections, no resolved-none sections” and “PDF text extraction reproduces the logical content and order exactly”.
+- Template Standard §3 also says: “Any Profile section outside this set renders after Skills in Profile order using the same heading style”. The owner explicitly excluded extra-section handling from this follow-up; its current placement rule remains unchanged, including Review Notes.
+
+### Design and tests
+
+The existing renderer already appends the recognized sections in fixed order with standard headings. Its parser instead split every heading at depths 2–6 into independent sections, leaving Experience/Education empty when their content began with a depth-3 entry. The fix tracks the current section's heading depth and keeps deeper entry/group headings and their content inside a recognized standard section. Sibling/ancestor headings still end that section. The same narrow change is in `resources/inference-program.js` (the shipped package payload) and `src/chat-workspace.ts` (source API).
+
+No changes to readiness gating, model calls, Profile writes, entry formatting, or extra-section classification/placement. Extras still follow the standard block, including Certifications when present, in their existing encounter order; nested headings in extras still use their existing flattening rule. In P1 this retains the existing extra heading `Campus Transit Survey Project`, Additional Information, and Profile Review Notes. Resolving Projects/Review Notes composition remains outside this change.
+
+`test/template-standard.test.ts` imports the shipped planner and checks source parity. Six regressions cover P1/P2 standard heading order and nested Experience/Education content, deterministic repeat rendering without a Profile write, reversed standard-section input order, alias-to-standard headings, grouped Skills at depths 3/4, empty Education omission, and unchanged extra-section order/nesting. Existing fixtures remain unchanged. Test-first run before implementation: **5 failures / 1 pass**, reproducing the missing headings, misplaced entries, and grouped-Skills defect; after implementation: **6 passes**.
+
+### Follow-up verification
+
+- `npm test` in `builds/resume_builder`: **10 files / 244 tests pass**.
+- `npm run build` in `builds/resume_builder`: **pass**.
+- Existing PDF parity method, `pdftotext -layout`, run locally on P1/P2 exports from both shipped and built source planners: **all four PDFs pass exact whitespace-normalized logical-text equality and ordered heading checks**. Markdown presentation delimiters are removed, headings use the PDF's uppercase presentation, and bullets use the PDF bullet glyph in the expected logical text. Shipped/source logical output matches; repeat Create Resume is identical.
+- Focused runtime command: `npm test -- --maxWorkers=2 app-inference/installed-program.test.ts app-platform/mcp-host/live-fixture.integration.test.ts app-platform/lifecycle/app-storage-documents.test.ts`: **3 files / 29 tests pass** with loopback access. The sandbox attempt had 10 failures from `listen EPERM: operation not permitted 127.0.0.1`; the complete focused suite passed on rerun outside that restriction. A sandboxed full run was stopped after the same fixture restriction was confirmed.
+
+- Full runtime command, `npm test -- --maxWorkers=2` in `builds/typescript`: **157 files / 1,439 tests pass**, exit 0 with loopback access.
+- `npm run docs:verify` in `builds/typescript`: **166 tests pass / 1 skipped / 0 failures**, exit 0; its `docs:check` reports **269 scoped candidates / 0 diagnostics**. The explicit `npm run docs:check` after the documentation update also passes.
+- `node tools/docs/sync-generated.mjs --check` and `git diff --check`: **pass**.
+
+The package README now describes the fixed standard-section behavior. No platform documentation changes are needed: package delivery, host authority, capability contracts, provider mediation, storage, and export boundaries are unchanged.
