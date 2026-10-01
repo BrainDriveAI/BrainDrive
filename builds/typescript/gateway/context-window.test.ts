@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import type { GatewayMessage, ToolDefinition } from "../contracts.js";
+import type { AuthContext, GatewayMessage, ToolDefinition } from "../contracts.js";
+import type { ModelAdapter } from "../adapters/base.js";
+import { ApprovalStore } from "../engine/approval-store.js";
+import { runAgentLoop } from "../engine/loop.js";
+import { ToolExecutor } from "../engine/tool-executor.js";
 import { prepareContextWindow, resolveContextWindowSettingsFromEnv } from "./context-window.js";
 
 function createTool(name: string): ToolDefinition {
@@ -24,6 +28,141 @@ function createTool(name: string): ToolDefinition {
 }
 
 describe("context window manager", () => {
+  it("sends a 50k-character system prompt and large conversation messages intact to the provider within budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const messages: GatewayMessage[] = [
+        { role: "system", content: "a".repeat(25_000) + "Active app instructions" + "b".repeat(25_000) },
+        { role: "user", content: "u".repeat(10_000) },
+        { role: "assistant", content: "a".repeat(15_000) },
+        { role: "user", content: "Continue." },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-intact", correlationId: "corr-intact", messages, tools: [],
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      let providerMessages: GatewayMessage[] = [];
+      const adapter: ModelAdapter = {
+        complete: async (request) => {
+          providerMessages = [...request.messages];
+          return { assistantText: "Done.", toolCalls: [], finishReason: "completed" };
+        },
+      };
+      const auth: AuthContext = {
+        actorId: "synthetic-owner", actorType: "owner", mode: "local",
+        permissions: {
+          memory_access: true, tool_access: true, system_actions: true,
+          delegation: true, approval_authority: true, administration: true,
+        },
+      };
+      const events = [];
+      for await (const event of runAgentLoop(adapter, new ToolExecutor([]), new ApprovalStore(), {
+        messages: prepared.messages,
+        metadata: { conversation_id: "conv-intact", correlation_id: "corr-intact" },
+      }, auth, { memoryRoot })) {
+        events.push(event);
+      }
+      expect(providerMessages.map((message) => message.content.length)).toEqual(messages.map((message) => message.content.length));
+      expect(providerMessages).toEqual(messages);
+      expect(events.at(-1)?.type).toBe("done");
+      expect(prepared.usage.budgetTokens).toBe(120_000);
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(18_000);
+      expect(prepared.usage.estimatedPromptTokensAfter).toBe(prepared.usage.estimatedPromptTokensBefore);
+      expect(prepared.warning).toBeNull();
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a 10k-character document tool result within budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const messages: GatewayMessage[] = [
+        { role: "system", content: "Use the current document." },
+        { role: "user", content: "Read my document." },
+        { role: "assistant", content: "", tool_calls: [{ id: "read-1", name: "memory_read", input: {} }] },
+        { role: "tool", tool_call_id: "read-1", content: JSON.stringify({ document: "p".repeat(10_000) }) },
+        { role: "user", content: "Use that document." },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-document", correlationId: "corr-document", messages,
+        tools: [createTool("memory_read")],
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      expect(prepared.messages.find((message) => message.role === "tool")?.content.length).toBe(messages[3].content.length);
+      expect(prepared.messages).toEqual(messages);
+      expect(prepared.warning).toBeNull();
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reduces older conversation before system instructions when over budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const instructions: GatewayMessage[] = [
+        { role: "system", content: "s".repeat(50_000) },
+        { role: "system", content: "Active app instructions must remain intact." },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-priority", correlationId: "corr-priority",
+        messages: [...instructions, { role: "user", content: "o".repeat(40_000) }, { role: "user", content: "Latest question." }],
+        tools: [], settings: { contextWindowTokens: 20_000, responseHeadroomTokens: 2_000 },
+      });
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(prepared.usage.budgetTokens);
+      expect(prepared.messages.slice(0, 2).map((message) => message.content.length)).toEqual(instructions.map((message) => message.content.length));
+      expect(prepared.messages.slice(0, 2)).toEqual(instructions);
+      expect(prepared.usage.droppedMessages).toBe(1);
+      expect(prepared.usage.summaryApplied).toBe(true);
+      expect(prepared.messages.at(-1)?.content).toBe("Latest question.");
+      expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(prepared.usage.budgetTokens);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports last-resort clipping without cutting system instructions or splitting a tool block", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const instructions: GatewayMessage = { role: "system", content: "s".repeat(10_000) };
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-clipping", correlationId: "corr-clipping",
+        messages: [instructions,
+          { role: "assistant", content: "", tool_calls: [{ id: "read-1", name: "memory_read", input: {} }] },
+          { role: "tool", tool_call_id: "read-1", content: "p".repeat(30_000) },
+        ],
+        tools: [], settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
+      });
+      expect(prepared.messages[0].content.length).toBe(instructions.content.length);
+      expect(prepared.messages[0]).toEqual(instructions);
+      expect(prepared.messages.map((message) => message.role)).toEqual(["system", "assistant", "tool"]);
+      expect(prepared.messages[2].content).toContain("[truncated");
+      expect(prepared.usage.truncatedMessages).toBe(1);
+      expect(prepared.warning?.managed).toBe(true);
+      expect(prepared.warning?.message).toContain("shortened");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps instructions intact and warns when they alone exceed the budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const instructions: GatewayMessage = { role: "system", content: "s".repeat(50_000) };
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-oversized", correlationId: "corr-oversized",
+        messages: [instructions, { role: "user", content: "Continue." }], tools: [],
+        settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
+      });
+      expect(prepared.messages[0].content.length).toBe(instructions.content.length);
+      expect(prepared.messages[0]).toEqual(instructions);
+      expect(prepared.usage.ratioAfter).toBeGreaterThan(1);
+      expect(prepared.warning?.message).toContain("exceeds");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("resolves env settings safely", () => {
     const settings = resolveContextWindowSettingsFromEnv({
       BRAINDRIVE_CONTEXT_WINDOW_TOKENS: "64000",
