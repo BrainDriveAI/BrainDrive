@@ -313,10 +313,9 @@ function estimateTokens(value: string): number {
 }
 
 function estimateInstructionTokens(value: string): number {
-  // ASCII prose: at least chars/3. Digits and non-ASCII: one token per UTF-8
-  // byte, avoiding the chars/4 underestimate for numeric/multilingual prompts.
-  const expensiveCharacters = value.match(/[0-9\u0080-\uFFFF]/g)?.join("") ?? "";
-  return Math.ceil((value.length - expensiveCharacters.length) / 3) + Buffer.byteLength(expensiveCharacters, "utf8");
+  // Without a selected-model tokenizer, use one token per UTF-8 byte as the
+  // upper bound for trusted instructions, including adversarial ASCII.
+  return Buffer.byteLength(value, "utf8");
 }
 
 function estimateMessageTokens(message: GatewayMessage, isInstruction = false): number {

@@ -66,7 +66,8 @@ describe("context window manager", () => {
       expect(providerMessages).toEqual(messages);
       expect(events.at(-1)?.type).toBe("done");
       expect(prepared.usage.budgetTokens).toBe(120_000);
-      expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(16_000);
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(50_000);
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeLessThanOrEqual(120_000);
       expect(prepared.usage.estimatedPromptTokensAfter).toBe(prepared.usage.estimatedPromptTokensBefore);
       expect(prepared.warning).toBeNull();
     } finally {
@@ -155,8 +156,8 @@ describe("context window manager", () => {
     }
   });
 
-  it.each(["1".repeat(399_000), "文é🙂".repeat(40_000)])(
-    "conservatively counts numeric and multilingual instructions and warns on safe fallback %#",
+  it.each(["qz ".repeat(80_000), "1".repeat(399_000), "文é🙂".repeat(40_000)])(
+    "bounds ASCII, numeric, and multilingual instructions by UTF-8 bytes and warns on safe fallback %#",
     async (content) => {
       const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
       try {
@@ -165,6 +166,7 @@ describe("context window manager", () => {
           messages: [{ role: "system", content }, { role: "user", content: "Continue." }], tools: [],
           settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
         });
+        expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThanOrEqual(Buffer.byteLength(content, "utf8"));
         expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(120_000);
         expect(prepared.messages[0].content.length).toBe(24_000);
         expect(prepared.messages[0].content).toContain("[truncated");
@@ -186,7 +188,7 @@ describe("context window manager", () => {
         messages: [{ role: "system", content: "s".repeat(50_000) }, { role: "user", content: "Continue." }],
         settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
       });
-      expect(prepared.messages[0].content.length).toBe(4_000);
+      expect(prepared.messages[0].content.length).toBe(2_400);
       expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(3_584);
       expect(prepared.warning?.message).toContain("System instructions");
     } finally {
@@ -200,7 +202,7 @@ describe("context window manager", () => {
       const prepared = await prepareContextWindow({
         memoryRoot, conversationId: "conv-summary", correlationId: "corr-summary", tools: [],
         messages: [
-          { role: "system", content: "s".repeat(10_575) },
+          { role: "system", content: "s".repeat(3_000) },
           { role: "assistant", content: "", tool_calls: [{ id: "old-call", name: "tool".repeat(1_500), input: {} }] },
           { role: "tool", tool_call_id: "old-call", content: "Old tool result." },
           { role: "user", content: "Latest question." },
