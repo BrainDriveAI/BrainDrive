@@ -156,6 +156,26 @@ Both new cases failed before the host change, displaying **resume-profile.md**. 
 
 Canonical documentation impact: the mapped host/installed-app documentation already promises an owner-visible changed-source notice and generic descriptor-driven behavior. This correction restores that promise without changing the contract, lifecycle, action semantics, or package; no canonical page update is required. Verification here covers the rendered component with shipped descriptor values, not a new live app/browser or release acceptance run.
 
+### Unsaved Profile draft follow-up
+
+Review of `53a2e48` found an action/navigation race: open Profile's editor, switch to Your Resume, start Create resume from the stale notice, return to Profile, and type while rendering is pending. The completion callback retained the originating Resume descriptor, but `loadDocument()` read the currently selected document through a ref. Completion therefore reloaded saved Profile content over the unsaved draft.
+
+The generic host now captures the session identity and document-load generation when the direct action starts. A declared render action refreshes its originating derived document only while its document ID, session, and generation still match. Selection changes, session changes, superseding loads, and unmount invalidate that refresh through the existing refs and generation guard. Returning to Your Resume reads the completed render normally. No app-specific refresh rule, document write, or new state is added.
+
+Changed files: `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx`, its colocated `AppChatWorkspace.test.tsx`, and this fix note. Governing context remains the repository paths recorded in Spec check above; the accepted review request supplies this follow-up's change authority. The mapped MCP-host and Resume Builder documentation already describe authoritative documents, source-change detection, and preservation of owner drafts; this fixes implementation to honor those contracts, so no canonical documentation update is required.
+
+Test-first regression: **keeps an unsaved Profile draft when a pending stale-notice render completes after navigation**. An in-memory deferred action follows the exact navigation/editor sequence. Before the implementation change, the workspace suite reported 1 failure and 41 passes: completion replaced the unsaved draft with saved Profile content. After the fix, the regression verifies draft preservation, an enabled Save button, no completion-triggered document read, no Profile write, one action invocation, and the completed saved-content render with its stale notice cleared when Resume is reopened. Existing same-selection render-refresh tests remain green.
+
+| Check | Result |
+| --- | --- |
+| `builds/typescript`: `npm run web:test -- src/components/apps/AppChatWorkspace.test.tsx` | PASS: 42 tests. |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:build` | PASS, exit 0. Existing unresolved font-path and large-chunk build warnings remain. |
+| `builds/typescript`: `npm run web:test` | PASS: 27 files, 346 tests. The existing jsdom navigation diagnostic remains. |
+| `builds/typescript`: `npm run docs:verify` (includes `docs:test` and `docs:check`), final `npm run docs:check` | PASS: 166 passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check`, `tools/security/scan-secrets.sh --current` | PASS: zero secret findings. |
+
+The initial broader typecheck/build caught a test assertion passing the record's `unknown` content field to `toHaveValue`; using the typed fixture string corrected it, and all four web checks passed on rerun. Verification covers the rendered component and deferred-action race, without a new live browser or release acceptance run. One local commit is requested; no push.
+
 ## Still needs live verification
 
 On the frozen Candidate 14 package and host combination, repeat E-6 through the real owner editor on web and claimed desktop platforms: capture the confirmed save, edited Profile revision/hash, notice DOM text/status and screenshot before Create resume, unchanged old Resume, explicit Create resume action (including gap disposition if needed), current fresh Resume, notice disappearance, zero render model calls, and unchanged Profile hashes around rendering and later chat. Check mobile notice/action reachability and capture save/model-turn occurrence/sequence from the accepted event producers. Include all required personas and sealed evidence. Local component/unit tests do not satisfy that release evidence gate. No candidate/live-provider run or real-owner screenshot was performed here.

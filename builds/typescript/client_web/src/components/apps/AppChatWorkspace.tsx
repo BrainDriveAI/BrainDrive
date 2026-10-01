@@ -1196,6 +1196,8 @@ function WorkspaceDetail({
     actionInputOverride?: Record<string, unknown>,
   ) {
     if (runningActionId) return;
+    const actionSessionId = sessionIdRef.current;
+    const actionLoadGeneration = documentLoadGenerationRef.current;
     if (action.action_id === "resume.create") {
       resumeCreateActionRef.current = action;
     }
@@ -1228,7 +1230,13 @@ function WorkspaceDetail({
       }
       if (exportResult === "failed") throw new Error("export_download_failed");
       onDirectActionComplete(buildDirectActionHostMessage(action, result, exportResult));
-      if (boundDocument?.role === "derived_document" && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) await loadDocument();
+      if (boundDocument?.role === "derived_document"
+        && boundDocument.document_id === boundDocumentRef.current?.document_id
+        && actionSessionId === sessionIdRef.current
+        && actionLoadGeneration === documentLoadGenerationRef.current
+        && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) {
+        await loadDocument();
+      }
       setDocumentNotice(`${action.label} completed.`);
     } catch (error) {
       setDocumentNotice(null);
