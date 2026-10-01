@@ -995,6 +995,7 @@ export function WorkspaceDetail({
   const documentStatusRef = useRef(documentStatus);
   const boundDocumentRef = useRef(boundDocument);
   const documentLoadGenerationRef = useRef(0);
+  const draftStateRef = useRef({ documentId: "", content: "", baseline: "" });
   const resourceRef = useRef(packageResource);
   const resumeCreateActionRef = useRef<Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> | null>(null);
   const documentRecord = documentResult?.record ?? null;
@@ -1036,11 +1037,27 @@ export function WorkspaceDetail({
     }
   }, [onRecoverSession]);
 
-  const loadDocument = useCallback(async () => {
+  const applyDocumentResult = useCallback((result: AppDocumentReadResult, replaceDirtyDraft = false) => {
+    const draft = draftStateRef.current;
+    const storedContent = draftFromRecord(result.record);
+    // All automatic reads share this rule, evaluated when the response arrives.
+    // Opening another document, an explicit reload, or a successful save may replace the draft.
+    const preserveDraft = !replaceDirtyDraft && draft.documentId === result.document_id && draft.content !== draft.baseline;
+    if (!preserveDraft) {
+      draft.content = storedContent;
+      setDraftContent(storedContent);
+    }
+    draft.documentId = result.document_id;
+    draft.baseline = storedContent;
+    setDocumentResult(result);
+  }, []);
+
+  const loadDocument = useCallback(async (intent: "automatic" | "owner_reload" = "automatic") => {
     const generation = ++documentLoadGenerationRef.current;
     const currentDocument = boundDocumentRef.current;
     setSourceIsStale(false);
     if (!currentDocument) {
+      draftStateRef.current = { documentId: "", content: "", baseline: "" };
       setDocumentResult(null);
       setDraftContent("");
       setDocumentStatus("idle");
@@ -1058,8 +1075,7 @@ export function WorkspaceDetail({
     try {
       const result = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, currentDocument.document_id));
       if (generation !== documentLoadGenerationRef.current) return;
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      applyDocumentResult(result, intent === "owner_reload");
       setDocumentStatus("ready");
       if (result.record && currentDocument.role === "derived_document" && sourceDocument?.data_binding_id && sourceDocument.role !== "conversation") {
         try {
@@ -1078,7 +1094,8 @@ export function WorkspaceDetail({
       }
     } catch (error) {
       if (generation !== documentLoadGenerationRef.current) return;
-      setDocumentResult(null);
+      // A failed automatic refresh must also retain the draft's stored baseline for saving.
+      if (intent === "owner_reload" || draftStateRef.current.documentId !== currentDocument.document_id) setDocumentResult(null);
       setDocumentStatus("error");
       setDocumentNotice(null);
       if (error instanceof AppDocumentError) {
@@ -1090,7 +1107,7 @@ export function WorkspaceDetail({
         setDocumentRetryable(false);
       }
     }
-  }, [appKey, sourceDocument, withSessionRecovery]);
+  }, [appKey, applyDocumentResult, sourceDocument, withSessionRecovery]);
 
   const loadResource = useCallback(async () => {
     const currentResource = resourceRef.current;
@@ -1153,8 +1170,7 @@ export function WorkspaceDetail({
         content,
         mediaType,
       }));
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      applyDocumentResult(result, true);
       setDocumentStatus("ready");
       setDocumentNotice(`Saved ${title}.`);
       if (renderer !== "json_editor") {
@@ -1190,8 +1206,7 @@ export function WorkspaceDetail({
           mediaType: packageDefault.media_type,
         });
       });
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      applyDocumentResult(result, true);
       setDocumentStatus("ready");
       setDocumentNotice(`Reset ${title} to package default.`);
       if (renderer !== "json_editor") {
@@ -1401,7 +1416,7 @@ export function WorkspaceDetail({
                   <p className="mt-1 text-sm text-bd-text-secondary">{documentStatusLabel}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void loadDocument()} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void loadDocument("owner_reload")} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
                     <RefreshCw size={15} />
                     Refresh
                   </Button>
@@ -1427,7 +1442,7 @@ export function WorkspaceDetail({
                   variant="ghost"
                   size="sm"
                   className="mt-2"
-                  onClick={() => void loadDocument()}
+                  onClick={() => void loadDocument("owner_reload")}
                   disabled={documentStatus === "loading" || documentStatus === "saving"}
                 >
                   Retry
@@ -1470,6 +1485,7 @@ export function WorkspaceDetail({
                 aria-label={`${title} content`}
                 value={draftContent}
                 onChange={(event) => {
+                  draftStateRef.current.content = event.target.value;
                   setDraftContent(event.target.value);
                   setDocumentNotice(null);
                 }}

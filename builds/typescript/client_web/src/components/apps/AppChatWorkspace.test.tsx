@@ -898,6 +898,175 @@ describe("AppChatWorkspace", () => {
     expect(chatPanelProps.some((props) => props.queuedMessage)).toBe(false);
   });
 
+  it("keeps an editable derived-document draft when a deferred render completes while typing", async () => {
+    const current = withDirectResumeActions(launch());
+    current.workspace.documents = current.workspace.documents.map((document) => document.document_id === "resume" ? {
+      ...document, editable: true,
+      presentation: { ...document.presentation!, header_actions: [{ type: "edit_document", label: "Edit Resume" }] },
+    } : document);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    let rendered = false;
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => ({
+      result_version: 1, state: "current", document_id: id, document_binding_id: `${id}.current`,
+      record: { revision: rendered ? 3 : 2, revision_id: "source-current", media_type: "text/markdown",
+        content: id === "resume" ? (rendered ? "# Fresh stored Resume" : "# Old stored Resume") : "# Profile",
+        derived_from: { document_id: "profile", revision_id: rendered ? "source-current" : "source-old" },
+      } as appsApi.AppDocumentRecord,
+    }));
+    let finishRender!: () => void;
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockImplementation(() => new Promise((resolve) => {
+      finishRender = () => {
+        rendered = true;
+        resolve({ action_id: "resume.create", operation_id: current.session.operation_id,
+          idempotency_key: "editable-render", result: { result_version: 1, status: "completed" } });
+      };
+    }));
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    const notice = await screen.findByRole("status", { name: "Source document changed" });
+    await user.click(screen.getByRole("button", { name: "Edit Resume" }));
+    await user.click(within(notice).getByRole("button", { name: "Create resume" }));
+    const editor = screen.getByRole("textbox", { name: "Resume content" });
+    await user.clear(editor);
+    const draft = "# Unsaved Resume typed during render";
+    await user.type(editor, draft);
+    await act(async () => finishRender());
+    await screen.findByText("Create resume completed.");
+    expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue(draft);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
+    expect(screen.getByText("Revision 3")).toBeInTheDocument();
+    expect(appsApi.readAppChatWorkspaceDocument).toHaveBeenCalledTimes(4);
+    expect(appsApi.writeAppChatWorkspaceDocument).not.toHaveBeenCalled();
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockResolvedValue({
+      result_version: 1, state: "current", document_id: "resume", document_binding_id: "resume.current",
+      record: { revision: 4, media_type: "text/markdown", content: draft } as appsApi.AppDocumentRecord,
+    });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved Resume.");
+    expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume", {
+      expectedRevision: 3, content: draft, mediaType: "text/markdown",
+    });
+    await user.click(screen.getByRole("button", { name: "Edit Resume" }));
+    expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue(draft);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it.each([
+    "render completion", "descriptor refresh", "session renewal", "interrupted read renewal", "session recovery", "superseded read", "failed refresh",
+  ])("never replaces a dirty draft on automatic %s", async (trigger) => {
+    const current = withDirectResumeActions(launch());
+    const resume = current.workspace.documents.find((document) => document.document_id === "resume")!;
+    // Generic chrome retains the explicit Refresh button so its replacement behavior is also checked.
+    const editableResume = { ...resume, editable: true,
+      presentation: { ...resume.presentation!, chrome: "standard" as const,
+        header_actions: [{ type: "app_action" as const, action_id: "resume.create", label: "Create resume", delivery: "direct_action" as const }],
+      },
+    };
+    const renewedSessionId = "00000000-0000-4000-8000-000000000201";
+    const result = (id: string, revision: number): appsApi.AppDocumentReadResult => ({
+      result_version: 1, state: "current", document_id: id, document_binding_id: `${id}.current`,
+      record: { revision, revision_id: "source-current", media_type: "text/markdown", content: `# Stored ${id} revision ${revision}`,
+        derived_from: { document_id: "profile", revision_id: revision === 2 ? "source-old" : "source-current" },
+      } as appsApi.AppDocumentRecord,
+    });
+    let refreshing = false;
+    let deferred = false;
+    let finishOldRead!: () => void;
+    let recoverRead = false;
+    let failRead = false;
+    const recoverSession = vi.fn(async () => renewedSessionId);
+    const onDirectActionResult = vi.fn(async () => "ignored" as const);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => {
+      if (id === "resume" && deferred) {
+        deferred = false;
+        return new Promise((resolve) => { finishOldRead = () => resolve(result(id, 2)); });
+      }
+      if (id === "resume" && recoverRead) {
+        recoverRead = false;
+        throw new appsApi.AppDocumentError("Session expired.", 410, "session_closed", {
+          state_version: 1, state: "unavailable", safe_message: "Session expired.",
+          retryable: true, refresh_required: true, current_revision: null,
+        });
+      }
+      if (id === "resume" && failRead) {
+        failRead = false;
+        throw new appsApi.AppDocumentError("Refresh unavailable.", 503, "unavailable", {
+          state_version: 1, state: "unavailable", safe_message: "Refresh unavailable.",
+          retryable: true, refresh_required: false, current_revision: null,
+        });
+      }
+      return result(id, refreshing ? 3 : 2);
+    });
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValue({
+      action_id: "resume.create", operation_id: current.session.operation_id,
+      idempotency_key: "automatic-refresh", result: { result_version: 1, status: "completed" },
+    });
+    function RefreshWrapper() {
+      const [sessionId, setSessionId] = useState(current.session.session_id);
+      const [documents, setDocuments] = useState([...current.workspace.documents.filter((document) => document.document_id !== "resume"), editableResume]);
+      const headingRef = useRef<HTMLHeadingElement | null>(null);
+      return <>
+        <button type="button" onClick={() => setSessionId(renewedSessionId)}>Renew session</button>
+        <button type="button" onClick={() => setDocuments((previous) => previous.map((document) => ({ ...document })))}>Refresh descriptors</button>
+        <WorkspaceDetail appKey="resume-builder" appName="Resume Builder" sessionId={sessionId}
+          workspaceTitle={current.workspace.title} item={{ key: "document:resume", kind: "document", document: editableResume }}
+          resource={null} actions={current.workspace.actions} documents={documents} headingRef={headingRef}
+          onRecoverSession={recoverSession} onBackToChat={() => undefined} onOpenWorkspaceItem={() => undefined}
+          onQueueChatPrompt={() => undefined} onClearExportNotice={() => undefined}
+          onDirectActionResult={onDirectActionResult} onDirectActionComplete={() => undefined} />
+      </>;
+    }
+    const user = userEvent.setup();
+    render(<RefreshWrapper />);
+    const editor = await screen.findByRole("textbox", { name: "Resume content" });
+    await waitFor(() => expect(editor).toHaveValue("# Stored resume revision 2"));
+    await screen.findByRole("status", { name: "Source document changed" });
+    await user.clear(editor);
+    const draft = "# Unsaved owner draft";
+    await user.type(editor, draft);
+    refreshing = true;
+    if (trigger === "session renewal") {
+      await user.click(screen.getByRole("button", { name: "Renew session" }));
+    } else if (trigger === "render completion") {
+      await user.click(screen.getAllByRole("button", { name: "Create resume" })[0]!);
+      await screen.findByText("Create resume completed.");
+    } else {
+      deferred = trigger === "interrupted read renewal" || trigger === "superseded read";
+      recoverRead = trigger === "session recovery";
+      failRead = trigger === "failed refresh";
+      await user.click(screen.getByRole("button", { name: "Refresh descriptors" }));
+      if (trigger === "interrupted read renewal" || trigger === "superseded read") {
+        await waitFor(() => expect(finishOldRead).toBeTypeOf("function"));
+        await user.click(screen.getByRole("button", { name: trigger === "interrupted read renewal" ? "Renew session" : "Refresh descriptors" }));
+      }
+    }
+    if (trigger === "failed refresh") await screen.findByRole("alert");
+    else if (trigger !== "session renewal") await screen.findByText("Revision 3");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue(draft));
+    if (finishOldRead) await act(async () => finishOldRead());
+    expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue(draft);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(appsApi.writeAppChatWorkspaceDocument).not.toHaveBeenCalled();
+    if (trigger === "session renewal") {
+      expect(appsApi.readAppChatWorkspaceDocument).toHaveBeenCalledTimes(2);
+    } else if (trigger === "failed refresh") {
+      expect(screen.getByText("Revision 2")).toBeInTheDocument();
+    } else {
+      expect(screen.getByText("Revision 3")).toBeInTheDocument();
+      expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
+    }
+    if (trigger === "session recovery") {
+      expect(recoverSession).toHaveBeenCalledTimes(1);
+      expect(appsApi.readAppChatWorkspaceDocument).toHaveBeenCalledWith("resume-builder", renewedSessionId, "resume");
+    }
+    await user.click(screen.getByRole("button", { name: trigger === "failed refresh" ? "Retry" : /^Refresh$/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue("# Stored resume revision 3"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
   it("keeps an unsaved Profile draft across a sessionId prop renewal", async () => {
     const current = withProfileDocumentPresentation(launch());
     const renewedSessionId = "00000000-0000-4000-8000-000000000201";

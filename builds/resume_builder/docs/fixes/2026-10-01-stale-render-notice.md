@@ -218,6 +218,33 @@ Changed files: `builds/typescript/client_web/src/components/apps/AppChatWorkspac
 
 Verification covers the rendered detail component and deferred reads; no new live browser or release acceptance run is claimed. One local commit: `Resume Builder: keep unsaved drafts across session renewal`. No push.
 
+### Automatic refresh draft-preservation rule
+
+Review of `ea8d27b` found the same root problem in another valid descriptor: an editable derived document can remain selected while a render completes and the owner types. The earlier navigation/session guards restrict which response is current, but a current automatic response still replaced an unsaved draft. This follow-up replaces those case-specific assumptions with one shared response-application rule.
+
+`WorkspaceDetail` now tracks the current document's draft and stored baseline in a ref updated by editor changes and accepted document results. Every automatic `loadDocument()` caller uses the same rule at response arrival: a dirty draft for that document survives while the stored record/revision and source freshness are updated. This covers the document/dependency effect, interrupted-load session renewal, recovered/retried reads, and render-completion refreshes. The generation guard continues discarding superseded reads. A failed automatic refresh retains the stored baseline so subsequent owner saves keep their expected revision. Explicit Refresh/Retry buttons opt into replacing the draft; successful saves and package-default resets also replace it. Opening a different document through owner navigation retains existing behavior.
+
+Changed files:
+
+- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx`: centralized draft-preservation rule and explicit reload intent.
+- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.test.tsx`: deferred same-document render/typing regression and one parameterized automatic-refresh regression.
+- `builds/typescript/app-platform/mcp-host/README.md`: source-mapped canonical description of automatic draft preservation and explicit replacement behavior.
+- This fix note.
+
+Governing context remains the repository-relative paths recorded in Spec check above; the accepted review request supplies change authority. No app package, schema, provider, or lifecycle implementation changes are needed.
+
+Test-first evidence against `ea8d27b`: the deferred editable-derived-document case and five automatic-refresh variants failed because stored content replaced the draft. The failed-refresh variant additionally failed because it discarded the stored baseline. The already-loaded session-renewal case passed under the existing no-read guard. With all regressions present, the unchanged implementation had **7 failures / 48 passes**; the corrected component has **55 passes**. The parameterized cases cover render completion, descriptor refresh, loaded-session renewal, interrupted-read renewal, session recovery, superseded reads, and failed refreshes. They verify preserved drafts, enabled Save, updated baseline/freshness where applicable, no automatic write, old-response rejection, and explicit Refresh/Retry replacement. The deferred render case also saves with the refreshed revision and verifies the successful save clears dirty state.
+
+| Check | Result |
+| --- | --- |
+| `builds/typescript`: `npm run web:test -- src/components/apps/AppChatWorkspace.test.tsx` | PASS: 55 tests. |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:build` | PASS, exit 0. Existing unresolved font-path and large-chunk build warnings remain. |
+| `builds/typescript`: `npm run web:test` | PASS: 27 files, 359 tests. The existing jsdom navigation diagnostic remains. |
+| `builds/typescript`: `npm run docs:verify` (includes `docs:test` and `docs:check`) | PASS: 166 passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check` | PASS. |
+
+The first typecheck found an unsupported `exact` option in the new test's role query; replacing it with an anchored name matcher corrected the test, and all four web checks passed on rerun. Component verification does not claim a new live browser, AppsPage renewal-flow, native desktop, or release acceptance run. One local commit: `Resume Builder: automatic refreshes never overwrite an unsaved draft`. No push.
+
 ## Still needs live verification
 
 On the frozen Candidate 14 package and host combination, repeat E-6 through the real owner editor on web and claimed desktop platforms: capture the confirmed save, edited Profile revision/hash, notice DOM text/status and screenshot before Create resume, unchanged old Resume, explicit Create resume action (including gap disposition if needed), current fresh Resume, notice disappearance, zero render model calls, and unchanged Profile hashes around rendering and later chat. Check mobile notice/action reachability and capture save/model-turn occurrence/sequence from the accepted event producers. Include all required personas and sealed evidence. Local component/unit tests do not satisfy that release evidence gate. No candidate/live-provider run or real-owner screenshot was performed here.
