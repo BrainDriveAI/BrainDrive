@@ -1,3 +1,9 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { AppDocumentStorageService } from "../../../../app-platform/storage/app-document-store";
+import type { AppDocumentStorageAuthority } from "../../../../app-platform/contracts/app-storage";
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -683,7 +689,13 @@ describe("AppChatWorkspace", () => {
     expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please create"))).toBe(false);
   });
 
-  it.each([false, true])("shows stale source notice after a saved Profile edit and clears it after rendering (legacy=%s)", async (legacy) => {
+  it.each([
+    { legacy: false, delayed: null },
+    { legacy: true, delayed: null },
+    { legacy: false, delayed: "profile" },
+    { legacy: false, delayed: "resume" },
+    { legacy: false, delayed: "error" },
+  ])("shows stale source notice after a saved Profile edit and clears it after rendering (legacy=$legacy, delayed=$delayed)", async ({ legacy, delayed }) => {
     const current = withDirectResumeActions(launch());
     const user = userEvent.setup();
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
@@ -707,7 +719,18 @@ describe("AppChatWorkspace", () => {
       result_version: 1, state: "current", document_id: documentId, document_binding_id: `${documentId}.current`,
       record: documentId === "profile" ? profile : resume,
     });
-    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => readResult(id));
+    let finishOlderRead!: () => void;
+    let olderReadPending = Boolean(delayed);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => {
+      if (olderReadPending && id === (delayed === "error" ? "profile" : delayed)) {
+        olderReadPending = false;
+        const snapshot = readResult(id);
+        return new Promise<appsApi.AppDocumentReadResult>((resolve, reject) => {
+          finishOlderRead = () => delayed === "error" ? reject(new Error("Old read failed")) : resolve(snapshot);
+        });
+      }
+      return readResult(id);
+    });
     vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id, input) => {
       profile = { ...profile, revision: 3, revision_id: "00000000-0000-4000-8000-000000000103",
         content: input.content, updated_at: legacy ? "2026-10-01T12:02:00.000Z" : "2026-10-01T12:00:00.000Z" };
@@ -722,7 +745,8 @@ describe("AppChatWorkspace", () => {
     render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
     await screen.findByText("Conversation transcript");
     await user.click(screen.getByRole("button", { name: "Resume" }));
-    await screen.findByText("Target: sustainability coordinator");
+    if (delayed) await waitFor(() => expect(finishOlderRead).toBeTypeOf("function"));
+    else await screen.findByText("Target: sustainability coordinator");
     expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Edit Profile" }));
     await screen.findByRole("heading", { name: "Your Resume Profile" });
@@ -733,8 +757,18 @@ describe("AppChatWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Saved Profile.");
     const savedProfile = structuredClone(profile);
+    if (delayed === "resume") {
+      await act(async () => finishOlderRead());
+      expect(screen.getByText("Target: community-program coordinator")).toBeInTheDocument();
+      expect(screen.queryByText("Target: sustainability coordinator")).not.toBeInTheDocument();
+    }
     await user.click(screen.getByRole("button", { name: "Resume" }));
     const notice = await screen.findByRole("status", { name: "Source document changed" });
+    if (delayed && delayed !== "resume") {
+      await act(async () => finishOlderRead());
+      expect(screen.getByRole("status", { name: "Source document changed" })).toBeInTheDocument();
+      expect(screen.queryByText("This workspace document binding is unavailable.")).not.toBeInTheDocument();
+    }
     expect(notice).toHaveTextContent("Your Resume Profile changed since this document was created. Choose Create resume again to update it.");
     expect(screen.getByText("Target: sustainability coordinator")).toBeInTheDocument();
     expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
@@ -745,6 +779,83 @@ describe("AppChatWorkspace", () => {
     expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledTimes(1);
     expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume.create", { actionInput: {}, ownerConfirmed: true });
     expect(chatPanelProps.some((props) => props.queuedMessage)).toBe(false);
+  });
+
+  it("keeps the legacy stale notice after a Profile edit and retained-data reinstall", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-stale-notice-reinstall-"));
+    let now = new Date("2026-10-01T12:00:00.000Z");
+    const store = new AppDocumentStorageService(root, { now: () => now });
+    const current = withDirectResumeActions(launch());
+    let authority: AppDocumentStorageAuthority = {
+      authority_version: 1, owner_id: current.session.owner_id, actor_id: current.session.actor_id,
+      app_id: current.session.app_id, publisher_id: current.session.publisher_id,
+      installation_id: current.session.installation_id, package_digest: current.session.package_digest,
+      lifecycle_generation: current.session.lifecycle_generation, grant_id: current.session.grant_id,
+      grant_revision: current.session.grant_revision, revocation_generation: current.session.revocation_generation,
+    };
+    const write = async (documentId: string, content: unknown, expectedRevision: number | null) => store.writeDocument({
+      request_version: 1, authority, document_id: documentId, document_binding_id: `${documentId}.current`,
+      record_kind: "document", role: documentId === "profile" ? "source_document" : "derived_document",
+      retention_class: "durable_owner_data", media_type: "text/markdown", expected_revision: expectedRevision,
+      operation_id: current.session.operation_id, idempotency_key: `reinstall-${documentId}-${expectedRevision}`, content,
+    });
+    try {
+      await store.initialize();
+      await store.bindActiveAuthority(authority);
+      await write("profile", "# Profile\nTarget: sustainability coordinator", null);
+      now = new Date("2026-10-01T12:01:00.000Z");
+      const resume = (await write("resume", "# Resume\nTarget: sustainability coordinator", null)).record;
+      const readResult = async (documentId: string): Promise<appsApi.AppDocumentReadResult> => ({
+        result_version: 1, state: "current", document_id: documentId, document_binding_id: `${documentId}.current`,
+        record: await store.readDocument(authority, documentId) as appsApi.AppDocumentRecord | null,
+      });
+      vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+      vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => readResult(id));
+      vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id, input) => {
+        now = new Date("2026-10-01T12:02:00.000Z");
+        await write(id, input.content, input.expectedRevision);
+        return readResult(id);
+      });
+      const user = userEvent.setup();
+      const view = render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+      await screen.findByText("Conversation transcript");
+      await user.click(screen.getByRole("button", { name: "Profile" }));
+      await user.click(await screen.findByRole("button", { name: "Edit Profile" }));
+      const editor = screen.getByRole("textbox", { name: "Profile content" });
+      await user.clear(editor);
+      await user.type(editor, "# Profile\nTarget: community-program coordinator");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      await screen.findByText("Saved Profile.");
+      const savedProfile = await store.readDocument(authority, "profile");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      await screen.findByRole("status", { name: "Source document changed" });
+      view.unmount();
+
+      now = new Date("2026-10-01T12:03:00.000Z");
+      authority = { ...authority, installation_id: "00000000-0000-4000-8000-000000000901",
+        grant_id: "00000000-0000-4000-8000-000000000902", lifecycle_generation: 4 };
+      await store.bindActiveAuthority(authority);
+      const reinstalled = { ...current, session: { ...current.session,
+        installation_id: authority.installation_id, grant_id: authority.grant_id, lifecycle_generation: authority.lifecycle_generation,
+      } };
+      vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(reinstalled.session);
+      render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={reinstalled} onSessionClosed={() => undefined} />);
+      await screen.findByText("Conversation transcript");
+      await user.click(screen.getByRole("button", { name: "Resume" }));
+      expect(await screen.findByRole("status", { name: "Source document changed" })).toHaveTextContent("Your Resume Profile changed");
+      expect(screen.getByText("Target: sustainability coordinator")).toBeInTheDocument();
+      expect(await store.readDocument(authority, "profile")).toMatchObject({
+        content: savedProfile!.content, revision_id: savedProfile!.revision_id,
+        updated_at: savedProfile!.updated_at, updated_by: savedProfile!.updated_by,
+      });
+      expect(await store.readDocument(authority, "resume")).toMatchObject({
+        content: resume.content, revision_id: resume.revision_id, updated_at: resume.updated_at, updated_by: resume.updated_by,
+      });
+      expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledTimes(1);
+      expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("renders descriptor-driven read-only provenance and opens its source document", async () => {

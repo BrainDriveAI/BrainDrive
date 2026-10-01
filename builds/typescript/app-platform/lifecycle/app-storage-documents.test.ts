@@ -35,10 +35,10 @@ function authority(overrides: Partial<AppDocumentStorageAuthority> = {}): AppDoc
   };
 }
 
-async function temporaryStore(maxContentBytes = 1024 * 1024): Promise<AppDocumentStorageService> {
+async function temporaryStore(maxContentBytes = 1024 * 1024, now?: () => Date): Promise<AppDocumentStorageService> {
   const root = await mkdtemp(path.join(os.tmpdir(), "bd-scaf-002-storage-"));
   roots.push(root);
-  const store = new AppDocumentStorageService(path.join(root, "memory-root"), { maxContentBytes });
+  const store = new AppDocumentStorageService(path.join(root, "memory-root"), { maxContentBytes, now });
   await store.initialize();
   return store;
 }
@@ -450,6 +450,43 @@ describe("SCAF-002 app-owned durable document storage", () => {
       retention_class: "durable_owner_data",
       content: legacyProjection,
     });
+  });
+
+  it("preserves legacy content save times and authors across authority rebinding", async () => {
+    let now = new Date("2026-10-01T12:00:00.000Z");
+    const store = await temporaryStore(undefined, () => now);
+    const firstInstall = authority();
+    await store.bindActiveAuthority(firstInstall);
+    await store.writeDocument(writeInput({ content: "# Original Profile" }));
+    now = new Date("2026-10-01T12:01:00.000Z");
+    const resume = (await store.writeDocument(writeInput({
+      documentId: "resume.document", bindingId: "resume.current", role: "derived_document",
+      content: "# Original Resume", idempotencyKey: "legacy-resume-render-0001",
+    }))).record;
+    now = new Date("2026-10-01T12:02:00.000Z");
+    const profile = (await store.writeDocument(writeInput({
+      content: "# Edited Profile", expectedRevision: 1, idempotencyKey: "legacy-profile-edit-0001",
+    }))).record;
+    expect(resume.derived_from).toBeUndefined();
+
+    now = new Date("2026-10-01T12:03:00.000Z");
+    const secondInstall = authority({
+      actor_id: "80000000-0000-4000-8000-000000000002",
+      installation_id: "80000000-0000-4000-8000-000000000003",
+      package_digest: `sha256:${"f".repeat(64)}`, lifecycle_generation: 9,
+      grant_id: "80000000-0000-4000-8000-000000000004",
+    });
+    await store.bindActiveAuthority(secondInstall);
+    const { authority_version: _version, ...reboundAuthority } = secondInstall;
+    for (const saved of [profile, resume]) {
+      expect(await store.readDocument(secondInstall, saved.document_id)).toEqual({
+        ...saved, ...reboundAuthority,
+      });
+    }
+    const reboundProfile = await store.readDocument(secondInstall, profile.document_id);
+    const reboundResume = await store.readDocument(secondInstall, resume.document_id);
+    expect(Date.parse(reboundProfile!.updated_at)).toBeGreaterThan(Date.parse(reboundResume!.updated_at));
+    expect((await store.listDocumentAudits(secondInstall)).find((audit) => audit.document_id === profile.document_id)?.updated_at).toBe(profile.updated_at);
   });
 
   it("rebinds retained owner data to a fresh installation and preserves explicit delete", async () => {

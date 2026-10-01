@@ -992,6 +992,7 @@ function WorkspaceDetail({
   const canResetToPackageDefault = Boolean(boundDocument?.resource_id && editable);
   const sessionIdRef = useRef(sessionId);
   const boundDocumentRef = useRef(boundDocument);
+  const documentLoadGenerationRef = useRef(0);
   const resourceRef = useRef(packageResource);
   const resumeCreateActionRef = useRef<Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> | null>(null);
   const documentRecord = documentResult?.record ?? null;
@@ -1028,6 +1029,7 @@ function WorkspaceDetail({
   }, [onRecoverSession]);
 
   const loadDocument = useCallback(async () => {
+    const generation = ++documentLoadGenerationRef.current;
     const currentDocument = boundDocumentRef.current;
     setSourceIsStale(false);
     if (!currentDocument) {
@@ -1047,11 +1049,13 @@ function WorkspaceDetail({
     setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, currentDocument.document_id));
+      if (generation !== documentLoadGenerationRef.current) return;
       setDocumentResult(result);
       setDraftContent(draftFromRecord(result.record));
       setDocumentStatus("ready");
       if (result.record && currentDocument.role === "derived_document" && sourceDocument) {
         const source = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, sourceDocument.document_id));
+        if (generation !== documentLoadGenerationRef.current) return;
         if (source.record) {
           const lineage = result.record.derived_from;
           // Older renders have no lineage. Their save timestamps provide a compatibility fallback.
@@ -1061,6 +1065,7 @@ function WorkspaceDetail({
         }
       }
     } catch (error) {
+      if (generation !== documentLoadGenerationRef.current) return;
       setDocumentResult(null);
       setDocumentStatus("error");
       setDocumentNotice(null);
@@ -1097,8 +1102,10 @@ function WorkspaceDetail({
   }, [appKey]);
 
   useEffect(() => {
+    const loadGeneration = documentLoadGenerationRef;
     void loadDocument();
-  }, [boundDocument?.document_id, loadDocument]);
+    return () => { ++loadGeneration.current; };
+  }, [boundDocument?.document_id, loadDocument, sessionId]);
 
   useEffect(() => {
     void loadResource();

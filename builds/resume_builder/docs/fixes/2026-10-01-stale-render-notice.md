@@ -29,7 +29,7 @@ Repository governing context: `AGENTS.md`, `docs/developers/README.md`, `docs/de
 
 Create resume already reads the current Profile snapshot and deterministically writes a separate Markdown Resume. Its write now carries optional `derived_from: { document_id, revision_id }` metadata naming that exact Profile snapshot. The generic action-plan/storage boundary preserves this metadata, includes it in idempotency, and restricts action-plan derivation to a declared bound source and a derived document. Markdown and PDF content are unchanged. No new model call is added.
 
-On opening Your Resume, the generic native document view reads the saved Resume and the source named by its existing read-only presentation descriptor. It compares source revision IDs. Existing Candidate 13 renders without lineage use `Profile.updated_at > Resume.updated_at` until the next render supplies exact lineage. This fallback cannot reconstruct a historical source revision and depends on the existing server save timestamps; new renders use exact revision identity even when timestamps are equal.
+On opening Your Resume, the generic native document view reads the saved Resume and the source named by its existing read-only presentation descriptor. It compares source revision IDs. Existing Candidate 13 renders without lineage use `Profile.updated_at > Resume.updated_at` until the next render supplies exact lineage. This fallback cannot reconstruct a historical source revision and depends on the existing server save timestamps; new renders use exact revision identity even when timestamps are equal. Retained-data reinstall rebinding preserves those content-save timestamps and authors while updating the active installation/grant fields. A per-load generation guard discards superseded document/source successes and failures; selection, session changes, and unmount invalidate outstanding loads.
 
 The visible status copy is:
 
@@ -46,10 +46,10 @@ App-specific source/render meaning stays in the app action plan and presentation
 - `builds/typescript/app-platform/contracts/app-action-plan.ts` and `app-storage.ts`: additive optional lineage contract.
 - Six corresponding generated JSON Schemas under `builds/typescript/app-platform/contracts/schemas/v1/`: regenerate the affected action-plan and document/storage schemas.
 - `builds/typescript/app-platform/mcp-host/app-action-plan-executor.ts` and its test: pass lineage through and reject an undeclared source.
-- `builds/typescript/app-platform/storage/app-document-store.ts` and `builds/typescript/app-platform/lifecycle/app-storage-documents.test.ts`: persist lineage and bind it to idempotency while preserving the source.
+- `builds/typescript/app-platform/storage/app-document-store.ts` and `builds/typescript/app-platform/lifecycle/app-storage-documents.test.ts`: persist lineage and bind it to idempotency while preserving the source; review fixes preserve content-save times/authors across retained-data rebinding and test legacy source/render ordering.
 - `builds/typescript/client_web/src/api/apps-adapter.ts`: expose optional lineage on a document record.
-- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx` and its test: show the notice and direct action, refresh after rendering, and test the real editor/save interaction.
-- Source-mapped package, contracts, and MCP-host READMEs: document current behavior.
+- `builds/typescript/client_web/src/components/apps/AppChatWorkspace.tsx` and its test: show the notice and direct action, refresh after rendering, and test the real editor/save interaction; review fixes discard superseded document/source responses and add deferred-response plus real-storage reinstall regressions.
+- Source-mapped package, contracts, and MCP-host READMEs: document current behavior; the review fixes update the MCP-host README with read invalidation and preserved save metadata.
 - `docs/developers/catalog.json`: register this required fix note as an internal, non-authoritative evidence record.
 - This fix note.
 
@@ -59,7 +59,7 @@ Regression tests were added first. The package test failed for absent lineage; b
 
 Component coverage uses the real Edit/Save controls: notice absent for a matching render; present after changing the saved Profile; old Resume preserved until owner action; absent after fresh render; Profile snapshot unchanged by detection/render; one Profile write attributable only to the editor save; no queued chat/model render request. Both legacy timestamp and exact-revision records are covered; exact revision comparison also detects a changed Profile with an unchanged timestamp.
 
-Final results:
+Original implementation results (commit `10052e8`):
 
 | Check | Result |
 | --- | --- |
@@ -78,6 +78,27 @@ The first unrestricted full runtime run (`--maxWorkers=4`, alongside the baselin
 Comparison evidence was collected in a clean detached worktree at the exact target SHA above. JSON reports/logs were written to task-owned `/private/tmp/rb-{fix,baseline}-runtime-results.json`, `/private/tmp/rb-{fix,baseline}-rerun-results.json`, and `/private/tmp/rb-fix-final-runtime-results.json` (temporary local diagnostics, not committed release evidence). The web build's unresolved Montserrat/Questrial font-path and large-chunk warnings also occur on the untouched target's web build; both builds exit 0.
 
 Dependencies were absent in this worktree. Tests used task-local dependency links to preinstalled packages; no dependency manifest/lockfile, owner runtime state, or owner credential file was changed. An initial sandboxed runtime attempt had socket/process restrictions and timeouts; unrestricted synthetic tests supersede it. The documentation check initially required registering this new fix note; the catalog entry resolves that issue.
+
+### Review-fix tests
+
+The adversarial findings were read from `../packets/p38/findings.md`. Five additional regressions were added before the production changes. Against `10052e8`, four workspace cases failed: an older matching source response cleared the newer stale notice; an older failed source read replaced the current view with an error; an older Resume response replaced the selected Profile content; and a legacy Profile edit followed by real retained-data storage rebinding lost its notice. The storage regression also failed because rebinding replaced the save timestamp and author.
+
+The reinstall component test uses the real file-backed document store with a controlled clock and task-owned temporary directory. It saves through the real Edit/Save controls, observes the notice before reinstall, binds a fresh installation/grant, opens a new workspace, and verifies the notice and unchanged content/revision/save metadata. The storage test independently verifies current authority fields, historical save authors/times, legacy source/render timestamp ordering, and the audit timestamp. Deferred-response cases release the older success/failure only after a newer read or document selection and assert that it cannot replace the current view/notice. Existing fresh-render clearing and no extra Profile write/model-action assertions remain in place.
+
+Review-fix results:
+
+| Check | Result |
+| --- | --- |
+| `builds/resume_builder`: `npm test`, `npm run build` | PASS: 9 files, 219 tests; build exits 0. |
+| `builds/typescript`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:test`, `npm run web:build` | PASS: 27 files, 343 tests; lint, typecheck and production build exit 0. |
+| `builds/typescript`: `npm test -- app-platform/lifecycle/app-storage-documents.test.ts app-platform/mcp-host/app-action-plan-executor.test.ts app-platform/contracts/app-storage.test.ts app-platform/contracts/app-action-plan.test.ts` | PASS: 4 files, 26 tests. |
+| `builds/typescript`: `npm run lint`, `npm run build` | PASS, exit 0. |
+| `builds/typescript`: `npm test -- --maxWorkers=2 --reporter=json --outputFile=/private/tmp/rb-review-runtime-results.json` | PASS: 157 files, 1,442 tests, zero failures; synthetic loopback/process tests ran outside the restrictive sandbox. |
+| `builds/typescript`: `npm run docs:verify` (runs `docs:test` and `docs:check`), final `npm run docs:check` | PASS: 166 tests passed, 1 existing Windows-specific skip; 269 scoped candidates, zero diagnostics. |
+| Root: `node tools/docs/sync-generated.mjs --check`, `git diff --check` | PASS. |
+| Root: `tools/security/scan-secrets.sh --current` | PASS: zero findings. |
+
+No schemas or package contracts changed. Lifecycle source mappings need no canonical behavior change: only the colocated storage regression changes in that subtree; the current storage/host behavior is documented in the MCP-host README. Existing font-resolution/large-chunk web build warnings remain. Live release acceptance remains outstanding as described below.
 
 ## Still needs live verification
 

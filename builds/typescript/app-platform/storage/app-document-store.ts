@@ -458,7 +458,6 @@ export class AppDocumentStorageService {
   }
 
   private async rebindRetainedDocuments(previous: AppDocumentStorageAuthority, current: AppDocumentStorageAuthority): Promise<void> {
-    const now = this.now().toISOString();
     const [records, tombstones] = await Promise.all([
       this.listAllRecords(previous),
       this.listAllTombstones(previous),
@@ -476,8 +475,7 @@ export class AppDocumentStorageService {
         grant_id: current.grant_id,
         grant_revision: current.grant_revision,
         revocation_generation: current.revocation_generation,
-        updated_at: now,
-        updated_by: current,
+        // Rebinding authority is not a content save; retain its time and author.
       }));
     }
     for (const tombstone of tombstones.filter((candidate) => REINSTALL_RETAINED_CLASSES.has(candidate.retention_class))) {
