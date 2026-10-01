@@ -553,6 +553,7 @@ export default function AppChatWorkspace({
           workspaceTitle={launch.workspace.title}
           item={activeItem}
           resource={activeResource}
+          documents={launch.workspace.documents}
           actions={launch.workspace.actions}
           headingRef={activeHeadingRef}
           onRecoverSession={recoverSession}
@@ -936,6 +937,7 @@ function WorkspaceDetail({
   item,
   resource,
   actions,
+  documents,
   headingRef,
   onRecoverSession,
   onBackToChat,
@@ -952,6 +954,7 @@ function WorkspaceDetail({
   item: WorkspaceItem;
   resource: AppResourceDescriptor | null;
   actions: AppChatWorkspaceLaunch["workspace"]["actions"];
+  documents: AppChatWorkspaceLaunch["workspace"]["documents"];
   headingRef: MutableRefObject<HTMLHeadingElement | null>;
   onRecoverSession: () => Promise<string | null>;
   onBackToChat: () => void;
@@ -978,6 +981,9 @@ function WorkspaceDetail({
   const [documentNotice, setDocumentNotice] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
   const [missingResumeEssentials, setMissingResumeEssentials] = useState<MissingResumeEssentials | null>(null);
+  const [sourceIsStale, setSourceIsStale] = useState(false);
+  const sourceDocument = documents.find((document) => document.document_id === presentation?.read_only_explanation?.source_document_id) ?? null;
+  const sourceRenderAction = sourceDocument?.presentation?.header_actions.find((action): action is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => action.type === "app_action" && action.delivery === "direct_action" && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) ?? null;
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
   const [documentRetryable, setDocumentRetryable] = useState(false);
@@ -1023,6 +1029,7 @@ function WorkspaceDetail({
 
   const loadDocument = useCallback(async () => {
     const currentDocument = boundDocumentRef.current;
+    setSourceIsStale(false);
     if (!currentDocument) {
       setDocumentResult(null);
       setDraftContent("");
@@ -1043,6 +1050,16 @@ function WorkspaceDetail({
       setDocumentResult(result);
       setDraftContent(draftFromRecord(result.record));
       setDocumentStatus("ready");
+      if (result.record && currentDocument.role === "derived_document" && sourceDocument) {
+        const source = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, sourceDocument.document_id));
+        if (source.record) {
+          const lineage = result.record.derived_from;
+          // Older renders have no lineage. Their save timestamps provide a compatibility fallback.
+          setSourceIsStale(lineage?.document_id === sourceDocument.document_id
+            ? lineage.revision_id !== source.record.revision_id
+            : Date.parse(source.record.updated_at) > Date.parse(result.record.updated_at));
+        }
+      }
     } catch (error) {
       setDocumentResult(null);
       setDocumentStatus("error");
@@ -1056,7 +1073,7 @@ function WorkspaceDetail({
         setDocumentRetryable(false);
       }
     }
-  }, [appKey, withSessionRecovery]);
+  }, [appKey, sourceDocument, withSessionRecovery]);
 
   const loadResource = useCallback(async () => {
     const currentResource = resourceRef.current;
@@ -1204,6 +1221,7 @@ function WorkspaceDetail({
       }
       if (exportResult === "failed") throw new Error("export_download_failed");
       onDirectActionComplete(buildDirectActionHostMessage(action, result, exportResult));
+      if (boundDocument?.role === "derived_document" && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) await loadDocument();
       setDocumentNotice(`${action.label} completed.`);
     } catch (error) {
       setDocumentNotice(null);
@@ -1303,6 +1321,15 @@ function WorkspaceDetail({
             ) : null}
           </div>
         </div>
+
+        {sourceIsStale && sourceDocument ? (
+          <aside role="status" aria-label="Source document changed" className="mt-4 rounded-md border border-bd-amber bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
+            <p>{sourceDocument.presentation?.title ?? sourceDocument.title} changed since this document was created.{sourceRenderAction ? ` Choose ${sourceRenderAction.label} again to update it.` : " Open the source document to update it."}</p>
+            <Button type="button" size="sm" className="mt-2" disabled={runningActionId !== null} onClick={() => sourceRenderAction ? void executeDirectHeaderAction(sourceRenderAction) : onOpenWorkspaceItem(sourceDocument.document_id)}>
+              {sourceRenderAction?.label ?? "Open source document"}
+            </Button>
+          </aside>
+        ) : null}
 
         {readOnlyExplanation ? (
           <aside className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary" aria-label="Read-only explanation">

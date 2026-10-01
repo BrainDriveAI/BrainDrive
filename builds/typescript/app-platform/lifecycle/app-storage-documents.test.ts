@@ -90,6 +90,18 @@ function deleteInput(input: {
 }
 
 describe("SCAF-002 app-owned durable document storage", () => {
+  it("persists derivation lineage, binds it to idempotency, and leaves the source unchanged", async () => {
+    const store = await temporaryStore();
+    const source = await store.writeDocument(writeInput({ content: "# Current Profile" }));
+    const input = { ...writeInput({ documentId: "resume.document", bindingId: "resume.current", role: "derived_document", content: "# Resume", idempotencyKey: "resume-render-lineage-0001" }),
+      derived_from: { document_id: "resume.profile", revision_id: source.record.revision_id } };
+    const rendered = await store.writeDocument(input);
+    expect((await store.readDocument(authority(), "resume.document"))?.derived_from).toEqual(input.derived_from);
+    expect(await store.writeDocument(input)).toEqual(rendered);
+    await expect(store.writeDocument({ ...input, derived_from: { ...input.derived_from, revision_id: "20000000-0000-4000-8000-000000000099" } })).rejects.toMatchObject({ code: "idempotency_conflict" });
+    expect(await store.readDocument(authority(), "resume.profile")).toEqual(source.record);
+  });
+
   it("creates, reads, and updates a document with revision CAS", async () => {
     const store = await temporaryStore();
     const created = await store.writeDocument(writeInput({ content: "# Profile" }));

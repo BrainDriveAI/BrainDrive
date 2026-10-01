@@ -434,6 +434,7 @@ export type AppDocumentRecord = {
   revision: number;
   revision_id: string;
   prior_revision_id: string | null;
+  derived_from?: { document_id: string; revision_id: string };
   operation_id: string;
   idempotency_key: string;
   content_digest: `sha256:${string}`;

@@ -72,6 +72,31 @@ function executionInput(bytes: Buffer, resolverBytes = bytes): Parameters<typeof
 }
 
 describe("executeAppActionPlan", () => {
+  it("passes derivation lineage to storage only for a declared source and derived document", async () => {
+    const input = executionInput(Buffer.from("unused"));
+    const lineage = { document_id: "notes.source", revision_id: "47efb901-eab8-49d1-a185-3f6e8a5f4056" };
+    input.rawPlan = { action_plan_version: 1, action_id: input.action.action_id, steps: [{
+      step_id: "write-derived", type: "document.write", document_id: "notes.derived", expected_revision: "current",
+      content: "# Derived", derived_from: lineage,
+    }] };
+    input.workspace.documents = [
+      { document_id: "notes.source", data_binding_id: "notes.source.current", role: "source_document" },
+      { document_id: "notes.derived", data_binding_id: "notes.derived.current", role: "derived_document" },
+    ].map((document) => ({
+      ...document, role: document.role as "source_document" | "derived_document",
+      document_version: 1, title: "Notes", description: "Synthetic notes fixture",
+      editable: false, default_visibility: "primary", model_access: "read_reference", resource_id: null,
+    }));
+    const writeDocument = vi.fn(async () => ({ result_version: 1, audit: { event: "app.storage.document.write" } }));
+    input.documentStorage = { initialize: vi.fn(), bindActiveAuthority: vi.fn(), readDocument: vi.fn(async () => null), writeDocument } as unknown as typeof input.documentStorage;
+    await executeAppActionPlan(input);
+    expect(writeDocument).toHaveBeenCalledWith(expect.objectContaining({ derived_from: lineage }));
+    writeDocument.mockClear();
+    input.workspace.documents = input.workspace.documents.filter((document) => document.document_id !== "notes.source");
+    await expect(executeAppActionPlan(input)).rejects.toMatchObject({ code: "denied" });
+    expect(writeDocument).not.toHaveBeenCalled();
+  });
+
   it("resolves a runtime export reference before preparing the export", async () => {
     const bytes = Buffer.from("%PDF-1.4\nreference export\n", "utf8");
     const input = executionInput(bytes);

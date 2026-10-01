@@ -56,6 +56,12 @@ export const AppDocumentStorageAuthoritySchema = z
     }
   });
 
+// Optional lineage keeps existing stored documents compatible.
+export const AppDocumentDerivationSchema = z.object({
+  document_id: z.string().min(1).max(128).regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/),
+  revision_id: OpaqueIdSchema,
+}).strict();
+
 export const AppDocumentStorageMutationRequestSchema = z
   .object({
     request_version: z.literal(1),
@@ -70,6 +76,7 @@ export const AppDocumentStorageMutationRequestSchema = z
     operation_id: OpaqueIdSchema,
     idempotency_key: z.string().min(16).max(256),
     content: z.unknown(),
+    derived_from: AppDocumentDerivationSchema.optional(),
   })
   .strict();
 
@@ -112,6 +119,7 @@ export const AppDocumentRecordSchema = z
     content_digest: Sha256DigestSchema,
     content_size_bytes: z.number().int().nonnegative().max(1_048_576),
     content: z.unknown(),
+    derived_from: AppDocumentDerivationSchema.optional(),
     created_at: TimestampSchema,
     created_by: AppDocumentStorageAuthoritySchema,
     updated_at: TimestampSchema,

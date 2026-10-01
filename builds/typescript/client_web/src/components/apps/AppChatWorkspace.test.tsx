@@ -683,6 +683,70 @@ describe("AppChatWorkspace", () => {
     expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please create"))).toBe(false);
   });
 
+  it.each([false, true])("shows stale source notice after a saved Profile edit and clears it after rendering (legacy=%s)", async (legacy) => {
+    const current = withDirectResumeActions(launch());
+    const user = userEvent.setup();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const record = (documentId: string, revision: number, content: string): appsApi.AppDocumentRecord => ({
+      ...current.session,
+      record_version: 1, record_kind: "document", document_id: documentId,
+      document_binding_id: `${documentId}.current`, role: documentId === "profile" ? "source_document" : "derived_document",
+      retention_class: "durable_owner_data", media_type: "text/markdown", revision,
+      revision_id: `00000000-0000-4000-8000-00000000010${revision}`, prior_revision_id: null,
+      operation_id: "00000000-0000-4000-8000-000000000102", idempotency_key: "stale-render-test-key",
+      content_digest: `sha256:${"d".repeat(64)}`, content_size_bytes: content.length, content,
+      created_at: "2026-10-01T12:00:00.000Z", created_by: {}, updated_by: {},
+      updated_at: "2026-10-01T12:00:00.000Z",
+    });
+    let profile = record("profile", 2, "# Profile\nTarget: sustainability coordinator");
+    let resume = { ...record("resume", 3, "# Resume\nTarget: sustainability coordinator"),
+      updated_at: "2026-10-01T12:01:00.000Z",
+      ...(legacy ? {} : { derived_from: { document_id: "profile", revision_id: profile.revision_id } }),
+    };
+    const readResult = (documentId: string): appsApi.AppDocumentReadResult => ({
+      result_version: 1, state: "current", document_id: documentId, document_binding_id: `${documentId}.current`,
+      record: documentId === "profile" ? profile : resume,
+    });
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id) => readResult(id));
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockImplementation(async (_app, _session, id, input) => {
+      profile = { ...profile, revision: 3, revision_id: "00000000-0000-4000-8000-000000000103",
+        content: input.content, updated_at: legacy ? "2026-10-01T12:02:00.000Z" : "2026-10-01T12:00:00.000Z" };
+      return readResult(id);
+    });
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockImplementation(async () => {
+      resume = { ...resume, content: profile.content, revision: 4, updated_at: "2026-10-01T12:03:00.000Z",
+        derived_from: { document_id: "profile", revision_id: profile.revision_id } };
+      return { action_id: "resume.create", operation_id: resume.operation_id, idempotency_key: resume.idempotency_key,
+        result: { result_version: 1, status: "completed" } };
+    });
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    await screen.findByText("Target: sustainability coordinator");
+    expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Profile" }));
+    await screen.findByRole("heading", { name: "Your Resume Profile" });
+    await user.click(screen.getByRole("button", { name: "Edit Profile" }));
+    const editor = screen.getByRole("textbox", { name: "Profile content" });
+    await user.clear(editor);
+    await user.type(editor, "# Profile\nTarget: community-program coordinator");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved Profile.");
+    const savedProfile = structuredClone(profile);
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    const notice = await screen.findByRole("status", { name: "Source document changed" });
+    expect(notice).toHaveTextContent("Your Resume Profile changed since this document was created. Choose Create resume again to update it.");
+    expect(screen.getByText("Target: sustainability coordinator")).toBeInTheDocument();
+    expect(appsApi.executeAppChatWorkspaceAction).not.toHaveBeenCalled();
+    await user.click(within(notice).getByRole("button", { name: "Create resume" }));
+    await screen.findByText("Target: community-program coordinator");
+    expect(screen.queryByRole("status", { name: "Source document changed" })).not.toBeInTheDocument();
+    expect(profile).toEqual(savedProfile);
+    expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledTimes(1);
+    expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledWith("resume-builder", current.session.session_id, "resume.create", { actionInput: {}, ownerConfirmed: true });
+    expect(chatPanelProps.some((props) => props.queuedMessage)).toBe(false);
+  });
+
   it("renders descriptor-driven read-only provenance and opens its source document", async () => {
     const current = withDirectResumeActions(launch());
     console.log("RESUME_DESCRIPTOR_DEBUG", current.workspace.documents.find((document) => document.document_id === "resume")?.presentation);

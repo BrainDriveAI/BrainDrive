@@ -257,6 +257,7 @@ export class AppDocumentStorageService {
       idempotency_key: request.idempotency_key,
       content_digest: canonicalInputDigest(content),
       content_size_bytes: contentSizeBytes,
+      ...(request.derived_from ? { derived_from: request.derived_from } : {}),
     });
     return this.serial(async () => {
       const replay = await this.readWriteIdempotency(request.authority, request.idempotency_key);
@@ -303,6 +304,7 @@ export class AppDocumentStorageService {
         content_digest: canonicalInputDigest(content),
         content_size_bytes: contentSizeBytes,
         content,
+        ...(request.derived_from ? { derived_from: request.derived_from } : {}),
         created_at: current.kind === "record" ? current.record.created_at : now,
         created_by: current.kind === "record" ? current.record.created_by : request.authority,
         updated_at: now,

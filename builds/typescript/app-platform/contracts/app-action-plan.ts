@@ -5,6 +5,7 @@ import {
   AppExportDestinationIntentSchema,
 } from "./app-artifacts.js";
 import {
+  AppDocumentDerivationSchema,
   AppDocumentMediaTypeSchema,
   AppStorageRetentionClassSchema,
 } from "./app-storage.js";
@@ -40,6 +41,7 @@ const ActionPlanDocumentWriteStepSchema = z
     media_type: AppDocumentMediaTypeSchema.optional(),
     retention_class: AppStorageRetentionClassSchema.optional(),
     content: z.unknown(),
+    derived_from: AppDocumentDerivationSchema.optional(),
   })
   .strict();
 

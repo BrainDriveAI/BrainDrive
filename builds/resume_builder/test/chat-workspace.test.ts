@@ -504,6 +504,11 @@ describe("Resume Builder chat workspace contract", () => {
       ],
       final_result: { kind: "step_result", step_id: "write-resume-capability" },
     });
+    expect(first.steps.find((step) => step.type === "document.write")).toMatchObject({
+      derived_from: { document_id: "resume.profile", revision_id: request.documents[0].revision_id },
+    });
+    expect(request.documents[0].content).toBe(profileMarkdown);
+    expect(first.steps.filter((step) => step.type === "document.write").map((step) => step.document_id)).toEqual(["resume.document"]);
     expect(JSON.stringify(first)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
   });
 

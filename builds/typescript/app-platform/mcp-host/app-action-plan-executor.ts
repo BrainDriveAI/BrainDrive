@@ -119,6 +119,9 @@ export async function executeAppActionPlan(input: {
       if (document.role === "conversation" || document.role === "advanced_resource") {
         throw new AppPlatformError("denied", "App action plan cannot write this workspace item", 403);
       }
+      if (step.derived_from && (document.role !== "derived_document" || !input.workspace.documents.some((candidate) => candidate.document_id === step.derived_from?.document_id && candidate.data_binding_id))) {
+        throw new AppPlatformError("denied", "App derivation must reference a declared workspace source", 403);
+      }
       await input.documentStorage.initialize();
       await input.documentStorage.bindActiveAuthority(input.storageAuthority);
       const current = await input.documentStorage.readDocument(input.storageAuthority, document.document_id);
@@ -135,6 +138,7 @@ export async function executeAppActionPlan(input: {
         operation_id: input.operationId,
         idempotency_key: childIdempotencyKey(input.idempotencyKey, step.step_id),
         content: step.content,
+        ...(step.derived_from ? { derived_from: step.derived_from } : {}),
       });
       input.audit(result.audit.event, result.audit);
       results.set(step.step_id, result);
