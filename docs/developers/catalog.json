@@ -546,6 +546,7 @@
     { "path": "TRADEMARK.md", "classification": "legal-governance", "status": "current", "ownerRole": "repository-maintainers" },
     { "path": "builds/mcp_release/README.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "mcp-maintainers" },
     { "path": "builds/brief_builder/README.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
+    { "path": "builds/resume_builder/docs/fixes/2026-10-02-app-workspace-sidebar-logo.md", "classification": "non-authoritative-evidence-record", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/docs/fixes/2026-10-01-stale-render-notice.md", "classification": "non-authoritative-evidence-record", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/docs/fixes/2026-10-01-gate-owner-authorization.md", "classification": "non-authoritative-evidence-record", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/README.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
