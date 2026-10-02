@@ -75,3 +75,5 @@ Commands:
 npm run test
 npm run build
 ```
+
+Model-visible `resume.state.read` accepts only `{}` and returns current Profile, Resume, and export receipt state. Operation recovery uses the existing authorized capability path. See the [status lookup and chat failure fix note](docs/fixes/2026-10-01-state-read-chat-failure.md) for scoped error recovery, regressions, and remaining live validation.

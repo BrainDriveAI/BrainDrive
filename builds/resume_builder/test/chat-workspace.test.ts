@@ -308,6 +308,23 @@ describe("Resume Builder chat workspace contract", () => {
     expect((schema.properties as Record<string, unknown>)).not.toHaveProperty("sections");
   });
 
+  it("keeps source and shipped state-read planners limited to empty input", async () => {
+    const shipped = await import("../resources/inference-program.js");
+    const request = {
+      action_id: "resume.state.read", action_input: {}, operation_id: crypto.randomUUID(),
+      idempotency_key: "state-read-no-arguments", owner_confirmed: false,
+      occurred_at: "2026-10-01T12:00:00Z", documents: [],
+      session: {
+        session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+      },
+    };
+    for (const planner of [planResumeAction, shipped.planResumeAction]) {
+      expect(planner(request).steps).toMatchObject([{ capability: "resume.operations.read", input: {} }]);
+      expect(() => planner({ ...request, action_input: { queried_operation_id: crypto.randomUUID() } })).toThrow("resume_state_read_requires_empty_input");
+    }
+  });
+
   it("owns Resume chat action conversion before generic host dispatch", () => {
     const sessionId = crypto.randomUUID();
     const turnId = crypto.randomUUID();
