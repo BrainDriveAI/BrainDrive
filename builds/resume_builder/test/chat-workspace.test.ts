@@ -1267,6 +1267,27 @@ describe("Resume Builder chat workspace contract", () => {
     expect(RESUME_CHAT_RESOURCES.every((resource) => resource.ownerEditable)).toBe(true);
   });
 
+  it("keeps review commentary in chat and out of the shipped Resume Profile", async () => {
+    const resources = await Promise.all([
+      "agent-instructions.md",
+      "resume-profile-template.md",
+      "resume-quality-standard.md",
+      "interview-guide.md",
+    ].map((file) => readFile(new URL(`../resources/${file}`, import.meta.url), "utf8")));
+    const [agent, profile] = resources;
+
+    for (const text of [agent, profile]) {
+      expect(text).toContain("Never write review, readiness, coaching, or internal notes into the Resume Profile. Say them in chat instead.");
+      expect(text).toContain("[gap: ...]");
+    }
+    expect(agent).toContain("Count the `[gap: ...]` markers remaining in the Profile");
+    expect(profile).toContain("the finished Profile holds only resume content and any remaining `[gap: ...]` markers");
+    for (const text of resources) {
+      expect(text).not.toMatch(/^#{1,6}\s+(?:Profile\s+)?(?:Review|Readiness|Coaching|Internal)\s+Notes\b/im);
+      expect(text).not.toMatch(/(?:^|[.!?]\s+)(?:Write|Add|Include|Record|Save|Store)\b[^.\n]*\b(?:review|readiness|coaching|internal) notes\b[^.\n]*\b(?:in|into|to)\s+(?:the\s+)?Profile\b/im);
+    }
+  });
+
   it("keeps Dave W's proven interview and profile guardrails in app-owned resources", async () => {
     const [agent, interview, quality] = await Promise.all([
       readFile(new URL("../resources/agent-instructions.md", import.meta.url), "utf8"),
