@@ -108,10 +108,10 @@ function generate(seed: number, count: number): Case[] {
     const stray = strays[pick(strays.length)];
     const headingOnly = pick(3) === 0 ? headingOnlyEntries[pick(headingOnlyEntries.length)] : null;
     const repeated = pick(2) === 0;
-    const education = `## Education\n### A.A. General Studies (2021)\n- school_${index}`;
+    const education = `## Education${index % 2 ? " " : "\n"}### A.A. General Studies (2021)\n- school_${index}`;
     const extras = `## Projects\n- project_${index}\n## Profile Review Notes\n- note_${index}`;
     return {
-      profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${headingOnly ? `### ${headingOnly}` : `${entryHeading}${entryMarkup}`}\n${headingOnly ? "" : `${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}`}\n${education}\n## Skills\n- sample_${index}${repeated ? `\n## Skills\n- second_${index}\n## Education\n- course_${index}` : ""}\n${extras}`,
+      profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${headingOnly ? `### ${headingOnly}` : `${entryHeading}${entryMarkup}`}\n${headingOnly ? "" : `${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}`}\n${education}\n## Skills${index % 4 < 2 ? " " : "\n"}- sample_${index}${repeated ? `\n## Skills\n- second_${index}\n## Education\n- course_${index}` : ""}\n${extras}`,
       expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${headingOnly?.replace(" | ", "\n") ?? `${role.text}\n${company.text} · 2020`}\n${headingOnly ? "" : `${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}`}\nEDUCATION\nA.A. General Studies (2021)\nschool_${index}${repeated ? `\ncourse_${index}` : ""}\nSKILLS\n• sample_${index}${repeated ? `\n• second_${index}` : ""}\nPROJECTS\n• project_${index}\nPROFILE REVIEW NOTES\n• note_${index}`,
       gapOnlyIdentity: [name.text + tail, email.text].every((value) => !/[a-z0-9]/i.test(value.replace(/\[gap:[^\]]*\]/gi, ""))),
       literals: [name, email, ...(headingOnly ? [] : [role, company, ...body])].flatMap((item) => item.literal ? [item.literal] : []),
@@ -143,6 +143,9 @@ function shrink(profile: string, fails: (input: string) => boolean): string {
 }
 
 const namedRegressions = [
+    ["partially flattened Experience after name", "## Experience - Maintained client websites", "Test Person EXPERIENCE • Maintained client websites"],
+    ["mixed flattened headings and normal body boundaries", "## Experience - Maintained client websites\nWorked in 2020 - present. - Kept this authored line.\n## Education ### General Studies\n- Coursework\n## Skills - Excel", "Test Person EXPERIENCE • Maintained client websites Worked in 2020 - present. - Kept this authored line. EDUCATION General Studies Coursework SKILLS • Excel"],
+    ["partially flattened protected inline payload", "## Experience - `2020 - x. - y ## z`\n**2020 - item**\n## Skills - Excel", "Test Person EXPERIENCE • 2020 - x. - y ## z 2020 - item SKILLS • Excel"],
     ["emphasized field with trailing content", "## Contact\n**Name: Jane Doe** (preferred name)\n**Email: a_b@c.d** (y)\n## Experience\n### Role | Company | 2020", "Jane Doe (preferred name) a_b@c.d (y) EXPERIENCE Role Company · 2020"],
     ["emphasis crossing structural pipes", "## Experience\n### **Role | Company | 2020**", "Test Person EXPERIENCE Role Company · 2020"],
     ["code pipe is payload", "## Experience\n### Role | `Foo|Bar` | 2020", "Test Person EXPERIENCE Role Foo|Bar · 2020"],
