@@ -1458,8 +1458,29 @@ export function WorkspaceDetail({
             ) : null}
 
             {missingResumeEssentials ? (
-              <div role="status" className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
-                <p>Resolve or explicitly accept {missingResumeEssentials.missing_essentials.length} visible Profile gap{missingResumeEssentials.missing_essentials.length === 1 ? "" : "s"} before exporting.</p>
+              <div role="region" aria-label="Missing Profile items" aria-live="polite" className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
+                <p>These items are missing from your Profile. Edit the Profile, return to chat, or knowingly create an honest partial resume with these limitations visible.</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {missingResumeEssentials.missing_essentials.map((item, index) => <li key={index}>{item.label}</li>)}
+                </ul>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3"
+                  disabled={runningActionId !== null}
+                  onClick={() => {
+                    setMissingResumeEssentials(null);
+                    setDocumentError(null);
+                    if (boundDocument && editable) setIsEditing(true);
+                    else onOpenWorkspaceItem("resume.profile");
+                  }}
+                >
+                  Edit the Profile
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="mt-3" disabled={runningActionId !== null} onClick={onBackToChat}>
+                  Return to chat
+                </Button>
                 <Button
                   type="button"
                   size="sm"

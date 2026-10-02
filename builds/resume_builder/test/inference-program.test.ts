@@ -11,6 +11,7 @@ import {
   prepareResumeInference,
   prepareResumeGeneralDraft,
 } from "../resources/inference-program.js";
+import { planResumeAction as planSourceResumeAction } from "../src/chat-workspace.js";
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
 
 function inflatedPdfText(pdfBytes: Buffer): string {
@@ -328,6 +329,76 @@ describe("Resume Builder-owned General draft inference program", () => {
           expect.objectContaining({ choice: "proceed_with_limitations" }),
         ]),
       },
+    });
+  });
+
+  describe.each([
+    ["shipped resource", planResumeAction],
+    ["source", planSourceResumeAction],
+  ])("%s missing-essentials owner authorization", (_name, planner) => {
+    it.each([{}, { missing_essential_disposition: "proceed_with_limitations" }])("rejects model Create for a complete Profile: %j", (actionInput) => {
+      const operationId = crypto.randomUUID();
+      expect(() => planner({
+        action_id: "resume.create",
+        action_input: actionInput,
+        owner_confirmed: false,
+        operation_id: operationId,
+        idempotency_key: `complete-profile-model-${operationId}`,
+        occurred_at: "2026-10-01T12:00:00.000Z",
+        session: {
+          session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+          app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+        },
+        documents: [{
+          document_id: "resume.profile",
+          content: "# Maya Torres\n\n## Contact\nmaya@example.test\n\n## Experience\n- Product operations leader at Example Co, 2020–2026.",
+        }],
+      })).toThrow("resume_create_owner_confirmation_required");
+    });
+
+    it.each([
+      [false, undefined, false],
+      [false, "proceed_with_limitations", false],
+      [true, undefined, false],
+      [true, "provide", false],
+      [true, "omit", false],
+      [true, "mark_unknown", false],
+      [true, "proceed_with_limitations", true],
+    ])("owner_confirmed=%s disposition=%s renders=%s", (ownerConfirmed, disposition, renders) => {
+      const operationId = crypto.randomUUID();
+      const profile = "# Resume Profile\n\n## Experience\n- [gap: employer and role]";
+      const plan = planner({
+        action_id: "resume.create",
+        action_input: { missing_essential_disposition: disposition },
+        owner_confirmed: ownerConfirmed,
+        operation_id: operationId,
+        idempotency_key: `owner-gate-${operationId}`,
+        occurred_at: "2026-10-01T12:00:00.000Z",
+        session: {
+          session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+          app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+        },
+        documents: [{ document_id: "resume.profile", content: profile }],
+      });
+      if (renders) {
+        expect(plan.steps).toEqual(expect.arrayContaining([
+          expect.objectContaining({ type: "capability.call", capability: "resume.definitions.write", owner_confirmation: "inherit" }),
+          expect.objectContaining({ type: "document.write", document_id: "resume.document", content: expect.stringContaining("[gap: employer and role]") }),
+        ]));
+      } else {
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0]).toMatchObject({
+          type: "document.write", document_id: "resume.action-result",
+          content: {
+            status: "missing_essentials",
+            missing_essentials: expect.arrayContaining([
+              expect.objectContaining({ label: "Contact identity" }),
+              expect.objectContaining({ label: "Experience" }),
+              expect.objectContaining({ label: "Unresolved gap: employer and role" }),
+            ]),
+          },
+        });
+      }
     });
   });
 

@@ -140,6 +140,7 @@ export const RESUME_CHAT_ACTIONS = [
     resultSchemaId: "resume.create.result.v1",
     idempotencyPolicy: "required",
     confirmation: "owner_confirmation",
+    modelExposure: "hidden",
   },
   {
     actionId: "resume.export.pdf.request",
@@ -149,6 +150,7 @@ export const RESUME_CHAT_ACTIONS = [
     resultSchemaId: "resume.export.pdf.request.result.v1",
     idempotencyPolicy: "required",
     confirmation: "trusted_owner_confirmation",
+    modelExposure: "hidden",
   },
   {
     actionId: "resume.state.read",
@@ -354,11 +356,15 @@ export function planResumeAction(request: ResumeActionPlanRequest, options: Resu
     const profileMarkdown = currentDocumentText(request, "resume.profile");
     if (!profileMarkdown) throw new Error("resume_profile_required");
     const readiness = analyzeResumeProfileReadiness(profileMarkdown);
-    if (readiness.missingEssentials.length > 0 && rawInput.missing_essential_disposition !== "proceed_with_limitations") {
+    // The disposition is a choice, not proof that the owner made that choice.
+    if (readiness.missingEssentials.length > 0 &&
+        (!request.owner_confirmed || rawInput.missing_essential_disposition !== "proceed_with_limitations")) {
       return actionPlan(request.action_id, [
         documentWriteStep("write-missing-essentials-result", "resume.action-result", buildMissingEssentialsResult(readiness), "application/json", "durable_operation_lookup"),
       ], "write-missing-essentials-result");
     }
+    // Every render needs owner authorization, even when the Profile is complete.
+    if (request.owner_confirmed !== true) throw new Error("resume_create_owner_confirmation_required");
     const input = {
       locale: rawInput.locale,
       page_intent: rawInput.page_intent,

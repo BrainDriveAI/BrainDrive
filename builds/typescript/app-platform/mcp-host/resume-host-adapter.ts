@@ -549,7 +549,11 @@ export class ResumeAppHostAdapter {
       storedPackage: descriptor.storedPackage!,
       contextProjection,
       resolveResourcePromptContent: (resource) => this.resolveOwnerEditableResourcePrompt(resource, session, descriptor, workspace),
-      executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest(actionRequest),
+      executeAction: (actionRequest) => this.executeChatWorkspaceActionRequest({
+        ...actionRequest,
+        // Only the owner action endpoint can authorize a render.
+        ownerConfirmed: actionRequest.action.kind === "render" ? false : actionRequest.ownerConfirmed,
+      }, "model"),
     });
     return {
       prompt_context: context.promptContext,
@@ -595,7 +599,7 @@ export class ResumeAppHostAdapter {
       operationId: input.operation_id,
       idempotencyKey: input.idempotency_key,
       ownerConfirmed: input.owner_confirmed,
-    });
+    }, "owner");
     const resultValidationErrors = validateJsonValueAgainstActionSchema(result, action.result_schema.schema);
     if (resultValidationErrors.length > 0) {
       throw new AppPlatformError("validation_failed", "App action result failed schema validation", 409);
@@ -1506,10 +1510,10 @@ export class ResumeAppHostAdapter {
     });
   }
 
-  private async executeChatWorkspaceActionRequest(request: AppChatActionExecutionRequest): Promise<unknown> {
+  private async executeChatWorkspaceActionRequest(request: AppChatActionExecutionRequest, audience: "owner" | "model"): Promise<unknown> {
     const { session, descriptor, workspace } = await this.requireChatSessionForModel(request.metadata);
     const action = workspace.actions.find((candidate) => candidate.action_id === request.action.action_id);
-    if (!action || action.model_exposure !== "available") {
+    if (!action || (audience === "model" && action.model_exposure !== "available")) {
       throw new AppPlatformError("denied", "App action is not declared for workspace use", 403);
     }
     const grantedCapabilities = new Set(descriptor.grant?.capabilities ?? []);
