@@ -640,6 +640,7 @@ async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string
     id: toolCallId,
     status: result.status,
     output: result.output,
+    ...(result.provenance ? { provenance: result.provenance } : {}),
   };
 }
 

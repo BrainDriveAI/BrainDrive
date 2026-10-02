@@ -99,10 +99,18 @@ export type GatewayToolCall = {
   input: Record<string, unknown>;
 };
 
+export type ToolProvenance = {
+  source: string;
+  app_id: string;
+  action_id: string;
+};
+
 export type GatewayMessage = {
   role: MessageRole;
   content: string;
   tool_call_id?: string;
+  // Host-set execution identity; never derived from model input or tool output.
+  provenance?: ToolProvenance;
   tool_calls?: GatewayToolCall[];
 };
 
@@ -123,7 +131,7 @@ type StreamEventConversation = {
 export type StreamEvent =
   | (StreamEventConversation & { type: "text-delta"; delta: string })
   | (StreamEventConversation & { type: "tool-call"; id: string; name: string; input: Record<string, unknown> })
-  | (StreamEventConversation & { type: "tool-result"; id: string; status: "ok" | "denied" | "error"; output: unknown })
+  | (StreamEventConversation & { type: "tool-result"; id: string; status: "ok" | "denied" | "error"; output: unknown; provenance?: ToolProvenance })
   | (StreamEventConversation & { type: "approval-request"; request_id: string; tool_name: string; summary: string })
   | (StreamEventConversation & { type: "approval-result"; request_id: string; decision: "approved" | "denied" })
   | (StreamEventConversation & { type: "done"; conversation_id: string; message_id: string; finish_reason: string })
@@ -164,6 +172,7 @@ export type ToolCallRequest = {
 };
 
 export type ToolExecutionResult = {
+  provenance?: ToolProvenance;
   status: "ok" | "denied" | "error";
   output: unknown;
   recoverable?: boolean;

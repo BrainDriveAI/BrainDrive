@@ -14,6 +14,7 @@ import { BriefDataLifecycleAdapter } from "../../brief-domain/lifecycle.js";
 import { BriefDomainService } from "../../brief-domain/service.js";
 import { BriefDataStore } from "../../brief-domain/store.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
+import { prepareContextWindow } from "../../gateway/context-window.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { preserveMcpResult } from "../../mcp/result-envelope.js";
 import type { AppActionDescriptor, GenericPackageManifest } from "../contracts/app-registry.js";
@@ -48,6 +49,65 @@ afterEach(async () => {
 });
 
 describe("SCAF-007 self-contained installed app proof", () => {
+  it("preserves an 11k Profile read from the installed app-chat bridge during context preparation", async () => {
+    const host = await resumeProofHost(fakeResumeRouter(async () => emptyResumeWorkspaceResult()));
+    const app = routeApp(host);
+    try {
+      const launchResponse = await app.inject({ method: "POST", url: "/apps/resume-builder/chat-workspaces/launch", payload: {} });
+      expect(launchResponse.statusCode).toBe(200);
+      const launch = launchResponse.json() as AppChatWorkspaceLaunch;
+      const initialProfile = await app.inject({
+        method: "GET",
+        url: `/apps/resume-builder/chat-workspaces/sessions/${launch.session.session_id}/documents/resume.profile`,
+      });
+      expect(initialProfile.statusCode).toBe(200);
+      const profile = "# Synthetic Profile\n".padEnd(11_000, "p");
+      const operationId = randomUUID();
+      const write = await app.inject({
+        method: "PUT",
+        url: `/apps/resume-builder/chat-workspaces/sessions/${launch.session.session_id}/documents/resume.profile`,
+        payload: {
+          operation_id: operationId,
+          idempotency_key: `scaf-007-large-profile-${operationId}`,
+          expected_revision: 1,
+          media_type: "text/markdown",
+          content: profile,
+        },
+      });
+      expect(write.statusCode).toBe(200);
+      const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+      const toolName = "app_action_resume_profile_read";
+      expect(model.tools.find((tool) => tool.name === toolName)?.auditMetadata).toMatchObject({
+        source: "installed_app_action",
+        app_id: "ai.braindrive.resume-builder",
+        action_id: "resume.profile.read",
+      });
+      const result = await new ToolExecutor(model.tools).execute(ownerAuth, toolContext(), toolName, { action_input: {} });
+      expect(result.provenance).toEqual({ source: "installed_app_action", app_id: "ai.braindrive.resume-builder", action_id: "resume.profile.read" });
+      expect(result).toMatchObject({ status: "ok", output: { result: { record: { content: profile } } } });
+      const content = JSON.stringify({ status: result.status, output: result.output });
+      expect(content.length).toBeGreaterThan(11_000);
+      const prepared = await prepareContextWindow({
+        memoryRoot: toolContext().memoryRoot,
+        conversationId: "scaf-007-profile-cap",
+        correlationId: "scaf-007-profile-cap",
+        messages: [
+          { role: "system", content: "Host instructions." + model.prompt_context },
+          { role: "assistant", content: "", tool_calls: [{ id: "profile-read", name: toolName, input: { action_input: {} } }] },
+          { role: "tool", tool_call_id: "profile-read", content, provenance: result.provenance },
+          { role: "user", content: "Continue using the whole Profile." },
+        ],
+        tools: model.tools,
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      expect(prepared.messages[2].content).toBe(content);
+      expect(JSON.parse(prepared.messages[2].content).output.result.record.content).toBe(profile);
+      expect(prepared.usage.droppedUnits).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("keeps production host source free of app-specific app-chat action schema, translation, and action ID branches", async () => {
     const files = await productionTypeScriptFiles([
       "app-platform/mcp-host",
