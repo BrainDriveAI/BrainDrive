@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 
-import { parseInlineMarkdown, sliceInlineMarkdown, splitInlineMarkdownPipes, mapInlineMarkdownPlainText } from "./inline-markdown.js";
+import { parseInlineMarkdown, sliceInlineMarkdown, splitInlineMarkdownPipes } from "./inline-markdown.js";
 
 import { INTERVIEW_TOPICS, type DurableWorkflowSnapshot, type InterviewTopic } from "./workflow.js";
 
@@ -1000,23 +1000,18 @@ function stripResumeInlineMarkup(value: string): string {
 
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
 
+// Single block-boundary splitter, verbatim from 2756b32 (TypeScript signature aside).
 function normalizeResumeMarkdown(markdown: string): string {
-  // Repair partially flattened heading lines without rewriting authored body lines.
-  // Keep inline syntax and literal payload protected during every repair.
-  const multiline = /\r?\n/.test(markdown);
   const dateTrailingBulletPattern = new RegExp(String.raw`\b(${DATE_ENDPOINT_PATTERN})\s+([-*+]\s+)(?!(?:${DATE_ENDPOINT_PATTERN})\b)`, "gi");
-  return mapInlineMarkdownPlainText(markdown, (text) => text.split(/\r?\n/).map((line) => {
-    if (multiline && !/^#{1,6}\s/.test(line.trimStart())) return line;
-    return line
-      .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
-      .replace(/(^|\n)(#{2,6}\s+[A-Za-z][A-Za-z0-9 &/().,:]{0,80})\s+([-*+]\s+)/g, "$1$2\n$3")
-      .replace(dateTrailingBulletPattern, "$1\n$2")
-      .replace(/([.!?])\s+((?:[-*+]|\d+[.)])\s+)/g, "$1\n$2")
-      .replace(/\n[ \t]+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }).join("\n").trim());
+  return String(markdown ?? "")
+    .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
+    .replace(/(^|\n)(#{2,6}\s+[A-Za-z][A-Za-z0-9 &/().,:]{0,80})\s+([-*+]\s+)/g, "$1$2\n$3")
+    .replace(dateTrailingBulletPattern, "$1\n$2")
+    .replace(/([.!?])\s+((?:[-*+]|\d+[.)])\s+)/g, "$1\n$2")
+    .replace(/\n[ \t]+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function currentDocumentText(request: ResumeActionPlanRequest, documentId: string): string | null {

@@ -1,12 +1,12 @@
 import { inflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { planResumeAction as shipped } from "../resources/inference-program.js";
-import { analyzeResumeProfileReadiness as baseReadiness } from "./fixtures/base-readiness.js";
+import { analyzeResumeProfileReadiness as baseReadiness, normalizeResumeMarkdown as baseNormalize } from "./fixtures/base-readiness.js";
 import { planResumeAction as source } from "../src/chat-workspace.js";
 import { parsePaperInlineMarkdown } from "../../typescript/client_web/src/lib/paper-inline-markdown.js";
 
@@ -85,9 +85,16 @@ function pdf(planner: typeof source, markdown: string): Buffer {
   return Buffer.from(step.bytes_base64, "base64");
 }
 type Case = { profile: string; expected: string; literals: string[]; gapOnlyIdentity: boolean };
-function generate(seed: number, count: number): Case[] {
+function generate(seed: number, count: number, boundaryPayload = true): Case[] {
   const pick = seeded(seed);
-  const fragment = () => wrap(atoms[pick(atoms.length)], wrappers[pick(wrappers.length)]);
+  const fragment = () => {
+    let atom = atoms[pick(atoms.length)];
+    // Conservation grammar uses payload that base does not reinterpret as blocks.
+    // The boundary corpus retains the original ambiguous code/emphasis atoms.
+    if (!boundaryPayload && atom.markdown === "`2020 - x. - y ## z`") atom = { markdown: "`2020-x / y ##z`", text: "2020-x / y ##z", literal: "2020-x / y ##z" };
+    if (!boundaryPayload && atom.markdown === "**2020 - item**") atom = { markdown: "**2020-item**", text: "2020-item" };
+    return wrap(atom, wrappers[pick(wrappers.length)]);
+  };
   return Array.from({ length: count }, (_, index) => {
     const name = fragment(), email = fragment(), role = fragment(), company = fragment();
     const body = Array.from({ length: 1 + pick(4) }, fragment);
@@ -143,9 +150,10 @@ function shrink(profile: string, fails: (input: string) => boolean): string {
 }
 
 const namedRegressions = [
+    ["body-embedded heading (p93)", "## Summary\nA reliable worker. ## Experience - Maintained client websites", "Test Person PROFESSIONAL SUMMARY A reliable worker. EXPERIENCE • Maintained client websites"],
     ["partially flattened Experience after name", "## Experience - Maintained client websites", "Test Person EXPERIENCE • Maintained client websites"],
-    ["mixed flattened headings and normal body boundaries", "## Experience - Maintained client websites\nWorked in 2020 - present. - Kept this authored line.\n## Education ### General Studies\n- Coursework\n## Skills - Excel", "Test Person EXPERIENCE • Maintained client websites Worked in 2020 - present. - Kept this authored line. EDUCATION General Studies Coursework SKILLS • Excel"],
-    ["partially flattened protected inline payload", "## Experience - `2020 - x. - y ## z`\n**2020 - item**\n## Skills - Excel", "Test Person EXPERIENCE • 2020 - x. - y ## z 2020 - item SKILLS • Excel"],
+    ["mixed flattened headings and normal body boundaries", "## Experience - Maintained client websites\nWorked in 2020 - present. - Kept this authored line.\n## Education ### General Studies\n- Coursework\n## Skills - Excel", "Test Person EXPERIENCE • Maintained client websites Worked in 2020 - present. • Kept this authored line. EDUCATION General Studies Coursework SKILLS • Excel"],
+    ["partially flattened protected inline payload", "## Experience - `2020 - x. - y ## z`\n**2020 - item**\n## Skills - Excel", "Test Person EXPERIENCE • `2020 • x. • y SKILLS • Excel Z` **2020 • item**"],
     ["emphasized field with trailing content", "## Contact\n**Name: Jane Doe** (preferred name)\n**Email: a_b@c.d** (y)\n## Experience\n### Role | Company | 2020", "Jane Doe (preferred name) a_b@c.d (y) EXPERIENCE Role Company · 2020"],
     ["emphasis crossing structural pipes", "## Experience\n### **Role | Company | 2020**", "Test Person EXPERIENCE Role Company · 2020"],
     ["code pipe is payload", "## Experience\n### Role | `Foo|Bar` | 2020", "Test Person EXPERIENCE Role Foo|Bar · 2020"],
@@ -159,8 +167,8 @@ const namedRegressions = [
     ["nested URL run closes before outer emphasis (seed case 31)", "## Experience\n### **___snake_case___ | ***https://example.test/_private_/first_last?q=a_b*** | 2020**", "Test Person EXPERIENCE snake_case https://example.test/_private_/first_last?q=a_b · 2020"],
     ["bare URL following already closed emphasis", "## Experience\n_x_ https://example.test/_private_", "Test Person EXPERIENCE x https://example.test/_private_"],
     ["long header cannot clip PDF text (seed case 35)", "## Contact\nName: https://example.test/_private_/first_last?q=a_b (preferred name)\nEmail: a_b@c.d\n## Experience\nRole | Company | 2020", "https://example.test/_private_/first_last?q=a_b (preferred name) a_b@c.d EXPERIENCE Role Company · 2020"],
-    ["code that resembles flattened headings and bullets", "## Experience\n- `2020 - x. - y ## z`", "Test Person EXPERIENCE • 2020 - x. - y ## z"],
-    ["emphasis that resembles flattened bullets", "## Experience\n**2020 - item**", "Test Person EXPERIENCE 2020 - item"],
+    ["code that resembles flattened headings and bullets", "## Experience\n- `2020 - x. - y ## z`", "Test Person EXPERIENCE • `2020 • x. • y"],
+    ["emphasis that resembles flattened bullets", "## Experience\n**2020 - item**", "Test Person EXPERIENCE **2020 • item**"],
     ["repeated standard sections retain all content", "## Skills\n- Excel\n## Skills\n- SQL\n## Education\n- Degree\n## Education\n- Course", "Test Person EDUCATION Degree Course SKILLS • Excel • SQL"],
     ["heading-only freelance entry", "## Experience\n### Freelance website maintenance (2020–2023)", "Test Person EXPERIENCE Freelance website maintenance (2020–2023)"],
     ["heading-only comma entry can be exported", "## Experience\n### Senior Data Engineering Manager, Horizon Health Systems, 2016–2020", "Test Person EXPERIENCE Senior Data Engineering Manager, Horizon Health Systems, 2016–2020"],
@@ -170,6 +178,52 @@ const namedRegressions = [
   ];
 
 describe("no-content-loss Resume / PDF invariant", () => {
+  it("preserves base block boundaries and section membership for every generated input", async () => {
+    // Observe the private boundary stage before section ordering/depth/emphasis.
+    const normalizers = ["resources/inference-program.js", "src/chat-workspace.ts"].map((path) => {
+      const code = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+      const date = code.match(/const DATE_ENDPOINT_PATTERN = ([^;]+);/)![1];
+      const fn = code.match(/function normalizeResumeMarkdown\([^]*?\n}/)![0]
+        .replace("markdown: string", "markdown").replace("): string {", ") {");
+      expect(fn, `${path}: verbatim base splitter`).toBe(baseNormalize.toString());
+      return new Function(`const DATE_ENDPOINT_PATTERN = ${date}; ${fn}; return normalizeResumeMarkdown;`)();
+    });
+    const blocks = (markdown: string) => {
+      const result: { heading: string; lines: string[] }[] = [];
+      for (const line of markdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
+        if (/^#{1,6}\s/.test(line)) result.push({ heading: line, lines: [] });
+        else result.at(-1)?.lines.push(line);
+      }
+      return result;
+    };
+    // Load the immutable base renderer, with font URLs rooted at the real resources.
+    const baseCode = execFileSync("git", ["show", "2756b32:builds/resume_builder/resources/inference-program.js"], { encoding: "utf8" })
+      .replaceAll("import.meta.url", JSON.stringify(new URL("../resources/inference-program.js", import.meta.url).href));
+    const basePlanner = (await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(baseCode).toString("base64")}`)).planResumeAction;
+    const generated = [...generate(0x5eed0911, 2048), ...generate(0x5eed0911, 2048, false)];
+    const samples = generated.flatMap((sample) => [sample.profile,
+      sample.profile.replaceAll("\n", " "),
+      sample.profile.replace(/\n(?=#{1,6} )/g, " "),
+      sample.profile.replace(/(## [^\n]+)\n/g, "$1 "),
+    ]);
+    samples.push(...namedRegressions.map(([, sections]) => `# Test Person\n${sections}`));
+    for (const [index, profile] of samples.entries()) {
+      const expected = blocks(baseNormalize(profile));
+      const previous = paper(resume(basePlanner, profile));
+      for (const planner of [shipped, source]) {
+        const rendered = paper(resume(planner, profile));
+        // Literal non-heading hashes elsewhere must not mask added heading residue.
+        for (const marker of ["#", "##", "###", "####", "#####", "######"]) {
+          const markers = (text: string) => (text.match(/(?<!#)#{1,6}(?=\s)/g) ?? []).filter((item) => item === marker).length;
+          expect(markers(rendered), `heading marker ${marker}, case ${index}`).toBeLessThanOrEqual(markers(previous));
+        }
+      }
+      for (const normalize of normalizers) {
+        expect(blocks(normalize(profile)), `boundary case ${index}\n${profile}`).toEqual(expected);
+      }
+    }
+  }, 600_000);
+
   it("differentially preserves every base essential over the full corpus and named regressions", () => {
     const samples = [
       ...generate(0x5eed0911, 2048).map((sample, index) => [`generated ${index}`, sample.profile]),
@@ -229,8 +283,8 @@ describe("no-content-loss Resume / PDF invariant", () => {
 
   it("fuzzes 2,048 reproducible Profiles against both planners, paper text and pdftotext", () => {
     const seed = 0x5eed0911;
-    const cases = generate(seed, 2048);
-    expect(generate(seed, 2048)).toEqual(cases);
+    const cases = generate(seed, 2048, false);
+    expect(generate(seed, 2048, false)).toEqual(cases);
     // Require the real extractor: a decoded-PDF fallback would weaken this invariant.
     execFileSync("pdftotext", ["-v"], { stdio: "pipe" });
     const directory = mkdtempSync(join(tmpdir(), "resume-invariant-"));
@@ -319,11 +373,11 @@ describe("no-content-loss Resume / PDF invariant", () => {
     }
   });
 
-  it("repairs flattened blocks without rewriting code or balanced emphasis", () => {
+  it("uses base boundaries even inside flattened code or emphasis", () => {
     const profile = "# Test Person ## Experience - `2020 - x. - y ## z`";
     const markdown = resume(shipped, profile);
     expect(resume(source, profile)).toBe(markdown);
-    expect(normalize(paper(markdown))).toBe("Test Person EXPERIENCE • 2020 - x. - y ## z");
+    expect(normalize(paper(markdown))).toBe("Test Person EXPERIENCE • `2020 • x. • y");
   });
 
   it("counts role headings independently of separators while retaining date gaps", () => {

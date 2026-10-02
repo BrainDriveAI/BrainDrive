@@ -77,4 +77,4 @@ function normalizeResumeMarkdown(markdown) {
     .trim();
 }
 
-export { analyzeResumeProfileReadiness };
+export { analyzeResumeProfileReadiness, normalizeResumeMarkdown };
