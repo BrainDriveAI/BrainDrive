@@ -1305,13 +1305,24 @@ describe("Resume Builder chat workspace contract", () => {
     expect(agent).toContain("Never say the PDF is in the sidebar, in Your Resume, in this conversation, or anywhere else in BrainDrive");
     expect(agent).toContain("Run the declared `resume.state.read` action with an empty input, `{}`");
     expect(agent).toContain("A null receipt means no export has completed in this workspace");
-    expect(agent).toContain("propose it in that same turn with the declared `career.fact.propose` app action");
-    expect(agent).toContain("After a `career.fact.confirm` action result succeeds, announce the saved fact or preference in that same assistant response");
-    expect(agent).toContain("If confirmation fails, is denied, is unavailable, or has not returned a result, say it was not saved");
+    // AC-16.5 (spec v0.9.12): v1 never claims memory saves; Career memory writes are deferred to v1.1.
+    expect(agent).toContain("Resume Builder v1 does not save anything to Career memory or any other BrainDrive memory.");
+    expect(agent).toContain("never state or imply that you saved, stored, added, or will remember anything in memory");
+    expect(agent).not.toContain("announce the saved fact");
+    expect(agent).not.toContain("`career.fact.propose` app action");
     expect(interview).toContain("Resume dates are absolute");
     expect(interview).toContain("An owner's hedge stays hedged");
     expect(interview).toContain("Do not use this as a checklist");
     expect(quality).toContain("The Resume Profile is the editable source of truth");
     expect(quality).toContain("[gap: ...]");
+  });
+});
+
+describe("Resume Builder agent instructions size", () => {
+  it("stays under the host per-resource prompt bound with headroom", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const bytes = (await readFile(new URL("../resources/agent-instructions.md", import.meta.url))).byteLength;
+    // Host per-resource prompt bound is 16,384 bytes; keep at least 512 bytes of headroom so the next edit fails here, not at install.
+    expect(bytes).toBeLessThanOrEqual(16384 - 512);
   });
 });
