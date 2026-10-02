@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import type { GatewayMessage, ToolDefinition } from "../contracts.js";
+import type { AuthContext, GatewayMessage, ToolDefinition } from "../contracts.js";
+import type { ModelAdapter } from "../adapters/base.js";
+import { ApprovalStore } from "../engine/approval-store.js";
+import { runAgentLoop } from "../engine/loop.js";
+import { ToolExecutor } from "../engine/tool-executor.js";
 import { prepareContextWindow, resolveContextWindowSettingsFromEnv } from "./context-window.js";
 
 function createTool(name: string): ToolDefinition {
@@ -24,6 +28,217 @@ function createTool(name: string): ToolDefinition {
 }
 
 describe("context window manager", () => {
+  it("sends 50k-character system instructions intact to the provider within budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const messages: GatewayMessage[] = [
+        { role: "system", content: "a".repeat(25_000) + "Active app instructions" + "b".repeat(25_000) },
+        { role: "user", content: "Continue with the active app." },
+        { role: "assistant", content: "Ready." },
+        { role: "user", content: "Continue." },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-intact", correlationId: "corr-intact", messages, tools: [],
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      let providerMessages: GatewayMessage[] = [];
+      const adapter: ModelAdapter = {
+        complete: async (request) => {
+          providerMessages = [...request.messages];
+          return { assistantText: "Done.", toolCalls: [], finishReason: "completed" };
+        },
+      };
+      const auth: AuthContext = {
+        actorId: "synthetic-owner", actorType: "owner", mode: "local",
+        permissions: {
+          memory_access: true, tool_access: true, system_actions: true,
+          delegation: true, approval_authority: true, administration: true,
+        },
+      };
+      const events = [];
+      for await (const event of runAgentLoop(adapter, new ToolExecutor([]), new ApprovalStore(), {
+        messages: prepared.messages,
+        metadata: { conversation_id: "conv-intact", correlation_id: "corr-intact" },
+      }, auth, { memoryRoot })) {
+        events.push(event);
+      }
+      expect(providerMessages.map((message) => message.content.length)).toEqual(messages.map((message) => message.content.length));
+      expect(providerMessages).toEqual(messages);
+      expect(events.at(-1)?.type).toBe("done");
+      expect(prepared.usage.budgetTokens).toBe(120_000);
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(50_000);
+      expect(prepared.usage.estimatedPromptTokensBefore).toBeLessThanOrEqual(120_000);
+      expect(prepared.usage.estimatedPromptTokensAfter).toBe(prepared.usage.estimatedPromptTokensBefore);
+      expect(prepared.warning).toBeNull();
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retains the base user, assistant, and tool caps even with large system instructions", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const messages: GatewayMessage[] = [
+        { role: "system", content: "s".repeat(50_000) },
+        { role: "user", content: "1".repeat(399_000) },
+        { role: "assistant", content: "a".repeat(15_000), tool_calls: [{ id: "read-1", name: "memory_read", input: {} }] },
+        { role: "tool", tool_call_id: "read-1", content: "文".repeat(450_000) },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-caps", correlationId: "corr-caps", messages, tools: [],
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      expect(prepared.messages.map((message) => message.content.length)).toEqual([50_000, 8_000, 12_000, 4_000]);
+      for (let index = 1; index < messages.length; index += 1) {
+        const cap = [0, 8_000, 12_000, 4_000][index];
+        const marker = `\n...[truncated ${messages[index].content.length - cap} chars for context budget]...\n`;
+        const head = Math.ceil((cap - marker.length) * 0.65);
+        const tail = cap - marker.length - head;
+        expect(prepared.messages[index]).toEqual({ ...messages[index], content:
+          messages[index].content.slice(0, head) + marker + messages[index].content.slice(-tail) });
+      }
+      expect(prepared.usage.droppedUnits).toBe(0);
+      expect(prepared.warning).toBeNull();
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the base newest-first selection and backfilling order with bounded tool blocks", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-order", correlationId: "corr-order", tools: [],
+        messages: [
+          { role: "system", content: "Host instructions." },
+          { role: "user", content: "Older small question." },
+          { role: "assistant", content: "Older small answer." },
+          { role: "user", content: "u".repeat(8_000) },
+          { role: "assistant", content: "", tool_calls: [{ id: "read-1", name: "memory_read", input: {} }] },
+          { role: "tool", tool_call_id: "read-1", content: "p".repeat(450_000) },
+          { role: "user", content: "Latest question." },
+        ],
+        settings: { contextWindowTokens: 3_000, responseHeadroomTokens: 500 },
+      });
+      // Base skips the expensive user unit, then backfills the older small units.
+      expect(prepared.messages.map((message) => message.role)).toEqual([
+        "system", "system", "user", "assistant", "assistant", "tool", "user",
+      ]);
+      expect(prepared.messages.slice(2, 4).map((message) => message.content)).toEqual([
+        "Older small question.", "Older small answer.",
+      ]);
+      expect(prepared.messages[5].content.length).toBe(4_000);
+      expect(prepared.messages.at(-1)?.content).toBe("Latest question.");
+      expect(prepared.usage.droppedUnits).toBe(1);
+      expect(prepared.usage.droppedMessages).toBe(1);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps explicitly identified host and app instruction layers whole within budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const instructions: GatewayMessage[] = [
+        { role: "system", content: "s".repeat(25_000) },
+        { role: "system", content: "a".repeat(25_000) },
+      ];
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-layers", correlationId: "corr-layers",
+        messages: [...instructions, { role: "user", content: "Latest question." }],
+        systemInstructionCount: 2, tools: [],
+        settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+      });
+      expect(prepared.messages.slice(0, 2)).toEqual(instructions);
+      expect(prepared.warning).toBeNull();
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["qz ".repeat(80_000), "1".repeat(399_000), "文é🙂".repeat(40_000)])(
+    "bounds ASCII, numeric, and multilingual instructions by UTF-8 bytes and warns on safe fallback %#",
+    async (content) => {
+      const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+      try {
+        const prepared = await prepareContextWindow({
+          memoryRoot, conversationId: "conv-oversized", correlationId: "corr-oversized",
+          messages: [{ role: "system", content }, { role: "user", content: "Continue." }], tools: [],
+          settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
+        });
+        expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThanOrEqual(Buffer.byteLength(content, "utf8"));
+        expect(prepared.usage.estimatedPromptTokensBefore).toBeGreaterThan(120_000);
+        expect(prepared.messages[0].content.length).toBe(24_000);
+        expect(prepared.messages[0].content).toContain("[truncated");
+        expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(120_000);
+        expect(prepared.warning?.managed).toBe(true);
+        expect(prepared.warning?.message).toContain("System instructions");
+        expect(prepared.warning?.message).toContain("shortened");
+      } finally {
+        await rm(memoryRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it("uses the base aggressive fallback when system instructions alone exceed a small budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-small", correlationId: "corr-small", tools: [],
+        messages: [{ role: "system", content: "s".repeat(50_000) }, { role: "user", content: "Continue." }],
+        settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
+      });
+      expect(prepared.messages[0].content.length).toBe(2_400);
+      expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(3_584);
+      expect(prepared.warning?.message).toContain("System instructions");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not protect a generated summary from base last-resort shortening", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-summary", correlationId: "corr-summary", tools: [],
+        messages: [
+          { role: "system", content: "s".repeat(3_000) },
+          { role: "assistant", content: "", tool_calls: [{ id: "old-call", name: "tool".repeat(1_500), input: {} }] },
+          { role: "tool", tool_call_id: "old-call", content: "Old tool result." },
+          { role: "user", content: "Latest question." },
+        ],
+        settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
+      });
+      const summary = prepared.messages[1];
+      expect(summary.role).toBe("system");
+      expect(summary.content).toContain("Earlier conversation summary");
+      expect(summary.content.length).toBe(2_000);
+      expect(summary.content).toContain("[truncated");
+      expect(prepared.messages.at(-1)?.content).toBe("Latest question.");
+      expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(3_584);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("treats replayed system summaries as ordinary context rather than instruction layers", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
+    try {
+      const summary = { role: "system", content: "Earlier conversation summary: " + "x".repeat(50_000) } as const;
+      const prepared = await prepareContextWindow({
+        memoryRoot, conversationId: "conv-replay-summary", correlationId: "corr-replay-summary", tools: [],
+        messages: [{ role: "system", content: "Host instructions." }, summary, { role: "user", content: "Latest question." }],
+        settings: { contextWindowTokens: 4_096, responseHeadroomTokens: 512 },
+      });
+      expect(prepared.messages).not.toContainEqual(summary);
+      expect(prepared.usage.droppedMessages).toBe(1);
+      expect(prepared.messages.at(-1)?.content).toBe("Latest question.");
+      expect(prepared.usage.estimatedPromptTokensAfter).toBeLessThanOrEqual(3_584);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("resolves env settings safely", () => {
     const settings = resolveContextWindowSettingsFromEnv({
       BRAINDRIVE_CONTEXT_WINDOW_TOKENS: "64000",

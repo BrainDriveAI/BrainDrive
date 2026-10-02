@@ -549,6 +549,7 @@
     { "path": "builds/resume_builder/docs/fixes/2026-10-01-stale-render-notice.md", "classification": "non-authoritative-evidence-record", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/docs/fixes/2026-10-01-gate-owner-authorization.md", "classification": "non-authoritative-evidence-record", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/README.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
+    { "path": "builds/resume_builder/docs/fixes/2026-10-01-context-instruction-truncation.md", "classification": "release-history", "status": "historical", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/agent-instructions.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/interview-guide.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
     { "path": "builds/resume_builder/resources/recovery-guidance.md", "classification": "source-adjacent-internal-beta", "status": "internal", "ownerRole": "runtime-maintainers" },
