@@ -9,6 +9,7 @@ const DEFAULT_RESPONSE_HEADROOM_TOKENS = 8_000;
 const DEFAULT_WARNING_THRESHOLD = 0.8;
 const MIN_MESSAGE_BUDGET_TOKENS = 2_048;
 const SUMMARY_MAX_LINES = 24;
+const RESUME_PROFILE_READ_MAX_CHARS = 24_000;
 
 const MAX_CONTENT_CHARS: Record<GatewayMessage["role"], number> = {
   system: 24_000,
@@ -120,9 +121,25 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
   while (instructionCount < requestedInstructionCount && input.messages[instructionCount]?.role === "system") {
     instructionCount += 1;
   }
-  const boundedMessages = input.messages.map((message, index) =>
-    index < instructionCount ? message : boundedMessage(message)
-  );
+  // Only host-created installed-app metadata identifies a Profile read.
+  // A tool name or result body alone cannot opt into the larger cap.
+  const profileReadToolNames = new Set(input.tools.filter((tool) =>
+    tool.auditMetadata?.source === "installed_app_action"
+    && tool.auditMetadata?.app_id === "ai.braindrive.resume-builder"
+    && tool.auditMetadata?.action_id === "resume.profile.read"
+  ).map((tool) => tool.name));
+  let profileReadCallIds = new Set<string>();
+  const boundedMessages = input.messages.map((message, index) => {
+    if (message.role !== "tool") {
+      profileReadCallIds = new Set(message.role === "assistant"
+        ? (message.tool_calls ?? []).filter((call) => profileReadToolNames.has(call.name)).map((call) => call.id)
+        : []);
+    }
+    const maxChars = message.role === "tool" && message.tool_call_id && profileReadCallIds.has(message.tool_call_id)
+      ? RESUME_PROFILE_READ_MAX_CHARS
+      : MAX_CONTENT_CHARS[message.role];
+    return index < instructionCount ? message : boundedMessage(message, maxChars);
+  });
   const estimatedPromptTokensBefore = estimateMessagesTokens(boundedMessages, instructionCount) + toolTokens;
   const ratioBefore = safeRatio(estimatedPromptTokensBefore, promptBudgetTokens);
 
@@ -341,8 +358,7 @@ function estimateToolDefinitionTokens(tools: ToolDefinition[]): number {
   return estimateTokens(JSON.stringify(serializable));
 }
 
-function boundedMessage(message: GatewayMessage): GatewayMessage {
-  const maxChars = MAX_CONTENT_CHARS[message.role] ?? 8_000;
+function boundedMessage(message: GatewayMessage, maxChars = MAX_CONTENT_CHARS[message.role] ?? 8_000): GatewayMessage {
   const boundedContent = truncateMiddle(message.content, maxChars);
   return {
     ...message,
