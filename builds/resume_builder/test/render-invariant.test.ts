@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { planResumeAction as shipped } from "../resources/inference-program.js";
+import { analyzeResumeProfileReadiness as baseReadiness } from "./fixtures/base-readiness.js";
 import { planResumeAction as source } from "../src/chat-workspace.js";
 import { parsePaperInlineMarkdown } from "../../typescript/client_web/src/lib/paper-inline-markdown.js";
 
@@ -83,7 +84,7 @@ function pdf(planner: typeof source, markdown: string): Buffer {
   if (!step) throw new Error("PDF export failed");
   return Buffer.from(step.bytes_base64, "base64");
 }
-type Case = { profile: string; expected: string; literals: string[] };
+type Case = { profile: string; expected: string; literals: string[]; gapOnlyIdentity: boolean };
 function generate(seed: number, count: number): Case[] {
   const pick = seeded(seed);
   const fragment = () => wrap(atoms[pick(atoms.length)], wrappers[pick(wrappers.length)]);
@@ -112,6 +113,7 @@ function generate(seed: number, count: number): Case[] {
     return {
       profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${headingOnly ? `### ${headingOnly}` : `${entryHeading}${entryMarkup}`}\n${headingOnly ? "" : `${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}`}\n${education}\n## Skills\n- sample_${index}${repeated ? `\n## Skills\n- second_${index}\n## Education\n- course_${index}` : ""}\n${extras}`,
       expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${headingOnly?.replace(" | ", "\n") ?? `${role.text}\n${company.text} · 2020`}\n${headingOnly ? "" : `${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}`}\nEDUCATION\nA.A. General Studies (2021)\nschool_${index}${repeated ? `\ncourse_${index}` : ""}\nSKILLS\n• sample_${index}${repeated ? `\n• second_${index}` : ""}\nPROJECTS\n• project_${index}\nPROFILE REVIEW NOTES\n• note_${index}`,
+      gapOnlyIdentity: [name.text + tail, email.text].every((value) => !/[a-z0-9]/i.test(value.replace(/\[gap:[^\]]*\]/gi, ""))),
       literals: [name, email, ...(headingOnly ? [] : [role, company, ...body])].flatMap((item) => item.literal ? [item.literal] : []),
     };
   });
@@ -140,7 +142,84 @@ function shrink(profile: string, fails: (input: string) => boolean): string {
   return reduced;
 }
 
+const namedRegressions = [
+    ["emphasized field with trailing content", "## Contact\n**Name: Jane Doe** (preferred name)\n**Email: a_b@c.d** (y)\n## Experience\n### Role | Company | 2020", "Jane Doe (preferred name) a_b@c.d (y) EXPERIENCE Role Company · 2020"],
+    ["emphasis crossing structural pipes", "## Experience\n### **Role | Company | 2020**", "Test Person EXPERIENCE Role Company · 2020"],
+    ["code pipe is payload", "## Experience\n### Role | `Foo|Bar` | 2020", "Test Person EXPERIENCE Role Foo|Bar · 2020"],
+    ["nested URL emphasis before punctuation (seed case 6)", "## Experience\n**_https://example.test/first_last_**?", "Test Person EXPERIENCE https://example.test/first_last?"],
+    ["multi-backtick code across entry pipes (seed case 1)", "## Experience\n### **``a`b|c_d`` | __a_b@c.d__ | 2020**", "Test Person EXPERIENCE a`b|c_d a_b@c.d · 2020"],
+    ["URL emphasis before Unicode punctuation", "## Experience\nSee **https://example.test/first_last**.”", "Test Person EXPERIENCE See https://example.test/first_last.”"],
+    ["URL emphasis before punctuation", "## Experience\nSee **https://example.test/first_last**.", "Test Person EXPERIENCE See https://example.test/first_last."],
+    ["partially balanced delimiter runs are literal (seed case 15)", "## Experience\n### *****C**** | *first_last@example.test* | 2020**", "Test Person EXPERIENCE *****C**** | first_last@example.test | 2020**"],
+    ["ambiguous contact label must not lose its value (seed case 18)", "## Contact\n**Name: C***\n## Experience\nRole | Company | 2020", "Test Person **Name: C*** EXPERIENCE Role Company · 2020"],
+    ["unknown and duplicate contact values survive", "## Contact\nEmail: first_last@example.test\nEmail: a_b@c.d\nWebsite: https://example.test/first_last\n## Experience\nRole | Company | 2020", "Test Person first_last@example.test Email: a_b@c.d Website: https://example.test/first_last EXPERIENCE Role Company · 2020"],
+    ["nested URL run closes before outer emphasis (seed case 31)", "## Experience\n### **___snake_case___ | ***https://example.test/_private_/first_last?q=a_b*** | 2020**", "Test Person EXPERIENCE snake_case https://example.test/_private_/first_last?q=a_b · 2020"],
+    ["bare URL following already closed emphasis", "## Experience\n_x_ https://example.test/_private_", "Test Person EXPERIENCE x https://example.test/_private_"],
+    ["long header cannot clip PDF text (seed case 35)", "## Contact\nName: https://example.test/_private_/first_last?q=a_b (preferred name)\nEmail: a_b@c.d\n## Experience\nRole | Company | 2020", "https://example.test/_private_/first_last?q=a_b (preferred name) a_b@c.d EXPERIENCE Role Company · 2020"],
+    ["code that resembles flattened headings and bullets", "## Experience\n- `2020 - x. - y ## z`", "Test Person EXPERIENCE • 2020 - x. - y ## z"],
+    ["emphasis that resembles flattened bullets", "## Experience\n**2020 - item**", "Test Person EXPERIENCE 2020 - item"],
+    ["repeated standard sections retain all content", "## Skills\n- Excel\n## Skills\n- SQL\n## Education\n- Degree\n## Education\n- Course", "Test Person EDUCATION Degree Course SKILLS • Excel • SQL"],
+    ["heading-only freelance entry", "## Experience\n### Freelance website maintenance (2020–2023)", "Test Person EXPERIENCE Freelance website maintenance (2020–2023)"],
+    ["heading-only comma entry can be exported", "## Experience\n### Senior Data Engineering Manager, Horizon Health Systems, 2016–2020", "Test Person EXPERIENCE Senior Data Engineering Manager, Horizon Health Systems, 2016–2020"],
+    ["unbalanced pipe emphasis stays on its original line", "## Experience\n### **Role | Company | 2020", "Test Person EXPERIENCE **Role | Company | 2020"],
+    ["plain pipe title with a literal star", "## Experience\nC* | Company | 2020", "Test Person EXPERIENCE C* Company · 2020"],
+    ["unbalanced stars are literal", "## Experience\nC* stray ** and snake_case", "Test Person EXPERIENCE C* stray ** and snake_case"],
+  ];
+
 describe("no-content-loss Resume / PDF invariant", () => {
+  it("differentially preserves every base essential over the full corpus and named regressions", () => {
+    const samples = [
+      ...generate(0x5eed0911, 2048).map((sample, index) => [`generated ${index}`, sample.profile]),
+      ...namedRegressions.map(([name, sections]) => [name, `# Test Person\n${sections}`]),
+    ];
+    // Explicitly permitted tightening: empty, punctuation-only, placeholder, and
+    // gap-only entries (including known labels with no substantive field value).
+    const exceptions = new Map<string, string[]>();
+    // Independently authored fragment text identifies the generated gap-only
+    // Contact exceptions; no production parser determines exception eligibility.
+    const generated = generate(0x5eed0911, 2048);
+    const gapOnlyContactCases = [1651];
+    expect(generated.flatMap((sample, index) => sample.gapOnlyIdentity ? [index] : [])).toEqual(gapOnlyContactCases);
+    for (const index of gapOnlyContactCases) exceptions.set(generated[index].profile, ["contact_identity"]);
+    for (const prefix of ["", "- ", "* ", "### "]) {
+      for (const separator of ["", ": ", " | ", " - ", " — ", " ("]) {
+        for (const value of ["", "2020", "[gap: dates]"]) {
+          const suffix = separator === " (" ? ")" : "";
+          const entry = `Freelance website maintenance${separator}${value}${suffix}`;
+          samples.push([`shape ${prefix}${entry}`, `# Test Person\n## Experience\n${prefix}${entry}`]);
+        }
+      }
+      for (const entry of ["", "Unfilled entry", "[gap: role]", "**[gap: role]**", "[gap: role] | [gap: dates]", "([gap: dates])", ": [gap: dates]", "Dates: [gap: dates]", "**Company:**", "Role: [gap: role]", "Location | [gap: location]"]) {
+        const profile = `# Test Person\n## Experience\n${prefix}${entry}`;
+        samples.push([`intentional empty/gap-only ${prefix}${entry}`, profile]);
+        exceptions.set(profile, ["experience"]);
+      }
+    }
+    for (const [name, profile] of samples) {
+      const previous = baseReadiness(profile).missingEssentials.map((item: any) => item.field_id);
+      for (const planner of [shipped, source]) {
+        const step = plan(planner, "resume.create", profile, false).steps[0] as any;
+        const current = (step.content?.missing_essentials ?? []).map((item: any) => item.field_id);
+        const newlyMissing = current.filter((id: string) => !previous.includes(id));
+        expect(newlyMissing.filter((id: string) => !exceptions.get(profile)?.includes(id)), `${name}\n${profile}`).toEqual([]);
+        for (const id of exceptions.get(profile) ?? []) expect(current, name).toContain(id);
+      }
+    }
+  });
+
+  it("removes only closed-set field labels in headings and body text", () => {
+    for (const planner of [shipped, source]) {
+      for (const prefix of ["", "- ", "### "]) {
+        for (const label of ["Dates", "Date", "Location", "Employer", "Company", "Title", "Role", "Organization", "Responsibilities"]) {
+          const empty = plan(planner, "resume.create", `# Test Person\n## Experience\n${prefix}**${label}:** [gap: details]`, false).steps[0] as any;
+          expect(empty.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+          const filled = plan(planner, "resume.create", `# Test Person\n## Experience\n${prefix}**${label}:** Maintained client websites [gap: dates]`, false).steps[0] as any;
+          expect(filled.content.missing_essentials).toEqual([expect.objectContaining({ field_id: "gap_marker_1" })]);
+        }
+      }
+    }
+  });
+
   it("shrinks a failure to its minimal retained trigger", () => {
     expect(shrink("extra line\n**broken** trailing\nmore text", (input) => input.includes("**broken**"))).toBe("**broken**");
   });
@@ -207,29 +286,7 @@ describe("no-content-loss Resume / PDF invariant", () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 600_000);
 
-  it.each([
-    ["emphasized field with trailing content", "## Contact\n**Name: Jane Doe** (preferred name)\n**Email: a_b@c.d** (y)\n## Experience\n### Role | Company | 2020", "Jane Doe (preferred name) a_b@c.d (y) EXPERIENCE Role Company · 2020"],
-    ["emphasis crossing structural pipes", "## Experience\n### **Role | Company | 2020**", "Test Person EXPERIENCE Role Company · 2020"],
-    ["code pipe is payload", "## Experience\n### Role | `Foo|Bar` | 2020", "Test Person EXPERIENCE Role Foo|Bar · 2020"],
-    ["nested URL emphasis before punctuation (seed case 6)", "## Experience\n**_https://example.test/first_last_**?", "Test Person EXPERIENCE https://example.test/first_last?"],
-    ["multi-backtick code across entry pipes (seed case 1)", "## Experience\n### **``a`b|c_d`` | __a_b@c.d__ | 2020**", "Test Person EXPERIENCE a`b|c_d a_b@c.d · 2020"],
-    ["URL emphasis before Unicode punctuation", "## Experience\nSee **https://example.test/first_last**.”", "Test Person EXPERIENCE See https://example.test/first_last.”"],
-    ["URL emphasis before punctuation", "## Experience\nSee **https://example.test/first_last**.", "Test Person EXPERIENCE See https://example.test/first_last."],
-    ["partially balanced delimiter runs are literal (seed case 15)", "## Experience\n### *****C**** | *first_last@example.test* | 2020**", "Test Person EXPERIENCE *****C**** | first_last@example.test | 2020**"],
-    ["ambiguous contact label must not lose its value (seed case 18)", "## Contact\n**Name: C***\n## Experience\nRole | Company | 2020", "Test Person **Name: C*** EXPERIENCE Role Company · 2020"],
-    ["unknown and duplicate contact values survive", "## Contact\nEmail: first_last@example.test\nEmail: a_b@c.d\nWebsite: https://example.test/first_last\n## Experience\nRole | Company | 2020", "Test Person first_last@example.test Email: a_b@c.d Website: https://example.test/first_last EXPERIENCE Role Company · 2020"],
-    ["nested URL run closes before outer emphasis (seed case 31)", "## Experience\n### **___snake_case___ | ***https://example.test/_private_/first_last?q=a_b*** | 2020**", "Test Person EXPERIENCE snake_case https://example.test/_private_/first_last?q=a_b · 2020"],
-    ["bare URL following already closed emphasis", "## Experience\n_x_ https://example.test/_private_", "Test Person EXPERIENCE x https://example.test/_private_"],
-    ["long header cannot clip PDF text (seed case 35)", "## Contact\nName: https://example.test/_private_/first_last?q=a_b (preferred name)\nEmail: a_b@c.d\n## Experience\nRole | Company | 2020", "https://example.test/_private_/first_last?q=a_b (preferred name) a_b@c.d EXPERIENCE Role Company · 2020"],
-    ["code that resembles flattened headings and bullets", "## Experience\n- `2020 - x. - y ## z`", "Test Person EXPERIENCE • 2020 - x. - y ## z"],
-    ["emphasis that resembles flattened bullets", "## Experience\n**2020 - item**", "Test Person EXPERIENCE 2020 - item"],
-    ["repeated standard sections retain all content", "## Skills\n- Excel\n## Skills\n- SQL\n## Education\n- Degree\n## Education\n- Course", "Test Person EDUCATION Degree Course SKILLS • Excel • SQL"],
-    ["heading-only freelance entry", "## Experience\n### Freelance website maintenance (2020–2023)", "Test Person EXPERIENCE Freelance website maintenance (2020–2023)"],
-    ["heading-only comma entry can be exported", "## Experience\n### Senior Data Engineering Manager, Horizon Health Systems, 2016–2020", "Test Person EXPERIENCE Senior Data Engineering Manager, Horizon Health Systems, 2016–2020"],
-    ["unbalanced pipe emphasis stays on its original line", "## Experience\n### **Role | Company | 2020", "Test Person EXPERIENCE **Role | Company | 2020"],
-    ["plain pipe title with a literal star", "## Experience\nC* | Company | 2020", "Test Person EXPERIENCE C* Company · 2020"],
-    ["unbalanced stars are literal", "## Experience\nC* stray ** and snake_case", "Test Person EXPERIENCE C* stray ** and snake_case"],
-  ])("regression: %s", (_name, sections, expected) => {
+  it.each(namedRegressions)("regression: %s", (_name, sections, expected) => {
     const profile = `# Test Person\n${sections}`;
     const markdown = resume(shipped, profile);
     expect(resume(source, profile)).toBe(markdown);

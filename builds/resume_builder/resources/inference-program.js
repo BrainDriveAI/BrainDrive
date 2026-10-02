@@ -581,11 +581,7 @@ function hasUsableSection(profileMarkdown, headingPattern) {
       if (sectionDepth === 0 || depth <= sectionDepth) {
         sectionDepth = headingPattern.test(stripResumeInlineMarkup(heading[2] ?? "")) ? depth : 0;
       } else {
-        // A substantive role heading is an entry even without an employer or body.
-        const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "")
-          .replace(/^[\s:|–—()\-]+|[\s:|–—()\-]+$/g, "");
-        // Headings are role text, not colon fields: retain the text before any separator.
-        if (!/^unfilled\s+entry$/i.test(title) && /[\p{L}\p{N}]/u.test(title)) return true;
+        if (isUsableProfileContentLine(heading[2])) return true;
       }
       continue;
     }
@@ -594,10 +590,17 @@ function hasUsableSection(profileMarkdown, headingPattern) {
   return false;
 }
 
+// Closed vocabulary from the Profile template and structured entry fields.
+// Unknown colon prefixes are substantive text, never disposable field labels.
+const PROFILE_FIELD_LABEL = /^(?:name|email|phone|location|date|dates|start date|end date|employer|company|organization|title|role|degree|program|institution|school|issuer|year|gpa|honors|responsibilities|duties|achievements|accomplishments|website|links?)$/i;
+
 function isUsableProfileContentLine(line) {
-  const content = line.replace(/^(?:[-*+]|\d+[.)])\s+/, "").replace(/\[gap:\s*[^\]]*\]/gi, "");
-  const text = stripResumeInlineMarkup(parseResumeField(content)?.value ?? content)
-    .replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
+  const content = stripResumeInlineMarkup(line.replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
+    .replace(/\[gap:\s*[^\]]*\]/gi, "");
+  const text = content.split(/[:|–—()]/).map((part) => {
+    const value = part.replace(/^[\s-]+|[\s-]+$/g, "");
+    return PROFILE_FIELD_LABEL.test(value) || /^unfilled\s+entry$/i.test(value) ? "" : value;
+  }).join(" ");
   return /[\p{L}\p{N}]/u.test(text);
 }
 
