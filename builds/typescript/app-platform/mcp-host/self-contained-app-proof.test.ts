@@ -16,7 +16,7 @@ import { BriefDataStore } from "../../brief-domain/store.js";
 import { ToolExecutor } from "../../engine/tool-executor.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { preserveMcpResult } from "../../mcp/result-envelope.js";
-import type { GenericPackageManifest } from "../contracts/app-registry.js";
+import type { AppActionDescriptor, GenericPackageManifest } from "../contracts/app-registry.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import { createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
@@ -76,6 +76,40 @@ describe("SCAF-007 self-contained installed app proof", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("never exposes Career fact write actions to the v1 model while retaining their UI capabilities", async () => {
+    const router = fakeResumeRouter(emptyResumeWorkspaceResult());
+    const host = await resumeProofHost(router);
+    try {
+      const launch = await host.launchChatWorkspace();
+      const actions = launch.workspace.actions as AppActionDescriptor[];
+      const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+      const executor = new ToolExecutor(model.tools);
+      const callsBeforeModelWrites = vi.mocked(router.execute).mock.calls.length;
+      for (const [actionId, capability, toolName] of [
+        ["career.fact.propose", "career.facts.propose", "app_action_career_fact_propose"],
+        ["career.fact.confirm", "career.facts.confirm", "app_action_career_fact_confirm"],
+      ]) {
+        expect(actions.find((action) => action.action_id === actionId)).toMatchObject({
+          model_exposure: "hidden",
+          required_capabilities: [{ name: capability, version: 1 }],
+          description: expect.stringContaining("Resume Builder"),
+        });
+        expect(JSON.stringify(actions.find((action) => action.action_id === actionId))).not.toContain("Career memory");
+        expect(model.tools.map((tool) => tool.name)).not.toContain(toolName);
+        expect(model.prompt_context).not.toContain(actionId);
+        expect(model.evidence.action_exposure).toContainEqual({
+          action_id: actionId, tool_name: null, model_exposure: "hidden", exposed: false,
+        });
+        await expect(executor.execute(ownerAuth, toolContext(), toolName, {
+          action_input: {}, operation_id: randomUUID(), idempotency_key: `career-write-${randomUUID()}`,
+        })).rejects.toThrow(`Unknown tool: ${toolName}`);
+      }
+      expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(callsBeforeModelWrites);
+    } finally {
+      await host.closeAll();
+    }
   });
 
   it("creates Resume Profile and Resume through app-chat route launch, app document APIs, and descriptor tools", async () => {
@@ -152,8 +186,6 @@ describe("SCAF-007 self-contained installed app proof", () => {
       const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
       expect(model.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
         "app_action_resume_profile_read",
-        "app_action_career_fact_propose",
-        "app_action_career_fact_confirm",
         "app_action_resume_profile_update",
       ]));
       expect(model.tools.find((tool) => tool.name === "app_action_resume_profile_read")?.inputSchema).toMatchObject({
@@ -167,6 +199,8 @@ describe("SCAF-007 self-contained installed app proof", () => {
       expect(model.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["app_action_resume_create"]));
       expect(model.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["app_action_resume_export_pdf_request"]));
       expect(model.evidence.action_exposure).toEqual(expect.arrayContaining([
+        { action_id: "career.fact.propose", tool_name: null, model_exposure: "hidden", exposed: false },
+        { action_id: "career.fact.confirm", tool_name: null, model_exposure: "hidden", exposed: false },
         { action_id: "resume.create", tool_name: null, model_exposure: "hidden", exposed: false },
         { action_id: "resume.export.pdf.request", tool_name: null, model_exposure: "hidden", exposed: false },
       ]));
