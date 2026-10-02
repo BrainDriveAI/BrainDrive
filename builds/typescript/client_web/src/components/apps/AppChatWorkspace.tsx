@@ -54,6 +54,7 @@ type AppChatWorkspaceProps = {
   appName: string;
   launch: AppChatWorkspaceLaunch;
   onSessionClosed: () => void;
+  onGoHome?: () => void;
   onRenewSession?: (launch: AppChatWorkspaceLaunch) => Promise<AppChatWorkspaceLaunch | null>;
   onOpenSettings?: () => void;
   onLogout?: () => void;
@@ -206,6 +207,7 @@ export default function AppChatWorkspace({
   appName,
   launch,
   onSessionClosed,
+  onGoHome,
   onRenewSession,
   onOpenSettings,
   onLogout,
@@ -388,7 +390,7 @@ export default function AppChatWorkspace({
     activeHeadingRef.current?.focus({ preventScroll: true });
   }, [activeItemKey]);
 
-  function closeWorkspace() {
+  function closeWorkspace(afterClose?: () => void) {
     intentionalDepartureRef.current = true;
     setIsMobileNavOpen(false);
     if (cleanupTimerRef.current) {
@@ -397,6 +399,7 @@ export default function AppChatWorkspace({
     }
     closeSessionById(launch.session.session_id);
     onSessionClosed();
+    afterClose?.();
   }
 
   function queueWorkspaceChatPrompt(prompt: string) {
@@ -599,7 +602,8 @@ export default function AppChatWorkspace({
           onSelect={selectWorkspaceItem}
           onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
           onMoveFocus={moveNavigationFocus}
-          onCloseWorkspace={closeWorkspace}
+          onCloseWorkspace={() => closeWorkspace()}
+          onGoHome={() => closeWorkspace(onGoHome)}
           activeConversationId={activeConversationId}
           isDeletingConversation={isDeletingConversation}
           onDeleteConversation={() => void handleDeleteConversation()}
@@ -626,7 +630,8 @@ export default function AppChatWorkspace({
           onSelect={selectWorkspaceItem}
           onToggleAdvanced={() => setAdvancedOpen((current) => !current)}
           onMoveFocus={moveNavigationFocus}
-          onCloseWorkspace={closeWorkspace}
+          onCloseWorkspace={() => closeWorkspace()}
+          onGoHome={() => closeWorkspace(onGoHome)}
           activeConversationId={activeConversationId}
           isDeletingConversation={isDeletingConversation}
           onDeleteConversation={() => void handleDeleteConversation()}
@@ -681,6 +686,7 @@ function WorkspaceNavigation({
   onToggleAdvanced,
   onMoveFocus,
   onCloseWorkspace,
+  onGoHome,
   activeConversationId,
   isDeletingConversation,
   onDeleteConversation,
@@ -700,6 +706,7 @@ function WorkspaceNavigation({
   onToggleAdvanced: () => void;
   onMoveFocus: (event: KeyboardEvent<HTMLButtonElement>, currentKey: string) => void;
   onCloseWorkspace: () => void;
+  onGoHome: () => void;
   activeConversationId: string | null;
   isDeletingConversation: boolean;
   onDeleteConversation: () => void;
@@ -709,12 +716,16 @@ function WorkspaceNavigation({
   tier: "local" | "concierge";
 }) {
   return (
-    <nav className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary px-4 py-4 md:h-full md:w-sidebar" aria-label={`${appName} workspace navigation`}>
-      <div className="mb-7 flex items-center justify-between gap-3">
-        <Button type="button" variant="ghost" size="sm" onClick={onCloseWorkspace} className="w-fit gap-2 px-1 text-bd-text-secondary hover:bg-transparent hover:text-bd-text-heading">
-          <ChevronLeft size={16} />
-          Back to Apps
-        </Button>
+    <nav className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary md:h-full md:w-sidebar" aria-label={`${appName} workspace navigation`}>
+      <div className="flex items-center justify-between gap-3 px-4 py-4">
+        <button
+          type="button"
+          aria-label="Go to BrainDrive home"
+          onClick={onGoHome}
+          className="cursor-pointer bg-transparent p-0 hover:opacity-80"
+        >
+          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
+        </button>
         {onCloseNavigation ? (
           <button
             type="button"
@@ -727,67 +738,74 @@ function WorkspaceNavigation({
         ) : null}
       </div>
 
-      <p className="px-1 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
-      {sessionError ? (
-        <div role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
-          <AlertCircle size={15} className="mt-0.5 shrink-0" />
-          <span>{sessionError}</span>
-        </div>
-      ) : null}
+      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+        <Button type="button" variant="ghost" size="sm" onClick={onCloseWorkspace} className="mb-7 w-fit gap-2 px-1 text-bd-text-secondary hover:bg-transparent hover:text-bd-text-heading">
+          <ChevronLeft size={16} />
+          Back to Apps
+        </Button>
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-        <WorkspaceNavGroup
-          label={null}
-          items={primaryItems}
-          activeKey={activeItemKey}
-          navButtonRefs={navButtonRefs}
-          onSelect={onSelect}
-          onMoveFocus={onMoveFocus}
-        />
-        {activeItemKey === "document:conversation" ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onDeleteConversation}
-            disabled={isDeletingConversation || !activeConversationId}
-            aria-label="Delete conversation"
-            className="mt-1 w-full justify-start gap-2 px-3 text-bd-danger hover:bg-bd-danger-bg"
-          >
-            {isDeletingConversation ? <LoaderCircle size={15} className="animate-spin" /> : <X size={15} />}
-            Delete conversation
-          </Button>
-        ) : null}
-        {advancedItems.length > 0 ? (
-          <div className="pt-4">
-            <button
-              type="button"
-              aria-expanded={advancedOpen}
-              onClick={onToggleAdvanced}
-              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
-            >
-              <span>{advancedOpen ? "Hide advanced" : "Show advanced"}</span>
-            </button>
-            {advancedOpen ? (
-              <WorkspaceNavGroup
-                label={null}
-                items={advancedItems}
-                activeKey={activeItemKey}
-                navButtonRefs={navButtonRefs}
-                onSelect={onSelect}
-                onMoveFocus={onMoveFocus}
-              />
-            ) : null}
+        <p className="px-1 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
+        {sessionError ? (
+          <div role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
+            <AlertCircle size={15} className="mt-0.5 shrink-0" />
+            <span>{sessionError}</span>
           </div>
         ) : null}
-      </div>
 
-      <div className="mt-auto space-y-2 pt-4">
-        <AppWorkspaceProfileControl
-          onOpenSettings={onOpenSettings}
-          onLogout={onLogout}
-          tier={tier}
-        />
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+          <WorkspaceNavGroup
+            label={null}
+            items={primaryItems}
+            activeKey={activeItemKey}
+            navButtonRefs={navButtonRefs}
+            onSelect={onSelect}
+            onMoveFocus={onMoveFocus}
+          />
+          {activeItemKey === "document:conversation" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onDeleteConversation}
+              disabled={isDeletingConversation || !activeConversationId}
+              aria-label="Delete conversation"
+              className="mt-1 w-full justify-start gap-2 px-3 text-bd-danger hover:bg-bd-danger-bg"
+            >
+              {isDeletingConversation ? <LoaderCircle size={15} className="animate-spin" /> : <X size={15} />}
+              Delete conversation
+            </Button>
+          ) : null}
+          {advancedItems.length > 0 ? (
+            <div className="pt-4">
+              <button
+                type="button"
+                aria-expanded={advancedOpen}
+                onClick={onToggleAdvanced}
+                className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
+              >
+                <span>{advancedOpen ? "Hide advanced" : "Show advanced"}</span>
+              </button>
+              {advancedOpen ? (
+                <WorkspaceNavGroup
+                  label={null}
+                  items={advancedItems}
+                  activeKey={activeItemKey}
+                  navButtonRefs={navButtonRefs}
+                  onSelect={onSelect}
+                  onMoveFocus={onMoveFocus}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-auto space-y-2 pt-4">
+          <AppWorkspaceProfileControl
+            onOpenSettings={onOpenSettings}
+            onLogout={onLogout}
+            tier={tier}
+          />
+        </div>
       </div>
     </nav>
   );

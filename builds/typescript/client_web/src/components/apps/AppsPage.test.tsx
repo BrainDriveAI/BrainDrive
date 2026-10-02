@@ -1005,7 +1005,8 @@ describe("manifest-driven Apps surface", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /^Launch$/ })).toHaveFocus());
   });
 
-  it("routes a primary chat workspace presentation to the native shell and restores focus after close", async () => {
+  it.each(["Back to Apps", "Go to BrainDrive home"])("routes a primary chat workspace presentation through %s departure", async (destination) => {
+    const onGoHome = vi.fn();
     const current = installed({ catalog: { ...installed().catalog!, presentations: chatPresentation() } });
     const launched = chatLaunch();
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
@@ -1013,7 +1014,7 @@ describe("manifest-driven Apps surface", () => {
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(launched.session);
 
     const user = userEvent.setup();
-    renderApps(<AppsPage />);
+    renderApps(<AppsPage onGoHome={onGoHome} />);
     const launchButton = await screen.findByRole("button", { name: "Launch" });
     await user.click(launchButton);
 
@@ -1028,9 +1029,11 @@ describe("manifest-driven Apps surface", () => {
     expect(await screen.findByRole("heading", { name: "Your Profile" })).toHaveFocus();
     expect(screen.getAllByPlaceholderText("Message your BrainDrive...").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "Back to Apps" }));
+    await user.click(screen.getByRole("button", { name: destination }));
     await waitFor(() => expect(appsApi.closeAppSession).toHaveBeenCalledWith("resume-builder", launched.session.session_id));
     await waitFor(() => expect(screen.getByRole("button", { name: "Launch" })).toHaveFocus());
+    expect(screen.queryByRole("region", { name: "Resume Builder native app workspace" })).not.toBeInTheDocument();
+    expect(onGoHome).toHaveBeenCalledTimes(destination === "Go to BrainDrive home" ? 1 : 0);
   });
 
   it("attempts the bounded session resume handshake when the owner relaunches the app", async () => {

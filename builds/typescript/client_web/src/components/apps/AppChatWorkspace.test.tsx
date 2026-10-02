@@ -2156,9 +2156,31 @@ describe("AppChatWorkspace", () => {
     expect(onSessionClosed).toHaveBeenCalledTimes(1);
   });
 
-  it("does not renew a session after intentional Back to Apps departure", async () => {
+  it("shows the BrainDrive logo above Back to Apps and keeps mobile navigation close non-terminal", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const onSessionClosed = vi.fn();
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} />);
+
+    const navigation = screen.getByRole("navigation", { name: "Test Builder workspace navigation" });
+    const logo = within(navigation).getByRole("img", { name: "BrainDrive" });
+    expect(logo).toHaveAttribute("src", "/braindrive-logo.svg");
+    expect(logo.compareDocumentPosition(within(navigation).getByRole("button", { name: "Back to Apps" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open workspace navigation menu" }));
+    const drawer = screen.getByRole("dialog", { name: "Test Builder workspace navigation" });
+    expect(within(drawer).getByRole("img", { name: "BrainDrive" })).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: "Close workspace navigation" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(appsApi.closeAppSession).not.toHaveBeenCalled();
+    expect(onSessionClosed).not.toHaveBeenCalled();
+  });
+
+  it.each(["Back to Apps", "Go to BrainDrive home"])("does not renew a session after intentional %s departure", async (destination) => {
     const current = launch();
     const onSessionClosed = vi.fn();
+    const onGoHome = vi.fn();
     const onRenewSession = vi.fn(async () => launch({
       session: {
         ...current.session,
@@ -2169,9 +2191,9 @@ describe("AppChatWorkspace", () => {
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockReturnValueOnce(new Promise((_, reject) => { rejectSession = reject; }));
     const user = userEvent.setup();
 
-    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} onRenewSession={onRenewSession} />);
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} onGoHome={onGoHome} onRenewSession={onRenewSession} />);
 
-    await user.click(await screen.findByRole("button", { name: "Back to Apps" }));
+    await user.click(await screen.findByRole("button", { name: destination }));
     await act(async () => {
       rejectSession(new Error("session closed after owner departure"));
       await Promise.resolve();
@@ -2179,6 +2201,7 @@ describe("AppChatWorkspace", () => {
 
     expect(appsApi.closeAppSession).toHaveBeenCalledWith("test-builder", current.session.session_id);
     expect(onSessionClosed).toHaveBeenCalledTimes(1);
+    expect(onGoHome).toHaveBeenCalledTimes(destination === "Go to BrainDrive home" ? 1 : 0);
     expect(onRenewSession).not.toHaveBeenCalled();
   });
 

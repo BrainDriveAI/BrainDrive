@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import AppShell from "./AppShell";
@@ -86,16 +86,19 @@ vi.mock("@/components/apps/AppsPage", () => ({
     onOpenSettings,
     onSessionClosed,
     onWorkspaceActiveChange,
+    onGoHome,
   }: {
     onOpenSettings?: () => void;
     onSessionClosed?: () => void;
     onWorkspaceActiveChange?: (active: boolean) => void;
+    onGoHome?: () => void;
   }) => (
     <section aria-label="Apps surface">
       Apps surface
       <input aria-label="App draft" defaultValue="" />
       <button type="button" onClick={onOpenSettings}>Open model settings recovery</button>
       <button type="button" onClick={onSessionClosed}>Close app session</button>
+      <button type="button" onClick={onGoHome}>Go to BrainDrive home</button>
       <button type="button" onClick={() => onWorkspaceActiveChange?.(true)}>Open app workspace</button>
       <button type="button" onClick={() => onWorkspaceActiveChange?.(false)}>Back to app catalog</button>
     </section>
@@ -172,6 +175,15 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Apps" }));
     expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("routes app workspace home navigation to the root agent", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(within(screen.getByRole("region", { name: "Apps surface" })).getByRole("button", { name: "Go to BrainDrive home" }));
+    expect(selectProjectMock).toHaveBeenCalledWith("your-agent");
+    expect(screen.queryByRole("region", { name: "Apps surface" })).not.toBeInTheDocument();
   });
 
   it("preserves the mounted Apps workspace while navigating through BrainDrive", async () => {
