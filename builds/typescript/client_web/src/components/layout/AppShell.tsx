@@ -357,6 +357,7 @@ export default function AppShell({
                 entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onSessionClosed={handleAppSessionClosed}
+                onGoHome={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
                 onWorkspaceActiveChange={setIsAppWorkspaceActive}
                 onLogout={() => onLogout?.()}
                 tier={deploymentMode === "managed" ? "concierge" : "local"}

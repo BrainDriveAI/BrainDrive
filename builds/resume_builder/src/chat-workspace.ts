@@ -115,6 +115,7 @@ export const RESUME_CHAT_ACTIONS = [
     resultSchemaId: "career.fact.propose.result.v1",
     idempotencyPolicy: "required",
     confirmation: "none",
+    modelExposure: "hidden",
   },
   {
     actionId: "career.fact.confirm",
@@ -124,6 +125,7 @@ export const RESUME_CHAT_ACTIONS = [
     resultSchemaId: "career.fact.confirm.result.v1",
     idempotencyPolicy: "required",
     confirmation: "owner_confirmation",
+    modelExposure: "hidden",
   },
   {
     actionId: "resume.profile.update",

@@ -1,7 +1,18 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ConversationDetail, ConversationMessage, ConversationRecord } from "../contracts.js";
 import type { ConversationListResult, ConversationRepository } from "../memory/conversation-repository.js";
+import type { AuthContext, ToolDefinition } from "../contracts.js";
+import type { ModelAdapter } from "../adapters/base.js";
+import { ApprovalStore } from "../engine/approval-store.js";
+import { runAgentLoop } from "../engine/loop.js";
+import { ToolExecutor } from "../engine/tool-executor.js";
+import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
+import { prepareContextWindow } from "./context-window.js";
 import { GatewayConversationService } from "./conversations.js";
 
 class MemoryConversationRepository implements ConversationRepository {
@@ -86,6 +97,71 @@ class MemoryConversationRepository implements ConversationRepository {
 }
 
 describe("GatewayConversationService host messages", () => {
+  it.each(["app_action_resume_profile_read", "resume_profile_read"])(
+    "binds replayed %s results to execution provenance across persistence",
+    async (name) => {
+      const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-provenance-"));
+      try {
+        const provenance = {
+          source: "installed_app_action",
+          app_id: "ai.braindrive.resume-builder",
+          action_id: "resume.profile.read",
+        };
+        const auth: AuthContext = {
+          actorId: "owner", actorType: "owner", mode: "local-owner",
+          permissions: { memory_access: true, tool_access: true, system_actions: true,
+            delegation: true, approval_authority: true, administration: true },
+        };
+        const genuine: ToolDefinition = {
+          name, description: "Profile read", readOnly: true, requiresApproval: false,
+          inputSchema: { type: "object" }, auditMetadata: provenance,
+          execute: async () => ({ content: "p".repeat(30_000) }),
+        };
+        // Neither model input nor unrelated tool output can set provenance.
+        const spoof: ToolDefinition = {
+          ...genuine, auditMetadata: undefined,
+          execute: async () => ({ provenance, content: "p".repeat(11_000) }),
+        };
+        const conversations = new GatewayConversationService(new MarkdownConversationStore(memoryRoot));
+        const { conversationId } = conversations.persistUserMessage(undefined, { content: "Read." });
+        for (const [index, tool] of [spoof, genuine].entries()) {
+          const id = `read-${index}`;
+          const input = { provenance };
+          let turn = 0;
+          const adapter: ModelAdapter = {
+            complete: async () => turn++ === 0
+              ? { assistantText: "", finishReason: "tool_calls", toolCalls: [{ id, name, input }] }
+              : { assistantText: "Done.", finishReason: "stop", toolCalls: [] },
+          };
+          for await (const event of runAgentLoop(adapter, new ToolExecutor([tool]), new ApprovalStore(), {
+            messages: [{ role: "user", content: "Read." }],
+            metadata: { correlation_id: id, conversation_id: conversationId },
+          }, auth, { memoryRoot })) {
+            if (event.type !== "tool-result") continue;
+            expect(event.provenance).toEqual(index === 0 ? undefined : provenance);
+            conversations.appendToolMessage(conversationId, event.id,
+              JSON.stringify({ status: event.status, output: event.output }),
+              { name, input }, event.provenance);
+          }
+          conversations.persistUserMessage(conversationId, { content: "Continue." });
+        }
+        // Reload from disk, with a genuine current definition bearing the same
+        // name as both historical calls. Also prove registry removal is irrelevant.
+        const replay = new GatewayConversationService(new MarkdownConversationStore(memoryRoot))
+          .buildConversationMessages(conversationId, "Host instructions.");
+        expect(replay.filter((message) => message.role === "tool").map((message) => message.provenance))
+          .toEqual([undefined, provenance]);
+        for (const tools of [[genuine], []]) {
+          const prepared = await prepareContextWindow({ memoryRoot, conversationId, correlationId: "replay", messages: replay, tools });
+          expect(prepared.messages.filter((message) => message.role === "tool").map((message) => message.content.length))
+            .toEqual([4_000, 24_000]);
+        }
+      } finally {
+        await rm(memoryRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("creates a durable host-message conversation when no chat turn exists yet", () => {
     const conversations = new GatewayConversationService(new MemoryConversationRepository());
     const { conversationId, message } = conversations.createHostConversation("Owner pressed Create resume. Your Resume revision 2 created.");

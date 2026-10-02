@@ -59,6 +59,7 @@ export default function AppsPage({
   entryPoint = "direct",
   onOpenSettings,
   onSessionClosed,
+  onGoHome,
   onWorkspaceActiveChange,
   onLogout,
   tier = "local",
@@ -66,6 +67,7 @@ export default function AppsPage({
   entryPoint?: "direct" | "career";
   onOpenSettings?: () => void;
   onSessionClosed?: () => void;
+  onGoHome?: () => void;
   onWorkspaceActiveChange?: (active: boolean) => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
@@ -242,7 +244,7 @@ export default function AppsPage({
   };
 
   if (selected) return isChatWorkspaceLaunch(selected.launch)
-    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
+    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onGoHome={onGoHome} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
     : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (

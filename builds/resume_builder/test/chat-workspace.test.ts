@@ -295,6 +295,11 @@ describe("Resume Builder chat workspace contract", () => {
       "resume.operations.read",
     ]);
     expect(JSON.stringify(RESUME_CHAT_ACTIONS)).not.toMatch(/docx|linkedin|import|tailor|template.choice/i);
+    for (const actionId of ["career.fact.propose", "career.fact.confirm"]) {
+      expect(RESUME_CHAT_ACTIONS.find((action) => action.actionId === actionId)).toMatchObject({
+        modelExposure: "hidden",
+      });
+    }
   });
 
   it("declares Create Resume input as app-derived from Profile, not model-authored markdown", () => {

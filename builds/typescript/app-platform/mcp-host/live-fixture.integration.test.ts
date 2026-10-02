@@ -203,6 +203,9 @@ describe("live signed modern MCP Apps fixture", () => {
       expect(launch.resource).toMatchObject({ uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" });
       expect(launch.resource.html).toContain("Start with what BrainDrive already knows");
       expect(launch.resource.html).toContain("Local extraction passed");
+      expect(launch.allowed_capabilities).toContain("career.facts.propose");
+      const descriptor = await lifecycle.ownerDescriptor();
+      expect(descriptor.grant?.capabilities).toEqual(expect.arrayContaining(["career.facts.propose", "career.facts.confirm"]));
       expect(launch.resource.html).not.toMatch(/https?:|tauri:|fetch\s*\(/i);
 
       const response = await host.handleBridge(launch.session_id, {

@@ -1196,11 +1196,16 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
               status: event.status,
               output: event.output,
             }),
-            toolCall
+            toolCall,
+            event.provenance
           );
         }
 
-        const outgoingEvent = gatewayAdapter.toClientStreamEvent(event, {
+        // Execution provenance stays in host persistence, outside client SSE.
+        const clientEvent = event.type === "tool-result"
+          ? { type: event.type, id: event.id, status: event.status, output: event.output }
+          : event;
+        const outgoingEvent = gatewayAdapter.toClientStreamEvent(clientEvent, {
           conversationId,
           messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
         });
