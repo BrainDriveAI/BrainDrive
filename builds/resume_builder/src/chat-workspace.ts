@@ -368,7 +368,10 @@ export function planResumeAction(request: ResumeActionPlanRequest, options: Resu
     const capabilityInput = buildResumeCreateCapabilityInput(input, context);
     return actionPlan(request.action_id, [
       capabilityStep("write-resume-capability", "resume.definitions.write", capabilityInput, "inherit"),
-      documentWriteStep("write-resume-document", "resume.document", renderResumeMarkdown(input), "text/markdown", "durable_owner_data"),
+      {
+        ...documentWriteStep("write-resume-document", "resume.document", renderResumeMarkdown(input), "text/markdown", "durable_owner_data"),
+        derived_from: { document_id: "resume.profile", revision_id: request.documents.find((document) => document.document_id === "resume.profile")!.revision_id },
+      },
     ], "write-resume-capability");
   }
   if (request.action_id === "resume.export.pdf.request") {

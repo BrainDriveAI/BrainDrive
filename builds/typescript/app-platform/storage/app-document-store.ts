@@ -257,6 +257,7 @@ export class AppDocumentStorageService {
       idempotency_key: request.idempotency_key,
       content_digest: canonicalInputDigest(content),
       content_size_bytes: contentSizeBytes,
+      ...(request.derived_from ? { derived_from: request.derived_from } : {}),
     });
     return this.serial(async () => {
       const replay = await this.readWriteIdempotency(request.authority, request.idempotency_key);
@@ -303,6 +304,7 @@ export class AppDocumentStorageService {
         content_digest: canonicalInputDigest(content),
         content_size_bytes: contentSizeBytes,
         content,
+        ...(request.derived_from ? { derived_from: request.derived_from } : {}),
         created_at: current.kind === "record" ? current.record.created_at : now,
         created_by: current.kind === "record" ? current.record.created_by : request.authority,
         updated_at: now,
@@ -456,7 +458,6 @@ export class AppDocumentStorageService {
   }
 
   private async rebindRetainedDocuments(previous: AppDocumentStorageAuthority, current: AppDocumentStorageAuthority): Promise<void> {
-    const now = this.now().toISOString();
     const [records, tombstones] = await Promise.all([
       this.listAllRecords(previous),
       this.listAllTombstones(previous),
@@ -474,8 +475,7 @@ export class AppDocumentStorageService {
         grant_id: current.grant_id,
         grant_revision: current.grant_revision,
         revocation_generation: current.revocation_generation,
-        updated_at: now,
-        updated_by: current,
+        // Rebinding authority is not a content save; retain its time and author.
       }));
     }
     for (const tombstone of tombstones.filter((candidate) => REINSTALL_RETAINED_CLASSES.has(candidate.retention_class))) {

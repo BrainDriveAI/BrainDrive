@@ -239,6 +239,50 @@ describe("Resume Builder-owned General draft inference program", () => {
     expect(JSON.stringify(plan)).not.toContain("model-authored");
   });
 
+  it.each([
+    "20000000-0000-4000-8000-000000000001",
+    "20000000-0000-4000-8000-000000000002",
+  ])("shipped Create resume planner records the current Profile revision %s", (revisionId) => {
+    const operationId = crypto.randomUUID();
+    const documents = [
+      { document_id: "resume.document", revision_id: crypto.randomUUID(), content: "# Older Resume" },
+      {
+        document_id: "resume.profile",
+        revision_id: revisionId,
+        content: "# Maya Ortiz\n\n## Professional Summary\nCustomer operations leader.\n\n## Experience\n- Improved gross retention from 86% to 93%.",
+      },
+    ];
+    const originalDocuments = structuredClone(documents);
+    const plan = planResumeAction({
+      action_planning_contract_version: 1,
+      action_id: "resume.create",
+      action_input: {},
+      owner_confirmed: true,
+      operation_id: operationId,
+      idempotency_key: `runtime-lineage-${operationId}`,
+      occurred_at: "2026-10-01T12:00:00.000Z",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        installation_id: crypto.randomUUID(),
+      },
+      documents,
+    });
+
+    expect(plan.steps).toEqual([
+      expect.objectContaining({ type: "capability.call", capability: "resume.definitions.write" }),
+      expect.objectContaining({
+        step_id: "write-resume-document",
+        type: "document.write",
+        document_id: "resume.document",
+        content: documents[1].content,
+        derived_from: { document_id: "resume.profile", revision_id: revisionId },
+      }),
+    ]);
+    expect(documents).toEqual(originalDocuments);
+  });
+
   it("runtime planner blocks sparse Profile render with named missing essentials", () => {
     const operationId = crypto.randomUUID();
     const plan = planResumeAction({

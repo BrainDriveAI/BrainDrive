@@ -67,6 +67,8 @@ App issue IDs are namespaced, field-specific, content-free identifiers. The exac
 
 `RUNTIME_ENABLED` is therefore `true`: the installed package has app-owned runtime behavior even though this source package does not expose a standalone `start` or `dev` script. Its signed runtime is supervised by the generic app platform; it is not a BrainDrive core service, Docker service, or desktop sidecar.
 
+In the native chat workspace, Create resume records the saved Profile revision in the formatted Resume's `derived_from` metadata. Your Resume checks that revision against the current saved Profile when opened and displays a source-change notice with a direct Create resume action when they differ. A fresh render clears the notice; detecting a change does not render automatically or modify the Profile. Older renders without lineage use source/render save timestamps until the owner creates a new render.
+
 Commands:
 
 ```bash

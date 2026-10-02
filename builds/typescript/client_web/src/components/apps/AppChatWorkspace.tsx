@@ -553,6 +553,7 @@ export default function AppChatWorkspace({
           workspaceTitle={launch.workspace.title}
           item={activeItem}
           resource={activeResource}
+          documents={launch.workspace.documents}
           actions={launch.workspace.actions}
           headingRef={activeHeadingRef}
           onRecoverSession={recoverSession}
@@ -928,7 +929,7 @@ function AppWorkspaceProfileControl({
   );
 }
 
-function WorkspaceDetail({
+export function WorkspaceDetail({
   appKey,
   appName,
   sessionId,
@@ -936,6 +937,7 @@ function WorkspaceDetail({
   item,
   resource,
   actions,
+  documents,
   headingRef,
   onRecoverSession,
   onBackToChat,
@@ -952,6 +954,7 @@ function WorkspaceDetail({
   item: WorkspaceItem;
   resource: AppResourceDescriptor | null;
   actions: AppChatWorkspaceLaunch["workspace"]["actions"];
+  documents: AppChatWorkspaceLaunch["workspace"]["documents"];
   headingRef: MutableRefObject<HTMLHeadingElement | null>;
   onRecoverSession: () => Promise<string | null>;
   onBackToChat: () => void;
@@ -978,6 +981,9 @@ function WorkspaceDetail({
   const [documentNotice, setDocumentNotice] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
   const [missingResumeEssentials, setMissingResumeEssentials] = useState<MissingResumeEssentials | null>(null);
+  const [sourceIsStale, setSourceIsStale] = useState(false);
+  const sourceDocument = documents.find((document) => document.document_id === presentation?.read_only_explanation?.source_document_id) ?? null;
+  const sourceRenderAction = sourceDocument?.presentation?.header_actions.find((action): action is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => action.type === "app_action" && action.delivery === "direct_action" && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) ?? null;
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [currentRevisionHint, setCurrentRevisionHint] = useState<number | null>(null);
   const [documentRetryable, setDocumentRetryable] = useState(false);
@@ -985,7 +991,11 @@ function WorkspaceDetail({
   const packageResource = boundDocument ? null : resource;
   const canResetToPackageDefault = Boolean(boundDocument?.resource_id && editable);
   const sessionIdRef = useRef(sessionId);
+  const previousSessionIdRef = useRef(sessionId);
+  const documentStatusRef = useRef(documentStatus);
   const boundDocumentRef = useRef(boundDocument);
+  const documentLoadGenerationRef = useRef(0);
+  const draftStateRef = useRef({ documentId: "", content: "", baseline: "" });
   const resourceRef = useRef(packageResource);
   const resumeCreateActionRef = useRef<Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> | null>(null);
   const documentRecord = documentResult?.record ?? null;
@@ -995,7 +1005,13 @@ function WorkspaceDetail({
   const shouldShowEditor = Boolean(boundDocument && editable && (isEditing || renderer === "json_editor" || !isDocumentChrome));
 
   useEffect(() => {
+    documentStatusRef.current = documentStatus;
+  }, [documentStatus]);
+
+  useEffect(() => {
     sessionIdRef.current = sessionId;
+    const loadGeneration = documentLoadGenerationRef;
+    return () => { ++loadGeneration.current; };
   }, [sessionId]);
 
   useEffect(() => {
@@ -1021,9 +1037,27 @@ function WorkspaceDetail({
     }
   }, [onRecoverSession]);
 
-  const loadDocument = useCallback(async () => {
+  const applyDocumentResult = useCallback((result: AppDocumentReadResult, replaceDirtyDraft = false) => {
+    const draft = draftStateRef.current;
+    const storedContent = draftFromRecord(result.record);
+    // All automatic reads share this rule, evaluated when the response arrives.
+    // Opening another document, an explicit reload, or a successful save may replace the draft.
+    const preserveDraft = !replaceDirtyDraft && draft.documentId === result.document_id && draft.content !== draft.baseline;
+    if (!preserveDraft) {
+      draft.content = storedContent;
+      setDraftContent(storedContent);
+    }
+    draft.documentId = result.document_id;
+    draft.baseline = storedContent;
+    setDocumentResult(result);
+  }, []);
+
+  const loadDocument = useCallback(async (intent: "automatic" | "owner_reload" = "automatic") => {
+    const generation = ++documentLoadGenerationRef.current;
     const currentDocument = boundDocumentRef.current;
+    setSourceIsStale(false);
     if (!currentDocument) {
+      draftStateRef.current = { documentId: "", content: "", baseline: "" };
       setDocumentResult(null);
       setDraftContent("");
       setDocumentStatus("idle");
@@ -1040,11 +1074,28 @@ function WorkspaceDetail({
     setDocumentRetryable(false);
     try {
       const result = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, currentDocument.document_id));
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      if (generation !== documentLoadGenerationRef.current) return;
+      applyDocumentResult(result, intent === "owner_reload");
       setDocumentStatus("ready");
+      if (result.record && currentDocument.role === "derived_document" && sourceDocument?.data_binding_id && sourceDocument.role !== "conversation") {
+        try {
+          const source = await withSessionRecovery((activeSessionId) => readAppChatWorkspaceDocument(appKey, activeSessionId, sourceDocument.document_id));
+          if (generation !== documentLoadGenerationRef.current) return;
+          if (source.record) {
+            const lineage = result.record.derived_from;
+            // Older renders have no lineage. Their save timestamps provide a compatibility fallback.
+            setSourceIsStale(lineage?.document_id === sourceDocument.document_id
+              ? lineage.revision_id !== source.record.revision_id
+              : Date.parse(source.record.updated_at) > Date.parse(result.record.updated_at));
+          }
+        } catch {
+          // Freshness is optional: a failed source read must not discard the loaded document.
+        }
+      }
     } catch (error) {
-      setDocumentResult(null);
+      if (generation !== documentLoadGenerationRef.current) return;
+      // A failed automatic refresh must also retain the draft's stored baseline for saving.
+      if (intent === "owner_reload" || draftStateRef.current.documentId !== currentDocument.document_id) setDocumentResult(null);
       setDocumentStatus("error");
       setDocumentNotice(null);
       if (error instanceof AppDocumentError) {
@@ -1056,7 +1107,7 @@ function WorkspaceDetail({
         setDocumentRetryable(false);
       }
     }
-  }, [appKey, withSessionRecovery]);
+  }, [appKey, applyDocumentResult, sourceDocument, withSessionRecovery]);
 
   const loadResource = useCallback(async () => {
     const currentResource = resourceRef.current;
@@ -1080,8 +1131,18 @@ function WorkspaceDetail({
   }, [appKey]);
 
   useEffect(() => {
+    const loadGeneration = documentLoadGenerationRef;
     void loadDocument();
+    return () => { ++loadGeneration.current; };
   }, [boundDocument?.document_id, loadDocument]);
+
+  useEffect(() => {
+    if (previousSessionIdRef.current === sessionId) return;
+    previousSessionIdRef.current = sessionId;
+    // Renewal invalidates old reads, but must not reload an already loaded owner draft.
+    // Retry only an interrupted document load; source freshness is checked on reopening.
+    if (documentStatusRef.current === "loading") void loadDocument();
+  }, [loadDocument, sessionId]);
 
   useEffect(() => {
     void loadResource();
@@ -1109,8 +1170,7 @@ function WorkspaceDetail({
         content,
         mediaType,
       }));
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      applyDocumentResult(result, true);
       setDocumentStatus("ready");
       setDocumentNotice(`Saved ${title}.`);
       if (renderer !== "json_editor") {
@@ -1146,8 +1206,7 @@ function WorkspaceDetail({
           mediaType: packageDefault.media_type,
         });
       });
-      setDocumentResult(result);
-      setDraftContent(draftFromRecord(result.record));
+      applyDocumentResult(result, true);
       setDocumentStatus("ready");
       setDocumentNotice(`Reset ${title} to package default.`);
       if (renderer !== "json_editor") {
@@ -1172,6 +1231,8 @@ function WorkspaceDetail({
     actionInputOverride?: Record<string, unknown>,
   ) {
     if (runningActionId) return;
+    const actionSessionId = sessionIdRef.current;
+    const actionLoadGeneration = documentLoadGenerationRef.current;
     if (action.action_id === "resume.create") {
       resumeCreateActionRef.current = action;
     }
@@ -1204,6 +1265,13 @@ function WorkspaceDetail({
       }
       if (exportResult === "failed") throw new Error("export_download_failed");
       onDirectActionComplete(buildDirectActionHostMessage(action, result, exportResult));
+      if (boundDocument?.role === "derived_document"
+        && boundDocument.document_id === boundDocumentRef.current?.document_id
+        && actionSessionId === sessionIdRef.current
+        && actionLoadGeneration === documentLoadGenerationRef.current
+        && actions.some((descriptor) => descriptor.action_id === action.action_id && descriptor.kind === "render")) {
+        await loadDocument();
+      }
       setDocumentNotice(`${action.label} completed.`);
     } catch (error) {
       setDocumentNotice(null);
@@ -1304,6 +1372,15 @@ function WorkspaceDetail({
           </div>
         </div>
 
+        {sourceIsStale && sourceDocument ? (
+          <aside role="status" aria-label="Source document changed" className="mt-4 rounded-md border border-bd-amber bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
+            <p>{sourceDocument.title.trim() || "The source document"} changed since this document was created.{sourceRenderAction ? ` Choose ${sourceRenderAction.label} again to update it.` : " Open the source document to update it."}</p>
+            <Button type="button" size="sm" className="mt-2" disabled={runningActionId !== null} onClick={() => sourceRenderAction ? void executeDirectHeaderAction(sourceRenderAction) : onOpenWorkspaceItem(sourceDocument.document_id)}>
+              {sourceRenderAction?.label ?? "Open source document"}
+            </Button>
+          </aside>
+        ) : null}
+
         {readOnlyExplanation ? (
           <aside className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary" aria-label="Read-only explanation">
             <p>{readOnlyExplanation.text}</p>
@@ -1339,7 +1416,7 @@ function WorkspaceDetail({
                   <p className="mt-1 text-sm text-bd-text-secondary">{documentStatusLabel}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void loadDocument()} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void loadDocument("owner_reload")} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
                     <RefreshCw size={15} />
                     Refresh
                   </Button>
@@ -1365,7 +1442,7 @@ function WorkspaceDetail({
                   variant="ghost"
                   size="sm"
                   className="mt-2"
-                  onClick={() => void loadDocument()}
+                  onClick={() => void loadDocument("owner_reload")}
                   disabled={documentStatus === "loading" || documentStatus === "saving"}
                 >
                   Retry
@@ -1408,6 +1485,7 @@ function WorkspaceDetail({
                 aria-label={`${title} content`}
                 value={draftContent}
                 onChange={(event) => {
+                  draftStateRef.current.content = event.target.value;
                   setDraftContent(event.target.value);
                   setDocumentNotice(null);
                 }}
