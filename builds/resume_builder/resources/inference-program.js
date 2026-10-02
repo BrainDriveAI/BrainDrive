@@ -583,7 +583,7 @@ function hasUsableSection(profileMarkdown, headingPattern) {
       } else {
         // A title with an employer is an entry even when its details are all on this line.
         const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
-        if (title.split(/\s*\|\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
+        if (title.split(/\s*\|\s*|\s*,\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
       }
       continue;
     }
@@ -677,7 +677,8 @@ function renderResumeTemplateStandard(profileMarkdown) {
   if (name) lines.push(`# ${name}`);
   const contactLine = [contact.location, contact.email, contact.phone].filter(Boolean).join("  \u00b7  ");
   if (contactLine) lines.push(contactLine);
-  if (name || contactLine) lines.push("");
+  lines.push(...contact.extra);
+  if (name || contactLine || contact.extra.length) lines.push("");
   appendResumeTemplateSection(lines, "Professional Summary", parsed.summary?.lines ?? []);
   appendResumeExperienceSection(lines, parsed.experience?.lines ?? []);
   appendResumeEducationSection(lines, parsed.education?.lines ?? []);
@@ -728,27 +729,30 @@ function parseResumeProfileSections(markdown) {
 }
 
 function parseResumeField(rawLine) {
-  // Move whole-field emphasis onto the value; parse that value only at final display.
-  // Label-only emphasis is removed without touching code or nested value markup.
-  const line = rawLine.trim().replace(/^(\*{1,3}|_{1,3})([^:*_`]+):\1\s*/, "$2: ");
-  const whole = /^(\*{1,3}|_{1,3})([^:*_`]+):\s*(.+)\1$/.exec(line);
-  const normalized = whole ? `${whole[2]}: ${whole[1]}${whole[3]}${whole[1]}`
-    : line;
-  const match = /^([^:]+?):\s*(.*)$/.exec(normalized);
-  return match ? { key: stripResumeInlineMarkup(match[1]).toLowerCase(), value: match[2].trim() } : null;
+  // Classify the label using the complete line's matched delimiters, then
+  // slice its value without breaking emphasis that encloses label and value.
+  const line = rawLine.trim();
+  const colon = line.indexOf(":");
+  if (colon < 0) return null;
+  const key = stripResumeInlineMarkup(sliceInlineMarkdown(line, 0, colon)).toLowerCase();
+  let start = colon + 1;
+  while (start < line.length && /\s/.test(line[start])) start += 1;
+  return { key, value: sliceInlineMarkdown(line, start).trim() };
 }
 
 function parseResumeContact(lines) {
-  const contact = {};
+  const contact = { extra: [] };
   for (const rawLine of lines) {
     const field = parseResumeField(rawLine.replace(/^\s*[-*+]\s+/, ""));
-    if (!field) continue;
-    const { key, value } = field;
-    if (!value) continue;
-    if (key === "name" || key === "full name") contact.name ??= value;
-    else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
-    else if (key === "email" || key === "email address") contact.email ??= value;
-    else if (key === "phone" || key === "phone number") contact.phone ??= value;
+    if (!rawLine.trim()) continue;
+    const slot = field && (field.key === "name" || field.key === "full name" ? "name"
+      : field.key === "location" || field.key === "city" || field.key === "city, state" ? "location"
+      : field.key === "email" || field.key === "email address" ? "email"
+      : field.key === "phone" || field.key === "phone number" ? "phone" : null);
+    // Unrecognized, ambiguous, empty and duplicate fields still contain Profile
+    // text. Keep them verbatim instead of silently discarding the entire line.
+    if (slot && field.value && !contact[slot]) contact[slot] = field.value;
+    else contact.extra.push(rawLine);
   }
   return contact;
 }
@@ -772,8 +776,8 @@ function appendResumeExperienceSection(lines, rawLines) {
       continue;
     }
     const heading = /^(#{3,6})\s+(.+)$/.exec(line);
-    const parts = (heading?.[2] ?? line).split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length >= 2) lines.push(heading ? `### ${parts[0]}` : (parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`), parts.slice(1).join("  \u00b7  "));
+    const parts = splitInlineMarkdownPipes(heading?.[2] ?? line);
+    if (parts.length >= 2) lines.push(`### ${parts[0]}`, parts.slice(1).join("  \u00b7  "));
     else lines.push(line);
   }
 }
@@ -786,7 +790,7 @@ function appendResumeEducationSection(lines, rawLines) {
   for (const line of content) {
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     const value = bullet?.[1] ?? line;
-    const parts = value.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    const parts = splitInlineMarkdownPipes(value);
     if (parts.length >= 3) lines.push(`${parts[0]}, ${parts[1]} \u2014 ${parts.slice(2).join(" | ")}`);
     else lines.push(value);
   }
@@ -799,8 +803,12 @@ function stripResumeInlineMarkup(value) {
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
 
 function normalizeResumeMarkdown(markdown) {
+  markdown = String(markdown ?? "");
+  // Authored lines already define block boundaries. Only repair legacy flattened
+  // input, and keep all inline syntax and literal payload outside those repairs.
+  if (/\r?\n/.test(markdown)) return markdown.trim();
   const dateTrailingBulletPattern = new RegExp(String.raw`\b(${DATE_ENDPOINT_PATTERN})\s+([-*+]\s+)(?!(?:${DATE_ENDPOINT_PATTERN})\b)`, "gi");
-  return String(markdown ?? "")
+  return mapInlineMarkdownPlainText(markdown, (text) => text
     .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
     .replace(/(^|\n)(#{2,6}\s+[A-Za-z][A-Za-z0-9 &/().,:]{0,80})\s+([-*+]\s+)/g, "$1$2\n$3")
     .replace(dateTrailingBulletPattern, "$1\n$2")
@@ -808,7 +816,7 @@ function normalizeResumeMarkdown(markdown) {
     .replace(/\n[ \t]+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .trim());
 }
 
 function currentDocumentText(request, documentId) {
@@ -823,7 +831,7 @@ function isExportableResumeMarkdown(markdown) {
   if (lines.length < 2) return false;
   if (lines.length === 1 && /^#\s*resume\s*$/i.test(lines[0] ?? "")) return false;
   return lines.some((line) => /^#{2,6}\s+\S/.test(line))
-    && lines.some((line) => !/^#{1,6}\s+\S/.test(line));
+    && lines.some((line) => !/^#{1,6}\s+\S/.test(line) || /^#{3,6}\s+\S/.test(line));
 }
 
 function normalizePdfFilename(value) {
@@ -1009,7 +1017,8 @@ function renderPdfPages(blocks, fontUsage) {
       if (block.depth === 1) {
         ensure(38);
         const text = runsPlainText(block.runs);
-        const fontSize = 22;
+        // Fit the complete header on the page, including long literal URLs/code.
+        const fontSize = Math.min(22, 22 * contentWidth / Math.max(1, textWidth(text, 22, true)));
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else if (block.depth > 2) {
@@ -1076,14 +1085,49 @@ function pdfBlockRequiredHeight(block, contentWidth) {
 }
 
 // inline-markdown:start (generated by scripts/sync-inline-markdown.mjs)
-function parseInlineMarkdown(text) {
+function analyzeInlineMarkdown(text) {
     // Pair emphasis delimiters; unmatched/escaped punctuation remains literal.
     // Italics use plain text in the two-face PDF font set; strong stays bold.
     const removed = new Set();
+    const pairs = [];
+    const literal = new Set();
     const boldChanges = new Int16Array(text.length + 1);
     const delimiters = [];
     const whitespace = (character) => !character || /\s/u.test(character);
     const punctuation = (character) => /[\p{P}\p{S}]/u.test(character);
+    const matchCloser = (closerIndex) => {
+        const closer = delimiters[closerIndex];
+        if (!closer.close)
+            return;
+        for (let openerIndex = closerIndex - 1; openerIndex >= 0 && closer.remaining > 0; openerIndex -= 1) {
+            const opener = delimiters[openerIndex];
+            if (!opener.open || !opener.remaining || opener.marker !== closer.marker)
+                continue;
+            // Ambiguous runs follow Markdown's rule of three.
+            if ((opener.close || closer.open) && (opener.length + closer.length) % 3 === 0
+                && (opener.length % 3 !== 0 || closer.length % 3 !== 0))
+                continue;
+            while (opener.remaining > 0 && closer.remaining > 0) {
+                const width = opener.remaining >= 2 && closer.remaining >= 2 ? 2 : 1;
+                const openStart = opener.start + opener.remaining - width;
+                const closeStart = closer.start + closer.length - closer.remaining;
+                for (let offset = 0; offset < width; offset += 1) {
+                    removed.add(openStart + offset);
+                    removed.add(closeStart + offset);
+                }
+                pairs.push({ openStart, closeStart, width, openRun: openerIndex, closeRun: closerIndex });
+                if (width === 2) {
+                    boldChanges[openStart + width] += 1;
+                    boldChanges[closeStart] -= 1;
+                }
+                opener.remaining -= width;
+                closer.remaining -= width;
+            }
+            // Matched pairs enclose, rather than cross, intervening delimiters.
+            for (let index = openerIndex + 1; index < closerIndex; index += 1)
+                delimiters[index].open = false;
+        }
+    };
     for (let index = 0; index < text.length; index += 1) {
         // Code spans and bare URLs/emails are literal; emphasis can still surround them.
         if (text[index] === "`") {
@@ -1099,11 +1143,8 @@ function parseInlineMarkdown(text) {
                         removed.add(index + offset);
                         removed.add(closing + offset);
                     }
-                    const content = text.slice(index + ticks.length, closing);
-                    if (content.startsWith(" ") && content.endsWith(" ") && content.trim()) {
-                        removed.add(index + ticks.length);
-                        removed.add(closing - 1);
-                    }
+                    for (let offset = index; offset < closing + ticks.length; offset += 1)
+                        literal.add(offset);
                     index = closing + ticks.length - 1;
                     break;
                 }
@@ -1113,12 +1154,28 @@ function parseInlineMarkdown(text) {
                 continue;
         }
         // Leading emphasis is syntax; underscores inside an address remain protected.
-        const literal = text[index] !== "_" && /^(?:(?:https?:\/\/|www\.)[^\s<>`]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.exec(text.slice(index));
-        if (literal) {
-            let length = literal[0].length;
-            const opener = delimiters.at(-1);
-            if (opener?.open && literal[0].endsWith(opener.marker.repeat(opener.remaining)))
-                length -= opener.remaining;
+        const address = text[index] !== "_" && /^(?:(?:https?:\/\/|www\.)[^\s<>`]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.exec(text.slice(index));
+        if (address) {
+            let length = address[0].length;
+            // A suffix can close several nested emphasis runs before sentence punctuation.
+            // Protect the URL payload, not the surrounding syntax. Internal underscores
+            // (including /_private_/) stay literal; only a trailing matching run is syntax.
+            let suffix = address[0].replace(/(?:(?![*_])[\p{P}\p{S}])+$/u, "");
+            const available = {
+                "*": delimiters.filter((run) => run.open && run.marker === "*").reduce((sum, run) => sum + run.remaining, 0),
+                "_": delimiters.filter((run) => run.open && run.marker === "_").reduce((sum, run) => sum + run.remaining, 0),
+            };
+            let tail;
+            while ((tail = /(\*+|_+)$/.exec(suffix))) {
+                const marker = tail[0][0];
+                if (available[marker] < tail[0].length)
+                    break;
+                available[marker] -= tail[0].length;
+                suffix = suffix.slice(0, -tail[0].length);
+                length = suffix.length;
+            }
+            for (let offset = index; offset < index + length; offset += 1)
+                literal.add(offset);
             index += length - 1;
             continue;
         }
@@ -1142,39 +1199,40 @@ function parseInlineMarkdown(text) {
             open: left && (marker === "*" || !right || punctuation(before)),
             close: right && (marker === "*" || !left || punctuation(after)),
         });
+        matchCloser(delimiters.length - 1);
     }
-    for (let closerIndex = 0; closerIndex < delimiters.length; closerIndex += 1) {
-        const closer = delimiters[closerIndex];
-        if (!closer.close)
-            continue;
-        for (let openerIndex = closerIndex - 1; openerIndex >= 0 && closer.remaining > 0; openerIndex -= 1) {
-            const opener = delimiters[openerIndex];
-            if (!opener.open || !opener.remaining || opener.marker !== closer.marker)
-                continue;
-            // Ambiguous runs follow Markdown's rule of three.
-            if ((opener.close || closer.open) && (opener.length + closer.length) % 3 === 0
-                && (opener.length % 3 !== 0 || closer.length % 3 !== 0))
-                continue;
-            while (opener.remaining > 0 && closer.remaining > 0) {
-                const width = opener.remaining >= 2 && closer.remaining >= 2 ? 2 : 1;
-                const openStart = opener.start + opener.remaining - width;
-                const closeStart = closer.start + closer.length - closer.remaining;
-                for (let offset = 0; offset < width; offset += 1) {
-                    removed.add(openStart + offset);
-                    removed.add(closeStart + offset);
-                }
-                if (width === 2) {
-                    boldChanges[openStart + width] += 1;
-                    boldChanges[closeStart] -= 1;
-                }
-                opener.remaining -= width;
-                closer.remaining -= width;
+    // Never consume only part of an ambiguous delimiter run. Restore the entire
+    // connected match, including enclosing pairs, rather than moving a literal star
+    // into a different field when the source is subsequently sliced.
+    const ambiguous = new Set(delimiters.flatMap((run, index) => run.remaining > 0 && run.remaining < run.length ? [index] : []));
+    let previousSize = -1;
+    while (previousSize !== ambiguous.size) {
+        previousSize = ambiguous.size;
+        for (const pair of pairs) {
+            if (ambiguous.has(pair.openRun) || ambiguous.has(pair.closeRun)) {
+                ambiguous.add(pair.openRun);
+                ambiguous.add(pair.closeRun);
             }
-            // Matched pairs enclose, rather than cross, intervening delimiters.
-            for (let index = openerIndex + 1; index < closerIndex; index += 1)
-                delimiters[index].open = false;
         }
     }
+    const balanced = pairs.filter((pair) => {
+        if (!ambiguous.has(pair.openRun))
+            return true;
+        for (let offset = 0; offset < pair.width; offset += 1) {
+            removed.delete(pair.openStart + offset);
+            removed.delete(pair.closeStart + offset);
+        }
+        if (pair.width === 2) {
+            boldChanges[pair.openStart + pair.width] -= 1;
+            boldChanges[pair.closeStart] += 1;
+        }
+        return false;
+    });
+    const unsafeToSplit = ambiguous.size > 0 || delimiters.some((run) => run.open && run.remaining > 0);
+    return { removed, boldChanges, pairs: balanced, literal, unsafeToSplit };
+}
+function parseInlineMarkdown(text) {
+    const { removed, boldChanges } = analyzeInlineMarkdown(text);
     const runs = [];
     let boldDepth = 0;
     for (let index = 0; index < text.length; index += 1) {
@@ -1189,6 +1247,83 @@ function parseInlineMarkdown(text) {
             runs.push({ text: text[index], bold });
     }
     return runs;
+}
+// Cut at source offsets, balancing only pairs that actually intersect the slice.
+// Unmatched punctuation stays byte-for-byte literal. Values are parsed only once,
+// at display time, so code content cannot become markup on a second pass.
+function sliceInlineMarkdown(text, start, end = text.length) {
+    const { pairs } = analyzeInlineMarkdown(text);
+    const omitted = new Set();
+    const opening = [];
+    const closing = [];
+    for (const pair of pairs) {
+        const contentStart = pair.openStart + pair.width;
+        const intersects = contentStart < end && pair.closeStart > start;
+        if (!intersects) {
+            for (let offset = 0; offset < pair.width; offset += 1) {
+                omitted.add(pair.openStart + offset);
+                omitted.add(pair.closeStart + offset);
+            }
+            continue;
+        }
+        if (pair.openStart < start)
+            opening.push(pair);
+        if (pair.closeStart + pair.width > end)
+            closing.push(pair);
+    }
+    const prefix = opening.sort((a, b) => a.openStart - b.openStart).map((pair) => text.slice(pair.openStart, pair.openStart + pair.width)).join("");
+    const suffix = closing.sort((a, b) => a.closeStart - b.closeStart).map((pair) => text.slice(pair.closeStart, pair.closeStart + pair.width)).join("");
+    return prefix + text.slice(start, end).split("").filter((_, offset) => !omitted.has(start + offset)).join("") + suffix;
+}
+function splitInlineMarkdownPipes(text) {
+    const { literal, unsafeToSplit } = analyzeInlineMarkdown(text);
+    // A structural interpretation is unsafe when emphasis is unfinished/ambiguous.
+    if (unsafeToSplit)
+        return [text];
+    const boundaries = [...text.matchAll(/\|/g)].map((match) => match.index).filter((index) => !literal.has(index));
+    if (!boundaries.length)
+        return [text];
+    let start = 0;
+    return [...boundaries, text.length].map((end) => {
+        let from = start, to = end;
+        while (from < to && /\s/.test(text[from]))
+            from += 1;
+        while (to > from && /\s/.test(text[to - 1]))
+            to -= 1;
+        const part = sliceInlineMarkdown(text, from, to);
+        start = end + 1;
+        return part;
+    });
+}
+// Legacy flattened-input repair may edit only plain text, never code, addresses,
+// or a matched emphasis span. Placeholders are private and collision-free.
+function mapInlineMarkdownPlainText(text, transform) {
+    const { pairs, literal } = analyzeInlineMarkdown(text);
+    const protectedPositions = new Set(literal);
+    for (const pair of pairs) {
+        for (let index = pair.openStart; index < pair.closeStart + pair.width; index += 1)
+            protectedPositions.add(index);
+    }
+    let sentinel = "\u0000";
+    while (text.includes(sentinel))
+        sentinel += "\u0000";
+    const spans = [];
+    let masked = "";
+    for (let index = 0; index < text.length;) {
+        if (!protectedPositions.has(index)) {
+            masked += text[index++];
+            continue;
+        }
+        const start = index;
+        while (index < text.length && protectedPositions.has(index))
+            index += 1;
+        masked += `${sentinel}${spans.length}${sentinel}`;
+        spans.push(text.slice(start, index));
+    }
+    let result = transform(masked);
+    for (let index = 0; index < spans.length; index += 1)
+        result = result.replace(`${sentinel}${index}${sentinel}`, () => spans[index]);
+    return result;
 }
 // inline-markdown:end
 

@@ -782,7 +782,7 @@ describe("Resume Builder chat workspace contract", () => {
       "Operations leader who turns messy launches into repeatable systems.",
       "",
       "## Experience",
-      "**Director of Operations**",
+      "### **Director of Operations**",
       "Northstar Cloud  ·  Chicago, IL  ·  2020\u2013Present",
       "- Reduced launch slips by 38% across six product squads.",
       "",

@@ -162,3 +162,43 @@ Fresh final verification:
 | `node tools/docs/sync-generated.mjs --check`, `git diff --check` at root | Pass. |
 
 The web suite emits its existing jsdom navigation notice without failures. The package README and this note describe the corrections; canonical platform documentation has no additional impact because no package-delivery, host authority, inference, storage, export transport, or receipt contract changed. These are synthetic source-side checks, with the previously recorded installed-app and visual qualification limits still applicable.
+
+
+## No-content-loss invariant — root parser correction
+
+Follow-up base: `80a264b`, branch `fix/rb-render-small-three`, 2026-10-01. Change authority is the owner's request for a test-first deterministic fuzz invariant over the shipped renderer, its source twin, the client paper grammar and PDF extraction. Governing context remains `AGENTS.md`, `docs/developers/README.md`, `docs/developers/catalog.json` (`installed-apps`, `verification`), `docs/developers/integrations/installed-apps.md`, `builds/typescript/app-inference/README.md`, `builds/typescript/app-platform/mcp-host/README.md`, and `docs/developers/verification.md`.
+
+### Invariant design
+
+`test/render-invariant.test.ts` uses a dependency-free xorshift generator with seed `0x5eed0911` and 2,048 synthetic Profiles. Each fragment carries independently authored Markdown and expected display text; the expected text is not stripped with the production parser. The corpus composes regular/strong section headings, heading and plain pipe entries, commas/dashes, bullets, contact labels and whole-field emphasis with trailing parentheses, URL punctuation and underscores, emails, single/multiple-backtick code, single/double/triple and nested star/underscore emphasis, snake_case, literal C*, gap markers, and malformed/unbalanced delimiter runs. Ambiguous inputs have literal expected text; valid grammar construction avoids treating an ambiguous trailing literal star as an authored closing delimiter.
+
+Each case asserts complete ordered equality with the expected logical text through the client `paper-inline-markdown.ts`, equality of shipped/source Resume Markdown, deterministic generation and repeat Resume/PDF output for each planner, literal URL/email/code payload preservation, and independent real `pdftotext -layout` equality for both PDFs (4,096 extractions). Template presentation is explicit in the oracle: contact labels and structural separators are layout, section headings use uppercase, and bullets use the PDF glyph. The inline payload checks compare exact characters; PDF logical text normalizes layout whitespace, including source spaces replaced by wrapped lines. Code-looking balanced delimiters remain literal when inside code. Poppler is required; this suite has no fallback that silently weakens PDF verification. All temporary PDFs are removed.
+
+The failure reducer removes Profile lines and then character chunks down to individual characters while retaining its failure predicate. Content-loss failures retain the missing payload; residual-marker failures mask authored literals; PDF failures retain paper/extraction inequality. A separate test verifies the reducer. Reduced discoveries remain as named regressions, together with the owner's four review cases. Existing mounted P1/P2 tests verify the actual Your Resume component against all four shipped/source PDFs.
+
+### Findings and correction
+
+The initial test-first run reproduced lost emphasized fields with trailing text, broken emphasis across pipe splits, code pipes treated as structural separators, URL closing markers consumed before punctuation, and the comma-form experience gate false negative. Early generated cases additionally found multi-backtick code broken at pipes, nested URL delimiter tails, ambiguous partial runs relocating a literal star, and an ambiguous Name label dropping its value. Real PDF extraction found a long header clipped at the page edge. Extending the grammar found block-normalization heuristics rewriting code/paired emphasis that resembled dates, bullets or headings. Coverage of plain pipe titles also reproduced renderer-added emphasis turning C* into ambiguous markup. Keeping ambiguous pipe lines intact exposed an export gate that rejected substantive heading-only entries.
+
+The canonical scanner now records matched delimiter source positions and protected code/address positions. Contact values are sliced with complete enclosing emphasis and trailing content, and unclassified/empty/duplicate contact lines are preserved. Pipe splitting uses the same source positions, ignores code/address pipes, and balances enclosing emphasis in each resulting field. If emphasis is unfinished or partially matched, the original pipe line remains intact. Partially consumed delimiter runs and their connected matches render literally. URL protection uses currently open delimiter runs, preserving nested closing syntax before punctuation and preventing earlier closed emphasis from changing later URL payloads. Pipe title styling uses an entry heading instead of injecting more emphasis characters.
+
+Authored multiline block boundaries are preserved. Legacy flattened-input repair protects code, addresses and balanced emphasis with collision-free internal placeholders. Long PDF headers fit within the page width without clipping. Comma-form entry headings satisfy Experience; empty and gap-only headings remain rejected, and a substantive entry heading can be exported without a paragraph body. Source and standalone shipped implementations are paired; `scripts/sync-inline-markdown.mjs --check` rejects grammar drift. No dependency, provider, Profile-write, host authority, inference, persistence or export-transport change is introduced.
+
+Review Notes and extra-section classification/placement are unchanged. Existing section-order and P1/P2 regressions remain the authority for that boundary. Canonical platform documentation has no contract impact: these changes remain app-owned parsing, readiness and artifact rendering. The package README describes the behavior and Poppler test prerequisite.
+
+### Final verification
+
+Fresh checks used Node 22.23.3 and Poppler 26.03.0. The trailing-punctuation corpus also includes Unicode punctuation (curly quotes, ellipsis and dashes); the Unicode quote regression failed before the scanner switched from an ASCII suffix list to the same Unicode punctuation classes used for delimiter flanking.
+
+| Check | Result |
+|---|---|
+| `npm test` in `builds/resume_builder` | Pass: **12 files / 308 tests**, including the 2,048-case invariant run, 4,096 real PDF extractions, reducer coverage and named regressions. |
+| `npm run build` in `builds/resume_builder` | Pass. |
+| `npm run web:typecheck`, `npm run web:test`, `npm run web:build` in `builds/typescript` | Pass: **28 files / 348 web tests**, typecheck and production build. |
+| P1/P2 mounted Your Resume parity | Pass: all four shipped/source PDFs match the rendered component's whitespace-normalized logical text with real `pdftotext -layout`; section order and Review Notes/extra placement assertions pass. |
+| `npm run web:lint` in `builds/typescript` | Pass. |
+| `npm run docs:verify` / `npm run docs:check` in `builds/typescript` | Pass: **166 tests / 1 skipped / 0 failures**, **269 candidates / 0 diagnostics**. |
+| `node tools/docs/sync-generated.mjs --check`, `node builds/resume_builder/scripts/sync-inline-markdown.mjs --check`, `git diff --check` | Pass. |
+| `tools/security/scan-secrets.sh --current` with pinned local Gitleaks 8.30.1 | Pass: zero findings. |
+
+The web build retains its existing unresolved font URL and large-chunk warnings; the web suite retains its jsdom navigation notice without failures. A prior full run passed all invariant cases but failed the existing exact-Markdown title assertion; that assertion now expects an entry heading, and the final full suite passes. No dependencies or lockfiles changed. These are synthetic local verification results, not installed-app or visual qualification; the previously recorded live boundary remains unchanged.

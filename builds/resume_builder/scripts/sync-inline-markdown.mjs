@@ -7,7 +7,7 @@ const shippedPath = new URL("../resources/inference-program.js", import.meta.url
 const source = readFileSync(sourcePath, "utf8");
 const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-}).outputText.replace("export function parseInlineMarkdown", "function parseInlineMarkdown").trim();
+}).outputText.replaceAll("export function ", "function ").trim();
 const shipped = readFileSync(shippedPath, "utf8");
 if ((shipped.match(/\/\/ inline-markdown:start/g) ?? []).length !== 1
   || (shipped.match(/\/\/ inline-markdown:end/g) ?? []).length !== 1) {

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 
-import { parseInlineMarkdown } from "./inline-markdown.js";
+import { parseInlineMarkdown, sliceInlineMarkdown, splitInlineMarkdownPipes, mapInlineMarkdownPlainText } from "./inline-markdown.js";
 
 import { INTERVIEW_TOPICS, type DurableWorkflowSnapshot, type InterviewTopic } from "./workflow.js";
 
@@ -711,7 +711,7 @@ function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): bool
       } else {
         // A title with an employer is an entry even when its details are all on this line.
         const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
-        if (title.split(/\s*\|\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
+        if (title.split(/\s*\|\s*|\s*,\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
       }
       continue;
     }
@@ -814,6 +814,7 @@ type ResumeContact = {
   location?: string;
   email?: string;
   phone?: string;
+  extra: string[];
 };
 
 const GENERIC_PROFILE_HEADINGS = /^(?:resume|resume\s+profile|profile)$/i;
@@ -837,7 +838,8 @@ function renderResumeTemplateStandard(profileMarkdown: string): string {
   if (name) lines.push(`# ${name}`);
   const contactLine = [contact.location, contact.email, contact.phone].filter((value): value is string => Boolean(value)).join("  \u00b7  ");
   if (contactLine) lines.push(contactLine);
-  if (name || contactLine) lines.push("");
+  lines.push(...contact.extra);
+  if (name || contactLine || contact.extra.length) lines.push("");
 
   appendResumeTemplateSection(lines, "Professional Summary", parsed.summary?.lines ?? []);
   appendResumeExperienceSection(lines, parsed.experience?.lines ?? []);
@@ -912,27 +914,30 @@ function parseResumeProfileSections(markdown: string): {
 }
 
 function parseResumeField(rawLine: string): { key: string; value: string } | null {
-  // Move whole-field emphasis onto the value; parse that value only at final display.
-  // Label-only emphasis is removed without touching code or nested value markup.
-  const line = rawLine.trim().replace(/^(\*{1,3}|_{1,3})([^:*_`]+):\1\s*/, "$2: ");
-  const whole = /^(\*{1,3}|_{1,3})([^:*_`]+):\s*(.+)\1$/.exec(line);
-  const normalized = whole ? `${whole[2]}: ${whole[1]}${whole[3]}${whole[1]}`
-    : line;
-  const match = /^([^:]+?):\s*(.*)$/.exec(normalized);
-  return match ? { key: stripResumeInlineMarkup(match[1]).toLowerCase(), value: match[2].trim() } : null;
+  // Classify the label using the complete line's matched delimiters, then
+  // slice its value without breaking emphasis that encloses label and value.
+  const line = rawLine.trim();
+  const colon = line.indexOf(":");
+  if (colon < 0) return null;
+  const key = stripResumeInlineMarkup(sliceInlineMarkdown(line, 0, colon)).toLowerCase();
+  let start = colon + 1;
+  while (start < line.length && /\s/.test(line[start])) start += 1;
+  return { key, value: sliceInlineMarkdown(line, start).trim() };
 }
 
 function parseResumeContact(lines: readonly string[]): ResumeContact {
-  const contact: ResumeContact = {};
+  const contact: ResumeContact = { extra: [] };
   for (const rawLine of lines) {
     const field = parseResumeField(rawLine.replace(/^\s*[-*+]\s+/, ""));
-    if (!field) continue;
-    const { key, value } = field;
-    if (!value) continue;
-    if (key === "name" || key === "full name") contact.name ??= value;
-    else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
-    else if (key === "email" || key === "email address") contact.email ??= value;
-    else if (key === "phone" || key === "phone number") contact.phone ??= value;
+    if (!rawLine.trim()) continue;
+    const slot = field && (field.key === "name" || field.key === "full name" ? "name"
+      : field.key === "location" || field.key === "city" || field.key === "city, state" ? "location"
+      : field.key === "email" || field.key === "email address" ? "email"
+      : field.key === "phone" || field.key === "phone number" ? "phone" : null);
+    // Unrecognized, ambiguous, empty and duplicate fields still contain Profile
+    // text. Keep them verbatim instead of silently discarding the entire line.
+    if (slot && field.value && !contact[slot]) contact[slot] = field.value;
+    else contact.extra.push(rawLine);
   }
   return contact;
 }
@@ -957,9 +962,9 @@ function appendResumeExperienceSection(lines: string[], rawLines: readonly strin
       continue;
     }
     const heading = /^(#{3,6})\s+(.+)$/.exec(line);
-    const parts = (heading?.[2] ?? line).split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    const parts = splitInlineMarkdownPipes(heading?.[2] ?? line);
     if (parts.length >= 2) {
-      const title = heading ? `### ${parts[0]}` : (parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`);
+      const title = `### ${parts[0]}`;
       const metadata = parts.slice(1).join("  \u00b7  ");
       lines.push(title, metadata);
     } else {
@@ -976,7 +981,7 @@ function appendResumeEducationSection(lines: string[], rawLines: readonly string
   for (const line of content) {
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     const value = bullet?.[1] ?? line;
-    const parts = value.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    const parts = splitInlineMarkdownPipes(value);
     if (parts.length >= 3) lines.push(`${parts[0]}, ${parts[1]} \u2014 ${parts.slice(2).join(" | ")}`);
     else lines.push(value);
   }
@@ -989,8 +994,11 @@ function stripResumeInlineMarkup(value: string): string {
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
 
 function normalizeResumeMarkdown(markdown: string): string {
+  // Authored lines already define block boundaries. Only repair legacy flattened
+  // input, and keep all inline syntax and literal payload outside those repairs.
+  if (/\r?\n/.test(markdown)) return markdown.trim();
   const dateTrailingBulletPattern = new RegExp(String.raw`\b(${DATE_ENDPOINT_PATTERN})\s+([-*+]\s+)(?!(?:${DATE_ENDPOINT_PATTERN})\b)`, "gi");
-  return markdown
+  return mapInlineMarkdownPlainText(markdown, (text) => text
     .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
     .replace(/(^|\n)(#{2,6}\s+[A-Za-z][A-Za-z0-9 &/().,:]{0,80})\s+([-*+]\s+)/g, "$1$2\n$3")
     .replace(dateTrailingBulletPattern, "$1\n$2")
@@ -998,7 +1006,7 @@ function normalizeResumeMarkdown(markdown: string): string {
     .replace(/\n[ \t]+((?:[-*+]|\d+[.)])\s+)/g, "\n$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .trim());
 }
 
 function currentDocumentText(request: ResumeActionPlanRequest, documentId: string): string | null {
@@ -1013,7 +1021,7 @@ function isExportableResumeMarkdown(markdown: string | null): markdown is string
   if (lines.length < 2) return false;
   if (lines.length === 1 && /^#\s*resume\s*$/i.test(lines[0] ?? "")) return false;
   return lines.some((line) => /^#{2,6}\s+\S/.test(line))
-    && lines.some((line) => !/^#{1,6}\s+\S/.test(line));
+    && lines.some((line) => !/^#{1,6}\s+\S/.test(line) || /^#{3,6}\s+\S/.test(line));
 }
 
 function normalizePdfFilename(value?: string): string {
@@ -1241,7 +1249,8 @@ function renderPdfPages(blocks: PdfBlock[], fontUsage: PdfFontUsage): string[] {
       if (block.depth === 1) {
         ensure(38);
         const text = runsPlainText(block.runs);
-        const fontSize = 22;
+        // Fit the complete header on the page, including long literal URLs/code.
+        const fontSize = Math.min(22, 22 * contentWidth / Math.max(1, textWidth(text, 22, true)));
         commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
         y -= 30;
       } else if (block.depth > 2) {
