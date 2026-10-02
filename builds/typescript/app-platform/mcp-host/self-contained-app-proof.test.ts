@@ -83,6 +83,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         action_id: "resume.profile.read",
       });
       const result = await new ToolExecutor(model.tools).execute(ownerAuth, toolContext(), toolName, { action_input: {} });
+      expect(result.provenance).toEqual({ source: "installed_app_action", app_id: "ai.braindrive.resume-builder", action_id: "resume.profile.read" });
       expect(result).toMatchObject({ status: "ok", output: { result: { record: { content: profile } } } });
       const content = JSON.stringify({ status: result.status, output: result.output });
       expect(content.length).toBeGreaterThan(11_000);
@@ -93,7 +94,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
         messages: [
           { role: "system", content: "Host instructions." + model.prompt_context },
           { role: "assistant", content: "", tool_calls: [{ id: "profile-read", name: toolName, input: { action_input: {} } }] },
-          { role: "tool", tool_call_id: "profile-read", content },
+          { role: "tool", tool_call_id: "profile-read", content, provenance: result.provenance },
           { role: "user", content: "Continue using the whole Profile." },
         ],
         tools: model.tools,

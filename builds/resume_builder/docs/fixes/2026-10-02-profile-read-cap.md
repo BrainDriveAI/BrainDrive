@@ -8,13 +8,13 @@ Repository context selection: `AGENTS.md`, `docs/AGENTS.md`, `docs/developers/RE
 
 ## Identity and scope
 
-`app-platform/mcp-host/app-chat-model.ts` builds descriptor tools with host-created `auditMetadata`: source `installed_app_action`, app ID, and exact action ID. `gateway/server.ts` supplies the authorized request tool definitions to context preparation. `engine/loop.ts` pairs results with `tool_call_id`; `gateway/conversations.ts` persists the call name/input and reconstructs assistant/tool blocks for replay.
+`app-platform/mcp-host/app-chat-model.ts` builds descriptor tools with host-created `auditMetadata`: source `installed_app_action`, app ID, and exact action ID. The review follow-up records those three fields as execution provenance in `engine/tool-executor.ts`, passes them through the engine result event, and persists them separately from output in `gateway/conversations.ts`. Replay restores that host record on the tool message.
 
-`gateway/context-window.ts` resolves result IDs within their preceding assistant tool-call block against the supplied definitions. Only metadata identifying `ai.braindrive.resume-builder` / `resume.profile.read` selects 24,000 characters. A matching display name, a different app's identically named action, another Resume Builder action, or Profile-like result text cannot select the exception. Unmatched results retain 4,000 characters.
+`gateway/context-window.ts` requires a matching preceding assistant call ID and recorded execution provenance identifying `ai.braindrive.resume-builder` / `resume.profile.read`. It never reclassifies history from the current registry or a tool name. Model input and tool output cannot set the record. Legacy calls lacking provenance retain 4,000 characters; their app identity cannot safely be recovered. Genuine reads recorded with provenance retain the 24,000 cap even when the current registry changes.
 
-The cap covers the complete serialized tool-result message, including its envelope. Above 24,000, the original middle-truncation marker and head/tail split apply. User, assistant, ordinary system, and other tool caps, trusted instruction handling from PR 328, token accounting, selection order, summaries, and aggressive budget fallback remain unchanged. Overall budget pressure can still trim or evict a Profile-read block. Fresh engine results remain subject to the existing engine behavior; this patch changes gateway context preparation only. No general per-tool declared result-size mechanism is introduced.
+The cap covers the complete serialized tool-result message, including its envelope. Above 24,000, the original middle-truncation marker and head/tail split apply. User, assistant, ordinary system, and other tool caps, trusted instruction handling from PR 328, token accounting, selection order, summaries, and aggressive budget fallback remain unchanged. Overall budget pressure can still trim or evict a Profile-read block. Fresh engine results retain their existing content behavior; the cap change applies only to gateway replay. Execution provenance is host bookkeeping and is omitted from client SSE and model result content. No general per-tool declared result-size mechanism is introduced.
 
-Canonical documentation impact is the gateway context-preparation paragraph. The Resume Builder README links this note, and the catalog classifies it as internal evidence. The app-chat bridge already supplies the required metadata, so its implementation and contract need no change. No prompt, inference, provider, document storage, renderer, or packaging behavior changes.
+Canonical documentation impact is the gateway context-preparation paragraph. The Resume Builder README links this note, and the catalog classifies it as internal evidence. The app-chat bridge already supplies the required metadata, so its implementation and contract need no change. The engine request-flow documentation needs no change: execution, approvals, and SSE/persistence order are unchanged; the additive provenance is internal host bookkeeping, and the canonical gateway paragraph documents its cap effect. No prompt, inference, provider, document storage, renderer, or packaging behavior changes.
 
 ## Regressions and verification
 
@@ -41,3 +41,20 @@ Verification environment: Darwin arm64, Node `v20.20.2`, npm `10.8.2`; branch `f
 The initial sandboxed focused run had 240 passes / 11 failures: all 10 live-fixture tests failed with `listen EPERM: operation not permitted 127.0.0.1`, and the added bridge test initially wrote before lazily initializing its Profile document (HTTP 409). The test now reads the document first, matching the existing fixture pattern. The rerun with synthetic loopback fixture access passed all 251 tests; the full runtime suite also passed. The bridge source-boundary proof remains unchanged and passes.
 
 All checks use synthetic local fixtures. No live owner/provider conversation or push was performed. These results do not replace fresh-owner live validation. The existing overall context-budget fallback still applies, and 24,000 characters includes the result envelope.
+
+## Review follow-up: trusted call provenance
+
+The original name-to-current-definition match could expand an unrelated historical MCP result after entering Resume Builder app chat. The replacement binds the cap to the host execution record. Added durable regressions execute both `app_action_resume_profile_read` and `resume_profile_read` through the engine, reload their conversation from disk, and verify spoofed history stays at 4,000 beside a genuine current definition while a genuine earlier read clips at 24,000. They also prove forged input/output provenance and removal of the current definition do not change these decisions. The installed-app proof checks the real descriptor action's host-stamped provenance.
+
+Follow-up verification on parent `7b2d8a9` (11 changed files; four added regression cases). Earlier results above apply to the original patch only.
+
+| Working directory | Exact command | Result |
+|---|---|---|
+| `builds/typescript` | `npm test -- gateway app-platform/mcp-host/app-chat-session.test.ts app-platform/mcp-host/self-contained-app-proof.test.ts app-platform/mcp-host/live-fixture.integration.test.ts --maxWorkers=2` | 16 files / 238 tests passed |
+| `builds/typescript` | `npm test -- --maxWorkers=2` | 157 files / 1,489 tests passed |
+| `builds/typescript` | `npx tsc -p tsconfig.json --noEmit`; `npm run lint`; `npm run build` | All passed |
+| `builds/typescript` | `npm run docs:verify` | 166 passed / 1 skipped / 0 failures; 275 scoped candidates / 0 diagnostics |
+| `builds/resume_builder` | `npm test -- --maxWorkers=2 --pool=threads --reporter=verbose` | 12 files / 342 tests passed, including the complete generated Profile/PDF corpus |
+| Repository root | `node tools/docs/sync-generated.mjs --check`; `git diff --check` | Both passed |
+
+The initial focused sandbox run had 228 passes / 10 loopback `listen EPERM` failures; the authorized fixture-access rerun passed all 238. Earlier Resume Builder fork-mode attempts were interrupted without a terminal result; the complete thread-pool run passed in 220 seconds. No dependency or lockfile changes were made. Legacy provenance is deliberately not inferred or backfilled.

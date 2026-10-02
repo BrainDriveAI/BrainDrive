@@ -37,13 +37,15 @@ describe("context window manager", () => {
   it.each([
     { label: "11k Profile read", size: 11_000, cap: 24_000, name: "app_action_resume_profile_read", metadata: profileReadMetadata, paired: true },
     { label: "30k Profile read", size: 30_000, cap: 24_000, name: "app_action_resume_profile_read", metadata: profileReadMetadata, paired: true },
+    { label: "historical spoof beside genuine current definition", size: 11_000, cap: 4_000, name: "app_action_resume_profile_read", metadata: undefined, paired: true },
+    { label: "historical short-name spoof beside genuine current definition", size: 11_000, cap: 4_000, name: "resume_profile_read", metadata: undefined, paired: true },
     { label: "unrelated tool with identical text", size: 11_000, cap: 4_000, name: "memory_read", metadata: undefined, paired: true },
     { label: "spoofed tool name", size: 11_000, cap: 4_000, name: "app_action_resume_profile_read", metadata: undefined, paired: true },
     { label: "same action from another app", size: 11_000, cap: 4_000, name: "app_action_resume_profile_read", metadata: { ...profileReadMetadata, app_id: "ai.example.other-app" }, paired: true },
     { label: "another Resume Builder action", size: 11_000, cap: 4_000, name: "app_action_resume_state_read", metadata: { ...profileReadMetadata, action_id: "resume.state.read" }, paired: true },
     { label: "non-app tool source", size: 11_000, cap: 4_000, name: "app_action_resume_profile_read", metadata: { ...profileReadMetadata, source: "mcp" }, paired: true },
     { label: "unmatched result ID", size: 11_000, cap: 4_000, name: "app_action_resume_profile_read", metadata: profileReadMetadata, paired: false },
-  ])("bounds $label by registered action identity", async ({ size, cap, name, metadata, paired }) => {
+  ])("bounds $label by executed action provenance", async ({ size, cap, name, metadata, paired }) => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-context-window-"));
     try {
       // Identical Profile-like text cannot confer the exception on another tool.
@@ -51,11 +53,11 @@ describe("context window manager", () => {
       const tool = { ...createTool(name), auditMetadata: metadata };
       const prepared = await prepareContextWindow({
         memoryRoot, conversationId: "conv-profile", correlationId: "corr-profile",
-        tools: [tool],
+        tools: [tool, { ...createTool(name), auditMetadata: profileReadMetadata }],
         messages: [
           { role: "system", content: "Host instructions." },
           { role: "assistant", content: "", tool_calls: [{ id: "profile-read", name, input: {} }] },
-          { role: "tool", tool_call_id: paired ? "profile-read" : "other-read", content },
+          { role: "tool", tool_call_id: paired ? "profile-read" : "other-read", content, provenance: metadata },
         ],
         settings: { contextWindowTokens: 128_000, responseHeadroomTokens: 8_000 },
       });

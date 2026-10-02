@@ -121,21 +121,19 @@ export async function prepareContextWindow(input: PrepareContextWindowInput): Pr
   while (instructionCount < requestedInstructionCount && input.messages[instructionCount]?.role === "system") {
     instructionCount += 1;
   }
-  // Only host-created installed-app metadata identifies a Profile read.
-  // A tool name or result body alone cannot opt into the larger cap.
-  const profileReadToolNames = new Set(input.tools.filter((tool) =>
-    tool.auditMetadata?.source === "installed_app_action"
-    && tool.auditMetadata?.app_id === "ai.braindrive.resume-builder"
-    && tool.auditMetadata?.action_id === "resume.profile.read"
-  ).map((tool) => tool.name));
-  let profileReadCallIds = new Set<string>();
+  // Bind history to the identity recorded by the host at execution, never
+  // to today's registry: an unrelated tool could have used the same name.
+  let precedingCallIds = new Set<string>();
   const boundedMessages = input.messages.map((message, index) => {
     if (message.role !== "tool") {
-      profileReadCallIds = new Set(message.role === "assistant"
-        ? (message.tool_calls ?? []).filter((call) => profileReadToolNames.has(call.name)).map((call) => call.id)
+      precedingCallIds = new Set(message.role === "assistant"
+        ? (message.tool_calls ?? []).map((call) => call.id)
         : []);
     }
-    const maxChars = message.role === "tool" && message.tool_call_id && profileReadCallIds.has(message.tool_call_id)
+    const maxChars = message.role === "tool" && message.tool_call_id && precedingCallIds.has(message.tool_call_id)
+      && message.provenance?.source === "installed_app_action"
+      && message.provenance.app_id === "ai.braindrive.resume-builder"
+      && message.provenance.action_id === "resume.profile.read"
       ? RESUME_PROFILE_READ_MAX_CHARS
       : MAX_CONTENT_CHARS[message.role];
     return index < instructionCount ? message : boundedMessage(message, maxChars);

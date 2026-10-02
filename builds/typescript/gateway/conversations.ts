@@ -1,4 +1,4 @@
-import type { ClientMessageRequest, ConversationDetail, ConversationMessage, GatewayMessage } from "../contracts.js";
+import type { ClientMessageRequest, ConversationDetail, ConversationMessage, GatewayMessage, ToolProvenance } from "../contracts.js";
 import { auditLog } from "../logger.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 
@@ -117,12 +117,13 @@ export class GatewayConversationService {
     conversationId: string,
     messageId: string,
     content: string,
-    toolCall?: StoredToolCall
+    toolCall?: StoredToolCall,
+    provenance?: ToolProvenance
   ): void {
     const message: ConversationMessage = {
       id: messageId,
       role: "tool",
-      content: serializeToolMessage(content, toolCall),
+      content: serializeToolMessage(content, toolCall, provenance),
       timestamp: new Date().toISOString(),
     };
     this.store.appendMessage(conversationId, message);
@@ -187,6 +188,7 @@ export class GatewayConversationService {
             role: "tool",
             content: extractToolOutputPayload(toolMessage.content),
             tool_call_id: toolMessage.id,
+            ...storedToolProvenance(toolMessage.content),
           });
         }
 
@@ -298,7 +300,7 @@ function collectToolCallsFromBlock(
   return calls;
 }
 
-function serializeToolMessage(content: string, toolCall?: StoredToolCall): string {
+function serializeToolMessage(content: string, toolCall?: StoredToolCall, provenance?: ToolProvenance): string {
   if (!toolCall) {
     return content;
   }
@@ -308,13 +310,24 @@ function serializeToolMessage(content: string, toolCall?: StoredToolCall): strin
     return content;
   }
 
+  const payload = { ...(parsed as Record<string, unknown>) };
+  delete payload.provenance;
   return JSON.stringify({
-    ...(parsed as Record<string, unknown>),
+    ...payload,
+    ...(provenance ? { provenance } : {}),
     call: {
       name: toolCall.name,
       input: toolCall.input,
     },
   });
+}
+
+function storedToolProvenance(content: string): { provenance?: ToolProvenance } {
+  const parsed = tryParseJson(content) as { provenance?: Partial<ToolProvenance> } | null;
+  const provenance = parsed?.provenance;
+  if (provenance?.source !== "installed_app_action"
+    || typeof provenance.app_id !== "string" || typeof provenance.action_id !== "string") return {};
+  return { provenance: { source: provenance.source, app_id: provenance.app_id, action_id: provenance.action_id } };
 }
 
 function extractToolOutputPayload(content: string): string {
