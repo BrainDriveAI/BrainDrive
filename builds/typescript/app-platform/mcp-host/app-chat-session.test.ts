@@ -479,6 +479,7 @@ async function buildSyntheticActionExecutor(input: {
     viewId: randomUUID(),
     operationId: randomUUID(),
     sessionGeneration: 1,
+    contextRevoked: false,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   };
@@ -845,6 +846,7 @@ describe("app-chat workspace session authority", () => {
       viewId: randomUUID(),
       operationId: randomUUID(),
       sessionGeneration: 1,
+      contextRevoked: false,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
@@ -965,6 +967,7 @@ describe("app-chat workspace session authority", () => {
       viewId: randomUUID(),
       operationId: randomUUID(),
       sessionGeneration: 1,
+      contextRevoked: false,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
@@ -1108,6 +1111,42 @@ describe("app-chat workspace session authority", () => {
       { context_id: "owner.profile", kind: "owner_profile", state: "unavailable", required: false, reason: "unsupported", included: false },
     ]);
     expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(2);
+  });
+
+  it("revokes chat context without closing the conversation session", async () => {
+    const router = fakeRouter({ sources: [{ reference: "career-context", state: "present", label: "Synthetic Career Profile" }] });
+    const { host } = await setup({
+      router,
+      contextRequests: [{
+        context_version: 1,
+        context_id: "career.resume",
+        kind: "career_context",
+        title: "Career Context",
+        description: "Bounded Career context for resume work.",
+        required: false,
+        max_bytes: 65_536,
+        freshness_policy: "session_snapshot",
+        required_capabilities: [{ name: "career.context.read", version: 1 }],
+      }],
+    });
+
+    const launch = await host.launchChatWorkspace();
+    await expect(host.revokeChatWorkspaceContext(launch.session.session_id)).resolves.toEqual({ revoked: true, context_revoked: true });
+    await expect(host.readChatWorkspaceSession(launch.session.session_id)).resolves.toMatchObject({ session_id: launch.session.session_id });
+
+    const model = await host.buildChatWorkspaceModelContext(metadataFor(launch));
+    expect(model.prompt_context).toContain("career.resume: career_context unavailable (not_granted)");
+    expect(model.prompt_context).not.toContain("Synthetic Career Profile");
+    expect(model.evidence.contexts).toEqual([{
+      context_id: "career.resume",
+      kind: "career_context",
+      state: "unavailable",
+      required: false,
+      reason: "not_granted",
+      included: false,
+    }]);
+    expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(1);
+    await expect(host.revokeChatWorkspaceContext(launch.session.session_id)).resolves.toEqual({ revoked: false, context_revoked: true });
   });
 
   it("projects app-declared empty-state metadata in the workspace launch DTO", async () => {
@@ -1491,6 +1530,7 @@ describe("app-chat workspace session authority", () => {
       viewId: randomUUID(),
       operationId: randomUUID(),
       sessionGeneration: 1,
+      contextRevoked: false,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
@@ -1565,6 +1605,7 @@ describe("app-chat workspace session authority", () => {
       viewId: randomUUID(),
       operationId: randomUUID(),
       sessionGeneration: 1,
+      contextRevoked: false,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
@@ -1698,6 +1739,7 @@ describe("app-chat workspace session authority", () => {
       viewId: randomUUID(),
       operationId: randomUUID(),
       sessionGeneration: 1,
+      contextRevoked: false,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };

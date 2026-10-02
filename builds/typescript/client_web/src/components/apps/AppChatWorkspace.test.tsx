@@ -13,6 +13,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
+import * as gatewayApi from "@/api/gateway-adapter";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, WorkspaceDetail } from "./AppChatWorkspace";
 
 const { chatPanelProps } = vi.hoisted(() => ({
@@ -34,6 +35,14 @@ vi.mock("@/api/auth-adapter", () => ({
     },
   })),
 }));
+
+vi.mock("@/api/gateway-adapter", async () => {
+  const actual = await vi.importActual<typeof import("@/api/gateway-adapter")>("@/api/gateway-adapter");
+  return {
+    ...actual,
+    listConversations: vi.fn(async () => []),
+  };
+});
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
@@ -352,6 +361,7 @@ describe("AppChatWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     chatPanelProps.length = 0;
+    vi.mocked(gatewayApi.listConversations).mockResolvedValue([]);
     window.sessionStorage.clear();
     window.localStorage.clear();
     vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValue({
@@ -450,6 +460,40 @@ describe("AppChatWorkspace", () => {
     await screen.findByText("Conversation transcript");
 
     expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-durable");
+  });
+
+  it("reconciles a stale local pointer to the server's most recently active conversation", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(gatewayApi.listConversations).mockResolvedValue([
+      {
+        id: "conversation-stale",
+        title: "Stale conversation",
+        created_at: "2026-08-26T11:00:00.000Z",
+        updated_at: "2026-08-26T11:01:00.000Z",
+        message_count: 1,
+      },
+      {
+        id: "conversation-latest",
+        title: "Latest conversation",
+        created_at: "2026-08-26T12:00:00.000Z",
+        updated_at: "2026-08-26T12:05:00.000Z",
+        message_count: 2,
+      },
+    ]);
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    const storageKey = await waitFor(() => {
+      const key = chatPanelProps.at(-1)?.draftKey;
+      if (!key) throw new Error("chat storage key not available");
+      return key;
+    });
+    window.localStorage.setItem(storageKey, "conversation-missing");
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await waitFor(() => expect(chatPanelProps.at(-1)?.activeConversationId).toBe("conversation-latest"));
+    expect(window.localStorage.getItem(storageKey)).toBe("conversation-latest");
   });
 
   it("does not reuse a stored app-chat conversation after reinstall changes installation identity", async () => {
@@ -1540,6 +1584,38 @@ describe("AppChatWorkspace", () => {
     ));
   });
 
+  it("lets the owner return later without creating or mutating a resume", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.executeAppChatWorkspaceAction).mockResolvedValueOnce({
+      action_id: "resume.create",
+      operation_id: "00000000-0000-4000-8000-000000000741",
+      idempotency_key: "app-chat-action-00000000-0000-4000-8000-000000000741",
+      result: {
+        result_version: 1,
+        record: {
+          content: {
+            status: "missing_essentials",
+            missing_essentials: [{ label: "Experience details" }],
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="resume-builder" appName="Resume Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(await screen.findByRole("button", { name: "Create resume" }));
+    await user.click(await screen.findByRole("button", { name: "Return later" }));
+
+    expect(screen.queryByRole("button", { name: "Return later" })).not.toBeInTheDocument();
+    expect(appsApi.executeAppChatWorkspaceAction).toHaveBeenCalledTimes(1);
+    expect(appsApi.appendConversationHostMessage).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Resume creation remains paused/)).toBeInTheDocument();
+  });
+
   it("creates a durable host-message conversation for direct Create resume before any chat turn", async () => {
     const current = withDirectResumeActions(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
@@ -1662,6 +1738,10 @@ describe("AppChatWorkspace", () => {
       expect(await screen.findByText("Export PDF could not complete safely.")).toBeInTheDocument();
       expect(anchorClick).not.toHaveBeenCalled();
       expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please export"))).toBe(false);
+      await waitFor(() => expect(appsApi.appendConversationHostMessage).toHaveBeenCalledWith(
+        null,
+        "Owner pressed Export PDF. The action failed safely: Export PDF could not complete safely. No successful export was recorded. Try Export PDF again after reviewing the visible error.",
+      ));
     } finally {
       anchorClick.mockRestore();
     }

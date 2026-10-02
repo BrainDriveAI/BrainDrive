@@ -293,6 +293,15 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
     catch (error) { return sendSafeError(reply, error); }
   });
 
+  app.delete("/apps/:appKey/chat-workspaces/sessions/:sessionId/context/revoke", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.revokeChatWorkspaceContext(parsed.data.sessionId)); }
+    catch (error) { return sendSafeError(reply, error); }
+  });
+
   app.get("/apps/:appKey/chat-workspaces/sessions/:sessionId/documents", async (request, reply) => {
     const selected = resolveHost(request, reply, platform); if (!selected) return;
     if (!authorizeOwner(request, reply)) return;

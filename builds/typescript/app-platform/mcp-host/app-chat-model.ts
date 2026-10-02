@@ -13,7 +13,11 @@ import type { StoredPackage } from "../lifecycle/store.js";
 import type { AppChatContextProjection, AppChatContextProjectionItem, AppChatSessionRecord } from "./app-chat-session.js";
 
 const MAX_RESOURCE_PROMPT_BYTES = 32_768;
-const MAX_SINGLE_RESOURCE_BYTES = 16_384;
+// Resume Builder's owner-editable agent instructions are deliberately larger
+// than the old 16 KiB per-resource bound. Keep the aggregate cap unchanged;
+// this only prevents a valid single resource from being rejected before the
+// model context is assembled.
+const MAX_SINGLE_RESOURCE_BYTES = 20_480;
 
 export const AppChatModelMetadataSchema = z
   .object({

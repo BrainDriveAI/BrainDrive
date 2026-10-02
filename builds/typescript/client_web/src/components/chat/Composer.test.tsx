@@ -90,6 +90,40 @@ describe("Composer", () => {
     expect(screen.getByPlaceholderText("Message your BrainDrive...")).toHaveValue("");
   });
 
+  it("restores a pending send after the session expires", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue("session_expired");
+    const draftKey = "braindrive:test-draft:owner:resume-builder:expiry:composer";
+
+    render(<Composer onSend={onSend} draftKey={draftKey} />);
+    const textarea = screen.getByPlaceholderText("Message your BrainDrive...");
+    await user.type(textarea, "Keep this message after re-authentication");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue("Keep this message after re-authentication");
+    });
+    expect(screen.getByText(/message was restored after session expiry/)).toBeInTheDocument();
+    expect(window.localStorage.getItem(draftKey)).toBe("Keep this message after re-authentication");
+    expect(window.localStorage.getItem(`${draftKey}:pending-send`)).toBeNull();
+  });
+
+  it("does not restore a pending send after a successful response", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue("sent");
+    const draftKey = "braindrive:test-draft:owner:resume-builder:success:composer";
+
+    render(<Composer onSend={onSend} draftKey={draftKey} />);
+    await user.type(screen.getByPlaceholderText("Message your BrainDrive..."), "Send once");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(`${draftKey}:pending-send`)).toBeNull();
+    });
+    expect(screen.getByPlaceholderText("Message your BrainDrive...")).toHaveValue("");
+    expect(screen.queryByText(/message was restored after session expiry/)).not.toBeInTheDocument();
+  });
+
   it("does not restore drafts from another scoped key", async () => {
     const user = userEvent.setup();
     window.localStorage.setItem("braindrive:test-draft:owner-a:resume-builder:composer", "Owner A draft");

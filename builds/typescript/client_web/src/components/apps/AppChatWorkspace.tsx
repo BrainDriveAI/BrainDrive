@@ -3,6 +3,7 @@ import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Pencil, Ref
 
 import { getSession } from "@/api/auth-adapter";
 import { deleteConversation, listConversations } from "@/api/gateway-adapter";
+import { reportOwnerFailure } from "@/api/owner-failure";
 import {
   appendConversationHostMessage,
   closeAppSession,
@@ -62,6 +63,12 @@ type AppChatWorkspaceProps = {
 
 const APP_CHAT_SESSION_HEARTBEAT_MS = 2 * 60_000;
 const APP_CHAT_CONVERSATION_STORAGE_PREFIX = "braindrive:app-chat-conversation:";
+
+function createClientOperationId(prefix: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -292,22 +299,30 @@ export default function AppChatWorkspace({
   useEffect(() => {
     let cancelled = false;
     const storedConversationId = readStoredAppChatConversationId(conversationStorageKey);
-    if (storedConversationId) {
-      setActiveConversationId(storedConversationId);
-      return () => {
-        cancelled = true;
-      };
-    }
 
     void listConversations()
       .then((conversations) => {
-        if (cancelled || conversations.length === 0) return;
-        const latestConversationId = conversations[0]?.id;
-        if (!latestConversationId) return;
-        setActiveConversationId(latestConversationId);
-        writeStoredAppChatConversationId(conversationStorageKey, latestConversationId);
+        if (cancelled) return;
+
+        // The server list is the durable source of truth across profiles/tabs.
+        // Keep a stored pointer only when it still names a known conversation;
+        // otherwise return to the server's most recently active conversation.
+        const storedConversation = storedConversationId
+          ? conversations.find((conversation) => conversation.id === storedConversationId)
+          : undefined;
+        const latestConversation = conversations.reduce<typeof conversations[number] | undefined>(
+          (latest, conversation) => !latest || conversation.updated_at > latest.updated_at ? conversation : latest,
+          undefined,
+        );
+        const selectedConversationId = storedConversation?.id ?? latestConversation?.id ?? storedConversationId;
+        if (!selectedConversationId) return;
+        setActiveConversationId(selectedConversationId);
+        writeStoredAppChatConversationId(conversationStorageKey, selectedConversationId);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // Preserve a previously durable pointer during a transient list failure.
+        if (!cancelled && storedConversationId) setActiveConversationId(storedConversationId);
+      });
 
     return () => {
       cancelled = true;
@@ -999,6 +1014,10 @@ export function WorkspaceDetail({
   const draftStateRef = useRef({ documentId: "", content: "", baseline: "" });
   const resourceRef = useRef(packageResource);
   const resumeCreateActionRef = useRef<Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> | null>(null);
+  const retryActionRef = useRef<{
+    action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>;
+    input?: Record<string, unknown>;
+  } | null>(null);
   const documentRecord = documentResult?.record ?? null;
   const mediaType = documentRecord?.media_type ?? "text/markdown";
   const renderer = presentation?.renderer ?? (mediaType === "application/json" ? "json_editor" : "plain_text");
@@ -1237,6 +1256,8 @@ export function WorkspaceDetail({
     if (action.action_id === "resume.create") {
       resumeCreateActionRef.current = action;
     }
+    retryActionRef.current = null;
+    const operationId = createClientOperationId("app-action");
     const isExportAction = action.action_id.toLowerCase().includes("export");
     setRunningActionId(action.action_id);
     setDocumentError(null);
@@ -1257,6 +1278,7 @@ export function WorkspaceDetail({
         return;
       }
       setMissingResumeEssentials(null);
+      retryActionRef.current = null;
       const exportResult = await onDirectActionResult(result);
       if (isExportAction && exportResult === "ignored") throw new Error("export_result_missing");
       if (exportResult === "cancelled") {
@@ -1279,11 +1301,21 @@ export function WorkspaceDetail({
       if (error instanceof AppDocumentError) {
         setDocumentError(error.safeMessage);
         setCurrentRevisionHint(error.currentRevision);
-        setDocumentRetryable(error.retryable);
+        setDocumentRetryable(true);
       } else {
         setDocumentError(`${action.label} could not complete safely.`);
-        setDocumentRetryable(false);
+        setDocumentRetryable(true);
       }
+      retryActionRef.current = { action, ...(actionInputOverride ? { input: actionInputOverride } : {}) };
+      const report = reportOwnerFailure({
+        operationId,
+        surface: isExportAction ? "export" : "render",
+        operation: action.action_id,
+        safeMessage: `${action.label} could not complete safely.`,
+        failureCode: error instanceof AppDocumentError ? error.code : "app_action_failure",
+      });
+      void report?.catch(() => undefined);
+      onDirectActionComplete(buildDirectActionFailureHostMessage(action, error));
     } finally {
       setRunningActionId(null);
     }
@@ -1443,7 +1475,14 @@ export function WorkspaceDetail({
                   variant="ghost"
                   size="sm"
                   className="mt-2"
-                  onClick={() => void loadDocument("owner_reload")}
+                  onClick={() => {
+                    const retryAction = retryActionRef.current;
+                    if (retryAction) {
+                      void executeDirectHeaderAction(retryAction.action, retryAction.input);
+                    } else {
+                      void loadDocument("owner_reload");
+                    }
+                  }}
                   disabled={documentStatus === "loading" || documentStatus === "saving"}
                 >
                   Retry
@@ -1464,36 +1503,55 @@ export function WorkspaceDetail({
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   {missingResumeEssentials.missing_essentials.map((item, index) => <li key={index}>{item.label}</li>)}
                 </ul>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="mt-3"
-                  disabled={runningActionId !== null}
-                  onClick={() => {
-                    setMissingResumeEssentials(null);
-                    setDocumentError(null);
-                    if (boundDocument && editable) setIsEditing(true);
-                    else onOpenWorkspaceItem("resume.profile");
-                  }}
-                >
-                  Edit the Profile
-                </Button>
-                <Button type="button" variant="ghost" size="sm" className="mt-3" disabled={runningActionId !== null} onClick={onBackToChat}>
-                  Return to chat
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="mt-3 gap-2"
-                  disabled={runningActionId !== null}
-                  onClick={() => {
-                    const createAction = presentation?.header_actions.find((candidate): candidate is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => candidate.type === "app_action" && candidate.delivery === "direct_action" && candidate.action_id === "resume.create") ?? resumeCreateActionRef.current;
-                    if (createAction) void executeDirectHeaderAction(createAction, { ...(createAction.action_input ?? {}), missing_essential_disposition: "proceed_with_limitations" });
-                  }}
-                >
-                  Proceed with limitations
-                </Button>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={runningActionId !== null}
+                    onClick={() => {
+                      setMissingResumeEssentials(null);
+                      setDocumentError(null);
+                      if (boundDocument && editable) setIsEditing(true);
+                      else onOpenWorkspaceItem("resume.profile");
+                    }}
+                  >
+                    Edit the Profile
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={runningActionId !== null}
+                    onClick={onBackToChat}
+                  >
+                    Return to chat
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setMissingResumeEssentials(null);
+                      setDocumentError(null);
+                      setDocumentNotice("Resume creation remains paused. You can return when you're ready.");
+                    }}
+                  >
+                    Return later
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-2"
+                    disabled={runningActionId !== null}
+                    onClick={() => {
+                      const createAction = presentation?.header_actions.find((candidate): candidate is Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }> => candidate.type === "app_action" && candidate.delivery === "direct_action" && candidate.action_id === "resume.create") ?? resumeCreateActionRef.current;
+                      if (createAction) void executeDirectHeaderAction(createAction, { ...(createAction.action_input ?? {}), missing_essential_disposition: "proceed_with_limitations" });
+                    }}
+                  >
+                    Proceed with limitations
+                  </Button>
+                </div>
               </div>
             ) : null}
 
@@ -1703,6 +1761,17 @@ function buildDirectActionHostMessage(
       : `Owner pressed Export PDF. Downloaded ${label} through the browser.`;
   }
   return `Owner pressed ${action.label}. ${action.label} completed.`;
+}
+
+function buildDirectActionFailureHostMessage(
+  action: Extract<AppWorkspaceDocumentHeaderAction, { type: "app_action"; delivery: "direct_action" }>,
+  error: unknown,
+): string {
+  const safeReason = error instanceof AppDocumentError ? error.safeMessage : `${action.label} could not complete safely.`;
+  const nextStep = action.action_id.toLowerCase().includes("export")
+    ? "No successful export was recorded. Try Export PDF again after reviewing the visible error."
+    : "Your saved work was not replaced. Review the visible error and try the action again.";
+  return `Owner pressed ${action.label}. The action failed safely: ${safeReason} ${nextStep}`;
 }
 
 function extractMissingResumeEssentials(result: unknown): MissingResumeEssentials | null {

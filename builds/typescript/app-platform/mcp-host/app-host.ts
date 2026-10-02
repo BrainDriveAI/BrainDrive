@@ -1,5 +1,6 @@
 import type { AppViewResumeRequest } from "./app-view-registry.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
+import { AppPlatformError } from "../lifecycle/errors.js";
 import type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
 
 export type { AppArtifactRegistrationInput, AppArtifactRegistrationResult, AppChatActionExecuteInput, AppChatActionExecuteResult, AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppDocumentDeleteInput, AppDocumentDeleteResult, AppDocumentListResult, AppDocumentReadResult, AppDocumentWriteInput, AppExportFinalized, AppExportPrepareInput, AppExportPrepared, AppLaunch, AppResourceReadResult } from "./app-host-types.js";
@@ -9,6 +10,7 @@ export interface AppMcpHostAdapter {
   readonly routeKey: string;
   launch(entryPoint?: "direct" | "career", resume?: AppViewResumeRequest): Promise<AppLaunch>;
   launchChatWorkspace(input?: AppChatWorkspaceLaunchInput): Promise<AppChatWorkspaceLaunch>;
+  revokeChatWorkspaceContext?(sessionId: string): Promise<{ revoked: boolean; context_revoked: true }>;
   readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]>;
   listAppDocuments(sessionId: string): Promise<AppDocumentListResult>;
   readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult>;
@@ -39,6 +41,12 @@ export class AppMcpHost implements AppMcpHostAdapter {
   get routeKey(): string { return this.adapter.routeKey; }
   launch(entryPoint: "direct" | "career" = "direct", resume?: AppViewResumeRequest): Promise<AppLaunch> { return this.adapter.launch(entryPoint, resume); }
   launchChatWorkspace(input: AppChatWorkspaceLaunchInput = {}): Promise<AppChatWorkspaceLaunch> { return this.adapter.launchChatWorkspace(input); }
+  revokeChatWorkspaceContext(sessionId: string): Promise<{ revoked: boolean; context_revoked: true }> {
+    if (!this.adapter.revokeChatWorkspaceContext) {
+      return Promise.reject(new AppPlatformError("denied", "App-chat context revocation is unavailable", 409));
+    }
+    return this.adapter.revokeChatWorkspaceContext(sessionId);
+  }
   readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> { return this.adapter.readChatWorkspaceSession(sessionId); }
   listAppDocuments(sessionId: string): Promise<AppDocumentListResult> { return this.adapter.listAppDocuments(sessionId); }
   readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult> { return this.adapter.readAppDocument(sessionId, documentId); }

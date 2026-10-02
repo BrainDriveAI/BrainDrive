@@ -69,6 +69,11 @@ export async function createSupportBundle(
       "utf8"
     );
     await writeFile(
+      path.join(stagingRoot, "metadata", "redaction-notice.txt"),
+      "BrainDrive support bundles contain bounded diagnostics only. Owner content, provider tokens, API keys, credentials, secrets, raw provider payloads, URLs, and filesystem paths are removed or redacted before export. The bundle does not include those categories.\n",
+      "utf8"
+    );
+    await writeFile(
       path.join(stagingRoot, "metadata", "lifecycle-diagnostics.jsonl"),
       copySummary.lifecycleDiagnostics.map((event) => JSON.stringify(event)).join("\n") + (copySummary.lifecycleDiagnostics.length ? "\n" : ""),
       "utf8"
@@ -208,6 +213,7 @@ const SUPPORT_DETAIL_ALLOWLIST = new Set([
   "acknowledgement_timing_class", "conflict_class", "expected_revision", "idempotency_disposition", "initial_wait_class", "reconciliation_class", "reconciliation_count", "semantic_digest",
   "retry_relation_version", "retry_reason", "retry_prior_operation_id", "retry_new_operation_id", "retry_semantic_input_digest", "retry_strategy_revision_id", "retry_provider_profile_id", "retry_model_id", "retry_equivalent",
   "app_issue_ids", "approved_record_changed", "execution_disposition", "program_id", "program_version", "provider_call_count", "repeated_issue_ids", "saved_record_written",
+  "operation", "surface", "safe_message", "failure_code", "recorded_by",
 ]);
 
 export function sanitizeSupportAuditEvent(event: Record<string, unknown>): Record<string, unknown> {

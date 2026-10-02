@@ -94,6 +94,8 @@ export type ChatEvent =
   | ChatErrorEvent
   | DoneEvent;
 
+export type ChatSendOutcome = "sent" | "session_expired" | "failed";
+
 export type ContextWindowWarning = {
   estimated_tokens: number;
   budget_tokens: number;

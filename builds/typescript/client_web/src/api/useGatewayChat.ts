@@ -11,12 +11,15 @@ import {
   updateConversationSkills,
   updateProjectSkills,
 } from "./gateway-adapter";
-import type { ActivityEvent, ApprovalDecision, ChatEvent, ContextWindowWarning, PendingApproval } from "./types";
+import { reportOwnerFailure } from "./owner-failure";
+import type { ActivityEvent, ApprovalDecision, ChatEvent, ChatSendOutcome, ContextWindowWarning, PendingApproval } from "./types";
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_ACTIVITY: ActivityEvent[] = [];
 const EMPTY_APPROVALS: PendingApproval[] = [];
 const MAX_ACTIVITY_EVENTS = 30;
+const MAX_AUTOMATIC_RECOVERY_ATTEMPTS = 2;
+const AUTOMATIC_RECOVERY_DELAYS_MS = [1_500, 5_000] as const;
 const GATEWAY_CHAT_RUNTIME_RESET_EVENT = "braindrive:gateway-chat-runtime-reset";
 
 function isAbortError(error: unknown): boolean {
@@ -80,11 +83,24 @@ type AppendOptions = {
   echoUserMessage?: boolean;
   retryOfMessageId?: string;
   recoveryRetry?: boolean;
+  recoveryAttempt?: number;
 };
+
+function isSessionExpiredFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as { status?: unknown; code?: unknown };
+  return candidate.status === 401 || ["session_expired", "invalid_refresh_token", "token_expired"].includes(
+    typeof candidate.code === "string" ? candidate.code : ""
+  );
+}
 
 type RecoveryQueueEntry = {
   content: string;
   messageId: string;
+  recoveryAttempt: number;
 };
 
 export function useGatewayChat(options: UseGatewayChatOptions = {}): {
@@ -98,7 +114,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   pendingApprovals: PendingApproval[];
   activity: ActivityEvent[];
   contextWindowWarning: ContextWindowWarning | null;
-  append: (content: string, options?: AppendOptions) => void;
+  append: (content: string, options?: AppendOptions) => Promise<ChatSendOutcome>;
   resolveApproval: (requestId: string, decision: ApprovalDecision) => Promise<void>;
   stop: () => void;
   startNewConversation: () => void;
@@ -170,6 +186,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       setPendingApprovals([]);
       setActivity([]);
       setContextWindowWarning(null);
+      recoveryQueueRef.current = [];
+      if (recoveryTimerRef.current !== null) {
+        window.clearTimeout(recoveryTimerRef.current);
+        recoveryTimerRef.current = null;
+      }
     }
 
     window.addEventListener(GATEWAY_CHAT_RUNTIME_RESET_EVENT, handleRuntimeReset);
@@ -301,6 +322,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     requestTokenRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    recoveryQueueRef.current = [];
+    if (recoveryTimerRef.current !== null) {
+      window.clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
+    }
     setIsLoading(false);
     setOperationStartedAtMs(null);
   }
@@ -351,10 +377,10 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     );
   }
 
-  function append(content: string, options?: AppendOptions) {
+  function append(content: string, options?: AppendOptions): Promise<ChatSendOutcome> {
     const trimmed = content.trim();
     if (trimmed === "") {
-      return;
+      return Promise.resolve("failed");
     }
 
     const echoUserMessage = options?.echoUserMessage ?? true;
@@ -376,7 +402,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         setMessages((current) => [...current, userMessage]);
       }
 
-      void (async () => {
+      return new Promise<ChatSendOutcome>((resolve) => { void (async () => {
         try {
           const responseText = await executeSlashSkillCommand(
             slashCommand,
@@ -390,17 +416,17 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           };
           setMessages((current) => [...current, assistantMessage]);
           setToolStatus(null);
+          resolve("sent");
         } catch (error) {
           setError(toError(error));
           setErrorCode(null);
           setToolStatus(null);
+          resolve(isSessionExpiredFailure(error) ? "session_expired" : "failed");
         } finally {
           setIsLoading(false);
           setOperationStartedAtMs(null);
         }
-      })();
-
-      return;
+      })(); });
     }
 
     requestTokenRef.current += 1;
@@ -419,6 +445,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     };
     const assistantMessageId = nextMessageId();
     const retryOfMessageId = options?.retryOfMessageId ?? (typeof options?.metadata?.retry_of_message_id === "string" ? options.metadata.retry_of_message_id : null);
+    const operationId = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     // A visible manual retry supersedes the queued automatic recovery for the
     // same failed turn. Keep unrelated queued turns intact and reschedule the
@@ -455,7 +484,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     // Track this as a background stream so state updates route correctly
     backgroundStreams.set(activeCacheKey, { requestToken });
 
-    void (async () => {
+    return new Promise<ChatSendOutcome>((resolve) => { void (async () => {
       // Helper: update state either directly (if active) or in background cache
       function isActive() {
         return cacheKeyRef.current === activeCacheKey;
@@ -525,6 +554,22 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       let shouldSeparateNextAssistantDelta = false;
       let receivedAssistantText = false;
       let receivedDone = false;
+      let failureReported = false;
+
+      function recordModelFailure(code: string | null | undefined): void {
+        if (failureReported) return;
+        failureReported = true;
+        const report = reportOwnerFailure({
+          operationId,
+          surface: "model",
+          operation: "chat.response",
+          safeMessage: receivedAssistantText
+            ? "The response was interrupted before it finished. Try again to replace the incomplete reply."
+            : "The model connection could not complete this response. Try again, or check model settings.",
+          failureCode: code ?? "model_connection_failure",
+        });
+        void report?.catch(() => undefined);
+      }
 
       try {
         for await (const event of sendMessage(conversationIdRef.current, trimmed, {
@@ -544,12 +589,14 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           await streamEventHandlerRef.current?.(event);
 
           if (requestToken !== requestTokenRef.current && isActive()) {
+            resolve("failed");
             return;
           }
 
           // Check if this stream's conversation was backgrounded
           const bgStream = backgroundStreams.get(activeCacheKey);
           if (bgStream && bgStream.requestToken !== requestToken) {
+            resolve("failed");
             return; // superseded by a newer request
           }
 
@@ -614,17 +661,24 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 }));
               }
               backgroundStreams.delete(activeCacheKey);
+              resolve("sent");
               return;
             case "error":
               if (receivedAssistantText) {
                 markAssistantIncomplete(assistantMessageId);
               }
-              if (!receivedAssistantText && isProviderRecoveryError(event.message, event.code)) {
+              recordModelFailure(event.code);
+              const recoveryAttempt = options?.recoveryAttempt ?? 0;
+              if (
+                !receivedAssistantText &&
+                recoveryAttempt < MAX_AUTOMATIC_RECOVERY_ATTEMPTS &&
+                isProviderRecoveryError(event.message, event.code)
+              ) {
                 const recoveryMessageId = retryOfMessageId ?? userMessage.id;
                 markMessageWaiting(recoveryMessageId);
                 recoveryQueueRef.current = [
                   ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
-                  { content: trimmed, messageId: recoveryMessageId },
+                  { content: trimmed, messageId: recoveryMessageId, recoveryAttempt },
                 ];
                 scheduleRecovery();
               }
@@ -642,6 +696,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 }));
               }
               backgroundStreams.delete(activeCacheKey);
+              resolve(isSessionExpiredFailure({ code: event.code }) ? "session_expired" : "failed");
               return;
             case "tool-call":
               pendingToolCalls.set(event.id, event.name);
@@ -699,6 +754,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                   }));
                 }
                 backgroundStreams.delete(activeCacheKey);
+                resolve(isSessionExpiredFailure(approvalError) ? "session_expired" : "failed");
                 return;
               }
               break;
@@ -721,6 +777,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         // so the owner can see the reason and retry the same turn.
         if (receivedAssistantText && !receivedDone) {
           markAssistantIncomplete(assistantMessageId);
+          recordModelFailure("stream_incomplete");
           if (isActive()) {
             setError(new Error("The model connection was interrupted before the response finished."));
             setErrorCode("stream_incomplete");
@@ -732,39 +789,55 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               errorCode: "stream_incomplete",
             }));
           }
+          resolve("failed");
+        }
+        if (!receivedDone && !receivedAssistantText) {
+          resolve("failed");
         }
       } catch (caughtError) {
         if (isAbortError(caughtError)) {
+          resolve("failed");
           return;
         }
+        const normalizedError = toError(caughtError);
+        const caughtErrorCode = getGatewayErrorCode(caughtError);
         if (!isActive()) {
           updateBackground(() => ({
             isLoading: false,
             operationStartedAtMs: null,
-            error: toError(caughtError),
-            errorCode: null,
+            error: normalizedError,
+            errorCode: caughtErrorCode,
           }));
           backgroundStreams.delete(activeCacheKey);
+          resolve(isSessionExpiredFailure(caughtError) ? "session_expired" : "failed");
           return;
         }
         if (requestToken !== requestTokenRef.current) {
+          resolve("failed");
           return;
         }
 
-        setError(toError(caughtError));
-        setErrorCode(null);
+        setError(normalizedError);
+        setErrorCode(caughtErrorCode);
         if (receivedAssistantText) {
           markAssistantIncomplete(assistantMessageId);
         }
-        if (!receivedAssistantText && isProviderRecoveryError(toError(caughtError).message, null)) {
+        recordModelFailure(null);
+        const recoveryAttempt = options?.recoveryAttempt ?? 0;
+        if (
+          !receivedAssistantText &&
+          recoveryAttempt < MAX_AUTOMATIC_RECOVERY_ATTEMPTS &&
+          isProviderRecoveryError(normalizedError.message, caughtErrorCode)
+        ) {
           const recoveryMessageId = retryOfMessageId ?? userMessage.id;
           markMessageWaiting(recoveryMessageId);
           recoveryQueueRef.current = [
             ...recoveryQueueRef.current.filter((entry) => entry.messageId !== recoveryMessageId),
-            { content: trimmed, messageId: recoveryMessageId },
+            { content: trimmed, messageId: recoveryMessageId, recoveryAttempt },
           ];
           scheduleRecovery();
         }
+        resolve(isSessionExpiredFailure(caughtError) ? "session_expired" : "failed");
       } finally {
         backgroundStreams.delete(activeCacheKey);
         if (isActive() && requestToken === requestTokenRef.current) {
@@ -776,7 +849,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           setOperationStartedAtMs(null);
         }
       }
-    })();
+    })(); });
   }
 
   function markMessageWaiting(messageId: string) {
@@ -806,16 +879,23 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
   function scheduleRecovery() {
     if (recoveryTimerRef.current !== null || recoveryQueueRef.current.length === 0) return;
+    const pending = recoveryQueueRef.current[0];
+    if (!pending) return;
+    const delay = AUTOMATIC_RECOVERY_DELAYS_MS[Math.min(
+      pending.recoveryAttempt,
+      AUTOMATIC_RECOVERY_DELAYS_MS.length - 1
+    )];
     recoveryTimerRef.current = window.setTimeout(() => {
       recoveryTimerRef.current = null;
-      const pending = recoveryQueueRef.current[0];
-      if (!pending) return;
-      append(pending.content, {
+      const next = recoveryQueueRef.current[0];
+      if (!next) return;
+      append(next.content, {
         echoUserMessage: false,
-        retryOfMessageId: pending.messageId,
+        retryOfMessageId: next.messageId,
         recoveryRetry: true,
+        recoveryAttempt: next.recoveryAttempt + 1,
       });
-    }, 1_500);
+    }, delay);
   }
 
   return {
@@ -839,6 +919,21 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 function isProviderRecoveryError(message: string, code: string | null | undefined): boolean {
   const normalized = message.toLowerCase();
   return code === "provider_error" || normalized.includes("provider") || normalized.includes("model") || normalized.includes("could not be reached") || normalized.includes("timed out") || normalized.includes("connection");
+}
+
+function getGatewayErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) {
+    return null;
+  }
+
+  const candidate = error as { code?: unknown; status?: unknown };
+  if (candidate.status === 401) {
+    return "session_expired";
+  }
+
+  return typeof candidate.code === "string" && candidate.code.length > 0
+    ? candidate.code
+    : null;
 }
 
 function appendAssistantDelta(

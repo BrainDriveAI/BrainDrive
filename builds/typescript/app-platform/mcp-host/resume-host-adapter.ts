@@ -51,6 +51,7 @@ import {
   AppChatSessionRegistry,
   planAppChatContextGrants,
   projectAppChatContext,
+  projectUnavailableAppChatContext,
   projectAppChatSession,
   selectAppChatWorkspace,
   type AppChatSessionAuthority,
@@ -350,9 +351,11 @@ export class ResumeAppHostAdapter {
       workspaceId: selection.workspace.workspace_id,
       contextGrantSetDigest: contextGrantPlan.digest,
     }), input.resume);
-    const context = await projectAppChatContext(selection.workspace, contextGrantPlan, this.capabilityRouter ? {
-      career_context: async (request) => this.projectCareerContextForChat(sessionPlan.sessionId, sessionPlan.viewId, contextGrantPlan.digest, descriptor.grant!, record.installation_id!, request.context_id),
-    } : {});
+    const context = sessionPlan.contextRevoked
+      ? projectUnavailableAppChatContext(selection.workspace, contextGrantPlan.digest)
+      : await projectAppChatContext(selection.workspace, contextGrantPlan, this.capabilityRouter ? {
+          career_context: async (request) => this.projectCareerContextForChat(sessionPlan.sessionId, sessionPlan.viewId, contextGrantPlan.digest, descriptor.grant!, record.installation_id!, request.context_id),
+        } : {});
     const committed = this.chatSessions.commit(sessionPlan);
     this.audit("app.chat_workspace.session_opened", {
       app_id: this.appId,
@@ -410,6 +413,11 @@ export class ResumeAppHostAdapter {
       throw new AppPlatformError("session_closed", "App-chat session closed because grant authority changed", 410);
     }
     return projectAppChatSession(this.chatSessions.renew(this.appId, session.sessionId));
+  }
+
+  async revokeChatWorkspaceContext(sessionId: string): Promise<{ revoked: boolean; context_revoked: true }> {
+    const result = this.chatSessions.revokeContext(this.appId, sessionId);
+    return { revoked: result.revoked, context_revoked: true };
   }
 
   async readAppDocument(sessionId: string, documentId: string): Promise<AppDocumentReadResult> {
@@ -539,9 +547,11 @@ export class ResumeAppHostAdapter {
     if (contextGrantPlan.digest !== session.contextGrantSetDigest) {
       throw new AppPlatformError("session_closed", "App-chat context grant digest is no longer current", 410);
     }
-    const contextProjection = await projectAppChatContext(workspace, contextGrantPlan, {
-      career_context: async (contextRequest) => this.projectCareerContextForChat(session.sessionId, session.viewId, session.contextGrantSetDigest, descriptor.grant!, session.installationId, contextRequest.context_id),
-    });
+    const contextProjection = session.contextRevoked
+      ? projectUnavailableAppChatContext(workspace, session.contextGrantSetDigest)
+      : await projectAppChatContext(workspace, contextGrantPlan, {
+          career_context: async (contextRequest) => this.projectCareerContextForChat(session.sessionId, session.viewId, session.contextGrantSetDigest, descriptor.grant!, session.installationId, contextRequest.context_id),
+        });
     const context = await buildAppChatModelContext({
       metadata: request,
       session,

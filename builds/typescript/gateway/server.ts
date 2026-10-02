@@ -293,6 +293,16 @@ const supportBundleDownloadParamsSchema = z
   })
   .strict();
 
+const ownerFailureReportSchema = z
+  .object({
+    operation_id: z.string().uuid(),
+    surface: z.enum(["model", "render", "export"]),
+    operation: z.string().trim().min(1).max(128),
+    safe_message: z.string().trim().min(1).max(512),
+    failure_code: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
 const BASE_PUBLIC_ROUTES = new Set([
   "/health",
@@ -3319,6 +3329,24 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       scope: "memory-only",
       bundles,
     });
+  });
+
+  app.post("/diagnostics/owner-failures", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const parsed = ownerFailureReportSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/diagnostics/owner-failures", parsed.error.issues.length);
+      return;
+    }
+    auditLog("owner.failure", {
+      operation_id: parsed.data.operation_id,
+      operation: parsed.data.operation,
+      surface: parsed.data.surface,
+      safe_message: parsed.data.safe_message,
+      failure_code: parsed.data.failure_code ?? null,
+      recorded_by: "owner-client",
+    });
+    reply.code(202).send({ recorded: true, operation_id: parsed.data.operation_id });
   });
 
   app.post("/support/bundles", async (request, reply) => {

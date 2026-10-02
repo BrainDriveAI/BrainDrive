@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Message } from "@/types/ui";
@@ -6,9 +6,14 @@ import type { Message } from "@/types/ui";
 import ChatPanel from "./ChatPanel";
 
 const useGatewayChatMock = vi.fn();
+const downloadSupportBundleMock = vi.fn();
 
 vi.mock("@/api/useGatewayChat", () => ({
   useGatewayChat: (...args: unknown[]) => useGatewayChatMock(...args),
+}));
+
+vi.mock("@/api/support-bundle", () => ({
+  downloadSupportBundle: (...args: unknown[]) => downloadSupportBundleMock(...args),
 }));
 
 function makeHookState(overrides: Partial<{
@@ -47,6 +52,7 @@ function makeHookState(overrides: Partial<{
 describe("ChatPanel typing indicator behavior", () => {
   beforeEach(() => {
     useGatewayChatMock.mockReset();
+    downloadSupportBundleMock.mockReset();
     window.localStorage.clear();
   });
 
@@ -264,6 +270,96 @@ describe("ChatPanel typing indicator behavior", () => {
       },
       echoUserMessage: false,
     });
+  });
+
+  it("exposes a keyboard-usable support-bundle action from a provider failure", async () => {
+    const user = userEvent.setup();
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:rb009-support");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    downloadSupportBundleMock.mockResolvedValue({
+      fileName: "support-bundle-123.tar.gz",
+      blob: new Blob(["redacted diagnostics"], { type: "application/gzip" }),
+    });
+    useGatewayChatMock.mockReturnValue(makeHookState({
+      messages: [{ id: "u-1", role: "user", content: "Please continue." }],
+      error: new Error("Provider did not respond in time."),
+      errorCode: "provider_error",
+    }));
+
+    render(<ChatPanel activeConversationId={null} isEmpty={false} />);
+    const action = screen.getByRole("button", { name: "Download support bundle" });
+    action.focus();
+    expect(document.activeElement).toBe(action);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(downloadSupportBundleMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent(/Support bundle downloaded/);
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:rb009-support");
+    createObjectUrl.mockRestore();
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("restores a failed turn into the scoped composer after session expiry and clears it only after recovery", async () => {
+    const user = userEvent.setup();
+    const draftKey = "braindrive:chat:owner:resume-builder:workspace";
+    const failedState = makeHookState({
+      messages: [{ id: "u-1", role: "user", content: "Keep this unsent draft" }],
+      error: new Error("session_expired"),
+      errorCode: "session_expired",
+    });
+    useGatewayChatMock.mockReturnValue(failedState);
+
+    const rendered = render(
+      <ChatPanel activeConversationId={null} draftKey={draftKey} isEmpty={false} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText("Message your BrainDrive...")[0]).toHaveValue(
+        "Keep this unsent draft"
+      );
+    });
+    expect(window.localStorage.getItem(`${draftKey}:composer`)).toBe("Keep this unsent draft");
+    expect(screen.getByText(/unsent draft is preserved in the composer/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(failedState.append).toHaveBeenCalledWith("Keep this unsent draft", expect.objectContaining({
+      echoUserMessage: false,
+    }));
+    expect(window.localStorage.getItem(`${draftKey}:composer`)).toBe("Keep this unsent draft");
+
+    const recoveredState = makeHookState({
+      messages: [
+        { id: "u-1", role: "user", content: "Keep this unsent draft" },
+        { id: "a-1", role: "assistant", content: "Recovered" },
+      ],
+    });
+    useGatewayChatMock.mockReturnValue(recoveredState);
+    rendered.rerender(
+      <ChatPanel activeConversationId={null} draftKey={draftKey} isEmpty={false} />
+    );
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(`${draftKey}:composer`)).toBeNull();
+    });
+  });
+
+  it("passes the session-expired send outcome back to the composer", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    hookState.append.mockResolvedValue("session_expired");
+    const draftKey = "braindrive:chat:owner:resume-builder:send-expiry";
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(<ChatPanel activeConversationId={null} draftKey={draftKey} isEmpty={false} />);
+    const textarea = screen.getAllByPlaceholderText("Message your BrainDrive...")[0]!;
+    await user.type(textarea, "Restore this failed send");
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    await waitFor(() => expect(textarea).toHaveValue("Restore this failed send"));
+    expect(screen.getByText(/message was restored after session expiry/)).toBeInTheDocument();
+    expect(hookState.append).toHaveBeenCalledWith("Restore this failed send", expect.any(Object));
   });
 
   it("reports a conversation id after a failed first turn so parents can retain the durable conversation", () => {

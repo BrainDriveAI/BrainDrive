@@ -129,6 +129,7 @@ services:
       WATCHPACK_POLLING_INTERVAL: ${BRAINDRIVE_DEV_WATCHPACK_POLLING_INTERVAL:-250}
     volumes:
       - ../../builds/typescript/client_web:/workspace/builds/typescript/client_web
+      - ../../builds/resume_builder:/workspace/builds/resume_builder:ro
       - braindrive_dev_web_node_modules:/workspace/builds/typescript/client_web/node_modules
     depends_on:
       app:

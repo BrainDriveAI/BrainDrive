@@ -278,6 +278,31 @@ describe("useGatewayChat", () => {
     ]);
   });
 
+  it("preserves the session-expired code from a 401 gateway failure", async () => {
+    const sessionExpired = Object.assign(new Error("Session expired"), {
+      status: 401,
+    });
+    sendMessageMock.mockImplementation(() =>
+      (async function* failedRequest(): AsyncIterable<ChatEvent> {
+        throw sessionExpired;
+      })()
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    let outcome: ReturnType<typeof result.current.append>;
+    act(() => {
+      outcome = result.current.append("Preserve this draft");
+    });
+
+    await waitFor(() => expect(result.current.errorCode).toBe("session_expired"));
+    expect(result.current.error?.message).toBe("Session expired");
+    await expect(outcome!).resolves.toBe("session_expired");
+    expect(result.current.messages).toEqual([
+      { id: "message-1", role: "user", content: "Preserve this draft" }
+    ]);
+  });
+
   it("automatically retries a provider error without duplicating the owner turn", async () => {
     let attempts = 0;
     sendMessageMock.mockImplementation(() => {
@@ -296,6 +321,46 @@ describe("useGatewayChat", () => {
     await waitFor(() => expect(attempts).toBe(2), { timeout: 4_000 });
     await waitFor(() => expect(result.current.messages.some((message) => message.role === "assistant" && message.content === "Recovered")).toBe(true), { timeout: 4_000 });
     expect(result.current.messages.filter((message) => message.role === "user")).toHaveLength(1);
+  });
+
+  it("bounds automatic provider recovery with backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      sendMessageMock.mockImplementation(() => {
+        attempts += 1;
+        return streamEvents([
+          { type: "error", code: "provider_error", message: "Provider unavailable" },
+        ]);
+      });
+
+      const { result } = renderHook(() => useGatewayChat());
+
+      act(() => {
+        result.current.append("Keep trying");
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(attempts).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500);
+      });
+      expect(attempts).toBe(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(attempts).toBe(3);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(attempts).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cancels the queued automatic recovery when the owner retries manually", async () => {

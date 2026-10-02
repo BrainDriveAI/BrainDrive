@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type R
 import { createPortal } from "react-dom";
 
 import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
+import { downloadSupportBundle } from "@/api/support-bundle";
 import { useGatewayChat } from "@/api/useGatewayChat";
 import type { ChatEvent } from "@/api/types";
 import type { Message } from "@/types/ui";
 
-import Composer from "./Composer";
+import Composer, { clearComposerDraft, restoreComposerDraft } from "./Composer";
 import ConnectionBanner from "./ConnectionBanner";
 import EmptyState, { type ProjectIntro } from "./EmptyState";
 import ErrorMessage from "./ErrorMessage";
@@ -109,6 +110,8 @@ export default function ChatPanel({
   >("connected");
   const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [supportBundleNotice, setSupportBundleNotice] = useState<string | null>(null);
+  const [supportBundleBusy, setSupportBundleBusy] = useState(false);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [operationAgeMs, setOperationAgeMs] = useState(0);
   const [ownerOperationStartedAtMs, setOwnerOperationStartedAtMs] = useState<number | null>(null);
@@ -116,6 +119,8 @@ export default function ChatPanel({
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
   const lastQueuedMessageIdRef = useRef<string | null>(null);
+  const sessionDraftRecoveryRef = useRef<{ key: string; content: string } | null>(null);
+  const sessionRecoveryAttemptRef = useRef<{ key: string; content: string } | null>(null);
 
   const {
     messages,
@@ -138,6 +143,7 @@ export default function ChatPanel({
   });
 
   const operationStartedAtMs = ownerOperationStartedAtMs ?? gatewayOperationStartedAtMs;
+  const composerDraftKey = draftKey ? `${draftKey}:composer` : null;
 
   function beginOwnerOperation() {
     setOwnerOperationStartedAtMs(Date.now());
@@ -233,6 +239,30 @@ export default function ChatPanel({
     setDismissedError(null);
   }, [error, historyError]);
 
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
+  const isSessionExpiredError = errorCode === "session_expired";
+
+  useEffect(() => {
+    if (!isSessionExpiredError || !composerDraftKey || !lastUserMessage?.content.trim()) {
+      return;
+    }
+
+    const content = lastUserMessage.content.trim();
+    restoreComposerDraft(composerDraftKey, content);
+    sessionDraftRecoveryRef.current = { key: composerDraftKey, content };
+  }, [composerDraftKey, isSessionExpiredError, lastUserMessage?.content]);
+
+  useEffect(() => {
+    const recoveryAttempt = sessionRecoveryAttemptRef.current;
+    if (!recoveryAttempt || isLoading || error) {
+      return;
+    }
+
+    clearComposerDraft(recoveryAttempt.key, recoveryAttempt.content);
+    sessionRecoveryAttemptRef.current = null;
+    sessionDraftRecoveryRef.current = null;
+  }, [error, isLoading]);
+
   useEffect(() => {
     if (!isLoading || operationStartedAtMs === null) {
       if (!isLoading) {
@@ -294,20 +324,19 @@ export default function ChatPanel({
     normalizedVisibleChatError.includes("provider") ||
     normalizedVisibleChatError.includes("model")
   ) && !isContextOverflowError;
-  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const visibleRecoveryMessage = isToolError
     ? "A tool or app action failed. The failed action’s changes could not be confirmed. Your saved conversation and documents remain available. Check the app’s current state before trying again."
     : isProviderError
       ? "The model connection was interrupted. Try again, or open settings if this keeps happening."
+      : isSessionExpiredError
+        ? "Your session expired. Your unsent draft is preserved in the composer. Sign in again, then try again."
       : visibleChatError;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
   const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.content.trim().length > 0) ?? null;
   const incompleteMessageId = lastAssistantMessage?.status === "incomplete"
     ? lastAssistantMessage.id
-    : visibleChatError && lastAssistantMessage
-      ? lastAssistantMessage.id
-      : null;
+    : null;
   const isStalled = isLoading && operationAgeMs >= STALL_NOTICE_AFTER_MS;
   const isSlow = isLoading && operationAgeMs >= 3_000;
 
@@ -319,12 +348,39 @@ export default function ChatPanel({
     setConnectionStatus("connected");
   }
 
+  async function handleDownloadSupportBundle() {
+    if (supportBundleBusy) {
+      return;
+    }
+
+    setSupportBundleBusy(true);
+    setSupportBundleNotice(null);
+    try {
+      const { fileName, blob } = await downloadSupportBundle();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      queueMicrotask(() => URL.revokeObjectURL(url));
+      setSupportBundleNotice("Support bundle downloaded. It contains bounded, redacted diagnostics only.");
+    } catch {
+      setSupportBundleNotice("Support bundle could not be downloaded. Try again when the app is connected.");
+    } finally {
+      setSupportBundleBusy(false);
+    }
+  }
+
   function handleRetryCurrentTurn() {
     const retryMessage = lastUserMessage;
     const replayContent = retryMessage?.content?.trim();
     resetErrorPresentation();
     if (!retryMessage || !replayContent) {
       return;
+    }
+
+    if (sessionDraftRecoveryRef.current) {
+      sessionRecoveryAttemptRef.current = sessionDraftRecoveryRef.current;
     }
 
     beginOwnerOperation();
@@ -347,13 +403,16 @@ export default function ChatPanel({
 
   const composerProps = {
     onSend: (message: string) => {
+      if (sessionDraftRecoveryRef.current) {
+        sessionRecoveryAttemptRef.current = sessionDraftRecoveryRef.current;
+      }
       beginOwnerOperation();
       onSendMessage?.();
-      append(message, { metadata: messageMetadata });
+      return append(message, { metadata: messageMetadata });
     },
     isStreaming: isWaitingForReply,
     onStop: stop,
-    draftKey: draftKey ? `${draftKey}:composer` : null,
+    draftKey: composerDraftKey,
   };
 
   function renderIncompleteRetry() {
@@ -454,10 +513,12 @@ export default function ChatPanel({
                 <ErrorMessage
                   message={visibleRecoveryMessage ?? visibleChatError}
                   onOpenSettings={isProviderError ? onOpenSettings : undefined}
+                  onDownloadSupportBundle={handleDownloadSupportBundle}
+                  supportBundleBusy={supportBundleBusy}
                   onRetry={
                     isContextOverflowError
                       ? undefined
-                      : (isProviderError || isToolError) && lastUserMessage
+                      : (isProviderError || isSessionExpiredError || isToolError) && lastUserMessage
                         ? handleRetryCurrentTurn
                         : isToolError
                           ? undefined
@@ -469,6 +530,11 @@ export default function ChatPanel({
                   }}
                 />
               )}
+              {supportBundleNotice ? (
+                <div role="status" className="mx-auto w-full max-w-[780px] py-2 text-sm text-bd-text-secondary">
+                  {supportBundleNotice}
+                </div>
+              ) : null}
             </MessageList>
           )) : contentOverride}
         </div>

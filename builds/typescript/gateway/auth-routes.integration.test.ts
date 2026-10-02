@@ -1113,6 +1113,41 @@ describe.sequential("gateway auth route integration", () => {
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
   });
 
+  it("records an owner-visible failure with a bounded diagnostic payload", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/diagnostics/owner-failures",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        operation_id: "00000000-0000-4000-8000-000000000123",
+        surface: "render",
+        operation: "resume.document.render",
+        safe_message: "The document could not be rendered safely. Retry.",
+        failure_code: "render_failure",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(parseJson<{ recorded: boolean }>(response.body).recorded).toBe(true);
+
+    const rejected = await context.app.inject({
+      method: "POST",
+      url: "/diagnostics/owner-failures",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        operation_id: "00000000-0000-4000-8000-000000000123",
+        surface: "render",
+        operation: "resume.document.render",
+        safe_message: "safe",
+        owner_content: "must be rejected",
+      },
+    });
+
+    expect(rejected.statusCode).toBe(400);
+  });
+
   it("allows unauthenticated managed account proxy routes by default", async () => {
     context = await createTestServer({
       authMode: "local-owner",

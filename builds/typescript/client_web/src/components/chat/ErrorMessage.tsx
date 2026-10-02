@@ -9,6 +9,8 @@ type ErrorMessageProps = {
   onPrimaryAction?: () => void;
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
+  onDownloadSupportBundle?: () => void;
+  supportBundleBusy?: boolean;
 };
 
 export default function ErrorMessage({
@@ -20,6 +22,8 @@ export default function ErrorMessage({
   onPrimaryAction,
   secondaryActionLabel,
   onSecondaryAction,
+  onDownloadSupportBundle,
+  supportBundleBusy = false,
 }: ErrorMessageProps) {
   return (
     <div className="mx-auto w-full max-w-[780px] py-2">
@@ -68,6 +72,16 @@ export default function ErrorMessage({
               >
                 <RefreshCw size={12} strokeWidth={1.5} />
                 Try Again
+              </button>
+            )}
+            {onDownloadSupportBundle && (
+              <button
+                type="button"
+                onClick={onDownloadSupportBundle}
+                disabled={supportBundleBusy}
+                className="flex items-center gap-1.5 rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-wait disabled:opacity-60"
+              >
+                {supportBundleBusy ? "Preparing support bundle..." : "Download support bundle"}
               </button>
             )}
             {onDismiss && (

@@ -53,6 +53,7 @@ export type AppChatSessionRecord = AppChatSessionAuthority & {
   viewId: string;
   operationId: string;
   sessionGeneration: number;
+  contextRevoked: boolean;
   createdAt: string;
   expiresAt: string;
 };
@@ -223,6 +224,7 @@ export class AppChatSessionRegistry {
         viewId: randomUUID(),
         operationId: randomUUID(),
         sessionGeneration: 1,
+        contextRevoked: false,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + this.ttlMs).toISOString(),
         expectedSessionId: null,
@@ -299,6 +301,14 @@ export class AppChatSessionRegistry {
     return renewed;
   }
 
+  revokeContext(appId: string, sessionId: string): { revoked: boolean; viewId: string } {
+    const current = this.read(appId, sessionId);
+    if (current.contextRevoked) return { revoked: false, viewId: current.viewId };
+    const revoked = { ...current, contextRevoked: true };
+    this.sessions.set(viewKey(appId, revoked.viewId), revoked);
+    return { revoked: true, viewId: revoked.viewId };
+  }
+
   close(appId: string, sessionId: string): { closed: boolean; viewId: string | null } {
     this.prune();
     const viewId = this.bySession.get(sessionKey(appId, sessionId));
@@ -372,6 +382,24 @@ export function projectAppChatSession(session: CommittedAppChatSession | AppChat
     context_grant_set_digest: session.contextGrantSetDigest,
     created_at: session.createdAt,
     expires_at: session.expiresAt,
+  };
+}
+
+export function projectUnavailableAppChatContext(
+  workspace: ChatWorkspaceDescriptor,
+  digest: `sha256:${string}`,
+): AppChatContextProjection {
+  return {
+    context_projection_set_version: 1,
+    context_grant_set_digest: digest,
+    items: workspace.context_requests.map((request) => ({
+      context_projection_version: 1 as const,
+      context_id: request.context_id,
+      kind: request.kind,
+      state: "unavailable" as const,
+      required: request.required,
+      reason: "not_granted" as const,
+    })),
   };
 }
 
