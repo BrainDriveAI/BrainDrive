@@ -1,4 +1,5 @@
 import { inflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +12,7 @@ import {
   prepareResumeInference,
   prepareResumeGeneralDraft,
 } from "../resources/inference-program.js";
-import { planResumeAction as planSourceResumeAction } from "../src/chat-workspace.js";
+import { planResumeAction as sourcePlan } from "../src/chat-workspace.js";
 import { seriousProfileFallbackFixture } from "./fixtures/serious-profile-fallback.mjs";
 
 function inflatedPdfText(pdfBytes: Buffer): string {
@@ -54,6 +55,152 @@ function decodedPdfTextPages(pdfBytes: Buffer): string[] {
     return runs.join("\n");
   }).filter(Boolean);
 }
+
+function decodedPdfLogicalLines(pdfBytes: Buffer): string[] {
+  return inflatedPdfTextPages(pdfBytes).flatMap((page) => {
+    const lines: string[] = [];
+    let baseline = "";
+    for (const match of page.matchAll(/[\d.]+ ([\d.]+) Td <([0-9A-Fa-f]+)> Tj/g)) {
+      const text = Buffer.from(match[2], "hex").swap16().toString("utf16le");
+      if (match[1] === baseline) lines[lines.length - 1] += text;
+      else { lines.push(text); baseline = match[1]; }
+    }
+    return lines;
+  });
+}
+
+function renderAction(actionId: string, documentId: string, content: string) {
+  const operationId = crypto.randomUUID();
+  const request: Parameters<typeof sourcePlan>[0] = {
+    action_planning_contract_version: 1,
+    action_id: actionId,
+    action_input: {},
+    owner_confirmed: true,
+    operation_id: operationId,
+    idempotency_key: `render-regression-${operationId}`,
+    occurred_at: "2026-10-01T12:00:00.000Z",
+    session: {
+      session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+      app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+    },
+    documents: [{ document_id: documentId, content }],
+  };
+  const plan = planResumeAction(request);
+  const source = sourcePlan(request);
+  for (const stepId of ["write-resume-document", "write-missing-essentials-result"]) {
+    expect(source.steps.find((step: any) => step.step_id === stepId)?.content)
+      .toEqual(plan.steps.find((step: any) => step.step_id === stepId)?.content);
+  }
+  const shippedPdf = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+  const sourcePdf = source.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+  if (shippedPdf) expect(decodedPdfLogicalLines(Buffer.from(sourcePdf.bytes_base64, "base64")))
+    .toEqual(decodedPdfLogicalLines(Buffer.from(shippedPdf.bytes_base64, "base64")));
+  return plan;
+}
+
+describe("shipped render regressions", () => {
+  it.each([
+    ["**Name:** **Test Person**\n**Email:** **_first_last@x.com_**", "**Test Person**", "**_first_last@x.com_**", "Test Person", "first_last@x.com"],
+    ["**Name: Test Person**\n**Email: first_last@x.com**", "**Test Person**", "**first_last@x.com**", "Test Person", "first_last@x.com"],
+    ["_Name: Test Person_\n_Email: first_last@x.com_", "_Test Person_", "_first_last@x.com_", "Test Person", "first_last@x.com"],
+    ["__Name: Test Person__\n__Email: first_last@x.com__", "__Test Person__", "__first_last@x.com__", "Test Person", "first_last@x.com"],
+    ["**Name:** `*Test Person*`\n**Email:** `first_last@x.com`", "`*Test Person*`", "`first_last@x.com`", "*Test Person*", "first_last@x.com"],
+    ["**Name: `*Test Person*`**\n**Email: _first_last@x.com_**", "**`*Test Person*`**", "**_first_last@x.com_**", "*Test Person*", "first_last@x.com"],
+  ])("keeps emphasized contact fields and literal values: %s", (fields, nameMarkup, emailMarkup, name, email) => {
+    const profile = `# Resume Profile\n## Contact\n${fields}\n## Experience\n### Role | Company | 2020`;
+    const plan = renderAction("resume.create", "resume.profile", profile);
+    const markdown = plan.steps.find((step: any) => step.step_id === "write-resume-document")?.content;
+    expect(markdown).toBeDefined();
+    expect(markdown).toContain(`# ${nameMarkup}\n${emailMarkup}\n`);
+    const pdf = renderAction("resume.export.pdf.request", "resume.document", markdown);
+    const step = pdf.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+    expect(decodedPdfLogicalLines(Buffer.from(step.bytes_base64, "base64")).slice(0, 2)).toEqual([name, email]);
+  });
+
+  it.each([
+    ["_first_last@x.com_", "first_last@x.com"],
+    ["__first_last@x.com__", "first_last@x.com"],
+    ["___first_last@x.com___", "first_last@x.com"],
+    ["*September 2025–Present*", "September 2025–Present"],
+    ["**June 2024–Present**", "June 2024–Present"],
+    ["_September 2025–Present_", "September 2025–Present"],
+    ["__June 2024–Present__", "June 2024–Present"],
+    ["***nested emphasis***", "nested emphasis"],
+    ["**strong *nested italic* text**", "strong nested italic text"],
+    ["*italic **nested strong** text*", "italic nested strong text"],
+    ["__strong _nested italic_ text__", "strong nested italic text"],
+    ["___nested emphasis___", "nested emphasis"],
+    ["a*b*c", "abc"],
+    ["C* uses *real emphasis*", "C* uses real emphasis"],
+    ["**strong _nested italic_ text**", "strong nested italic text"],
+    ["C* and snake_case and unmatched *", "C* and snake_case and unmatched *"],
+    [String.raw`\*literal stars\* and \_literal underscores\_`, "*literal stars* and _literal underscores_"],
+  ])("PDF preserves logical text for %s", (markdown, expected) => {
+    const plan = renderAction("resume.export.pdf.request", "resume.document", `# Test Person\n\n## Experience\n${markdown}`);
+    const step = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export") as { bytes_base64: string };
+    const text = decodedPdfTextRuns(Buffer.from(step.bytes_base64, "base64")).split(/\s+/).join(" ");
+    expect(text).toBe(`Test Person EXPERIENCE ${expected}`);
+  });
+
+  it.each([
+    ["https://example.com/_private_/first_last", "https://example.com/_private_/first_last"],
+    ["`*wildcard*` and `snake_case`", "*wildcard* and snake_case"],
+    ["`` `*wildcard*` ``", "`*wildcard*`"],
+    ["first_last@example.test and snake_case", "first_last@example.test and snake_case"],
+    ["foo***bar***baz", "foobarbaz"],
+    ["***bold***.", "bold."],
+    ["plain  **bold**\t tail", "plain  bold  tail"],
+    ["**https://example.com/_private_/first_last**", "https://example.com/_private_/first_last"],
+  ])("PDF preserves protected literals and exact run spacing for %s", (markdown, expected) => {
+    const plan = renderAction("resume.export.pdf.request", "resume.document", `# Test Person\n## Experience\n${markdown}`);
+    const step = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+    expect(decodedPdfLogicalLines(Buffer.from(step.bytes_base64, "base64")).at(-1)).toBe(expected);
+  });
+
+  it.each([
+    "## Experience\n### Role|Company|2020",
+    "## **Experience**\n### Coordinator — Employer\n- Scheduled work",
+    "## Experience\n### Director of Data Platforms — Horizon Health Systems, 2020–present",
+  ])("gate accepts substantive experience with normalized headings: %s", (sections) => {
+    const plan = renderAction("resume.create", "resume.profile", `# Test Person\n${sections}`);
+    expect(plan.steps.some((step: any) => step.step_id === "write-resume-document")).toBe(true);
+  });
+
+  it("PDF distinguishes section headings from entry titles and omits empty bullets", () => {
+    const plan = renderAction("resume.export.pdf.request", "resume.document", "# Test Person\n## Experience\n### Marketing Manager\n- Led campaigns\n## Projects\n### Campus Transit Survey Project\n-\n- Led a survey\n- **Date:** [gap: date]");
+    const step = plan.steps.find((step: any) => step.step_id === "prepare-pdf-export");
+    const bytes = Buffer.from(step.bytes_base64, "base64");
+    expect(decodedPdfLogicalLines(bytes)).toEqual([
+      "Test Person", "EXPERIENCE", "Marketing Manager", "•Led campaigns",
+      "PROJECTS", "Campus Transit Survey Project", "•Led a survey", "•Date: [gap: date]",
+    ]);
+    expect(inflatedPdfText(bytes)).toMatch(/BT \/F2 10\.5 Tf [^\n]+<004D00610072006B/);
+  });
+
+  it.each(["p1", "p2"])("gate recognizes %s nested experience entries", (persona) => {
+    const profile = readFileSync(new URL(`./fixtures/${persona}-experience-profile.txt`, import.meta.url), "utf8");
+    const plan = renderAction("resume.create", "resume.profile", profile);
+    const result = plan.steps.find((step: any) => step.step_id === "write-missing-essentials-result") as { content: any } | undefined;
+    expect(result?.content.missing_essentials ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+    if (persona === "p1") expect(result?.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Unresolved gap: name not yet provided" })]));
+    else expect(plan.steps).toEqual(expect.arrayContaining([expect.objectContaining({ document_id: "resume.document" })]));
+  });
+
+  it.each([
+    "## Experience\n### [gap: role]\n**Company:** [gap: employer]\n**Dates:** [gap: dates]",
+    "## Experience\n### Unfilled entry\n**Company:**\n**Dates:**",
+    "## Experience\n### [gap: role and employer]\n[gap: dates and duties]",
+    "## Experience\n### [gap: role]\n**[gap: dates]**",
+    "## Experience\n### [gap: role]\n[gap: dates] [gap: duties]",
+    "## Experience\n### **[gap: role]** — [gap: employer]",
+    "## Experience\n### Unfilled entry\n\n## Education\nDegree, School — 2020",
+    "## Experience\n### Unfilled entry\n\n## Skills\nScheduling",
+  ])("gate still detects an empty experience subtree: %s", (sections) => {
+    const plan = renderAction("resume.create", "resume.profile", `# Test Person\n${sections}`);
+    const result = plan.steps[0] as { content: any };
+    expect(result.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+  });
+});
 
 const jobId = "10000000-0000-4000-8000-000000000001";
 const evidenceId = "10000000-0000-4000-8000-000000000002";
@@ -334,7 +481,7 @@ describe("Resume Builder-owned General draft inference program", () => {
 
   describe.each([
     ["shipped resource", planResumeAction],
-    ["source", planSourceResumeAction],
+    ["source", sourcePlan],
   ])("%s missing-essentials owner authorization", (_name, planner) => {
     it.each([{}, { missing_essential_disposition: "proceed_with_limitations" }])("rejects model Create for a complete Profile: %j", (actionInput) => {
       const operationId = crypto.randomUUID();

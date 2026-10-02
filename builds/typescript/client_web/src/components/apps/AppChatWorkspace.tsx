@@ -29,6 +29,7 @@ import ProfileMenu from "@/components/layout/ProfileMenu";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { parsePaperInlineMarkdown } from "@/lib/paper-inline-markdown";
 import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
 import type { UserProfile } from "@/types/ui";
 import { appExportPayloadSizeBytes, parseHostAppExportPayload, saveHostAppExport, type HostAppExportPayload } from "./app-export-download";
@@ -1649,22 +1650,25 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
       const text = heading[2];
       if (variant === "paper") {
         if (depth === 1) return <h1 key={key} className="mb-2 text-center font-heading text-3xl font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h1>;
+        if (depth > 2) return <h3 key={key} className="mb-2 mt-3 whitespace-pre-wrap font-heading text-sm font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h3>;
         return <h2 key={key} className="mb-2 mt-6 font-heading text-sm font-bold uppercase tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h2>;
       }
       if (depth === 1) return <h1 key={key} className="mb-4 font-heading text-3xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h1>;
       return <h2 key={key} className="mb-3 mt-7 font-heading text-xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h2>;
     }
+    if (/^(?:[-*+]|\d+[.)])\s*$/.test(line)) return null;
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     if (bullet) {
+      if (!parsePaperInlineMarkdown(bullet[1]).some((run) => run.text.trim())) return null;
       return (
         <div key={key} className={cn("flex gap-3", variant === "paper" ? "mb-1.5 text-[13px] leading-6 text-[#17202a]" : "mb-2 text-base leading-7 text-bd-text-primary")}>
           <span aria-hidden="true" className={variant === "paper" ? "mt-0.5 text-[#596273]" : "text-bd-text-muted"}>•</span>
-          <p className="min-w-0 flex-1">{renderInlineMarkdownText(bullet[1])}</p>
+          <p className="min-w-0 flex-1 whitespace-pre-wrap">{renderInlineMarkdownText(bullet[1])}</p>
         </div>
       );
     }
     return (
-      <p key={key} className={variant === "paper" ? "mb-2 text-[13px] leading-6 text-[#17202a]" : "mb-4 text-base leading-7 text-bd-text-primary"}>
+      <p key={key} className={variant === "paper" ? "mb-2 whitespace-pre-wrap text-[13px] leading-6 text-[#17202a]" : "mb-4 text-base leading-7 text-bd-text-primary"}>
         {renderInlineMarkdownText(line)}
       </p>
     );
@@ -1672,10 +1676,9 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
 }
 
 function renderInlineMarkdownText(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g).filter(Boolean).map((part, index) => {
-    const strongMatch = /^(\*\*|__)(.+)\1$/.exec(part);
-    return strongMatch ? <strong key={index}>{strongMatch[2]}</strong> : part;
-  });
+  return parsePaperInlineMarkdown(text).map((run, index) =>
+    run.bold ? <strong key={index}>{run.text}</strong> : run.text,
+  );
 }
 
 function draftFromRecord(record: AppDocumentRecord | null): string {

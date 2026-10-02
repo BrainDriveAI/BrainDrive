@@ -583,23 +583,36 @@ function hasResumeIdentity(profileMarkdown) {
 }
 
 function hasUsableSection(profileMarkdown, headingPattern) {
-  let inSection = false;
+  let sectionDepth = 0;
   for (const rawLine of profileMarkdown.split(/\r?\n/)) {
     const line = rawLine.trim();
-    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
-      inSection = headingPattern.test(heading[1]?.trim() ?? "");
+      const depth = heading[1].length;
+      if (sectionDepth === 0 || depth <= sectionDepth) {
+        sectionDepth = headingPattern.test(stripResumeInlineMarkup(heading[2] ?? "")) ? depth : 0;
+      } else {
+        if (isUsableProfileContentLine(heading[2])) return true;
+      }
       continue;
     }
-    if (inSection && isUsableProfileContentLine(line)) return true;
+    if (sectionDepth > 0 && isUsableProfileContentLine(line)) return true;
   }
   return false;
 }
 
+// Closed vocabulary from the Profile template and structured entry fields.
+// Unknown colon prefixes are substantive text, never disposable field labels.
+const PROFILE_FIELD_LABEL = /^(?:name|email|phone|location|date|dates|start date|end date|employer|company|organization|title|role|degree|program|institution|school|issuer|year|gpa|honors|responsibilities|duties|achievements|accomplishments|website|links?)$/i;
+
 function isUsableProfileContentLine(line) {
-  const text = line.replace(/^[-*+]\s+/, "").trim();
-  if (!text) return false;
-  return !/^\[gap:\s*[^\]]+\]$/i.test(text);
+  const content = stripResumeInlineMarkup(line.replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
+    .replace(/\[gap:\s*[^\]]*\]/gi, "");
+  const text = content.split(/[:|–—()]/).map((part) => {
+    const value = part.replace(/^[\s-]+|[\s-]+$/g, "");
+    return PROFILE_FIELD_LABEL.test(value) || /^unfilled\s+entry$/i.test(value) ? "" : value;
+  }).join(" ");
+  return /[\p{L}\p{N}]/u.test(text);
 }
 
 function extractGapMarkers(profileMarkdown) {
@@ -668,18 +681,20 @@ const TEMPLATE_SECTION_NAMES = {
   skills: /^skills?$/i,
   certifications: /^(?:certifications?|licenses?)$/i,
   contact: /^(?:contact|contact\s+identity|personal\s+details)$/i,
+  projects: /^projects?$/i,
 };
 
 function renderResumeTemplateStandard(profileMarkdown) {
   const parsed = parseResumeProfileSections(profileMarkdown);
   const contact = parseResumeContact(parsed.contact?.lines ?? []);
-  const profileTitle = parsed.title && !GENERIC_PROFILE_HEADINGS.test(parsed.title) ? parsed.title : undefined;
+  const profileTitle = parsed.title && !GENERIC_PROFILE_HEADINGS.test(stripResumeInlineMarkup(parsed.title)) ? parsed.title : undefined;
   const name = contact.name ?? profileTitle;
   const lines = [];
   if (name) lines.push(`# ${name}`);
   const contactLine = [contact.location, contact.email, contact.phone].filter(Boolean).join("  \u00b7  ");
   if (contactLine) lines.push(contactLine);
-  if (name || contactLine) lines.push("");
+  lines.push(...contact.extra);
+  if (name || contactLine || contact.extra.length) lines.push("");
   appendResumeTemplateSection(lines, "Professional Summary", parsed.summary?.lines ?? []);
   appendResumeExperienceSection(lines, parsed.experience?.lines ?? []);
   appendResumeEducationSection(lines, parsed.education?.lines ?? []);
@@ -693,61 +708,82 @@ function parseResumeProfileSections(markdown) {
   const sections = [];
   let title;
   let current = null;
+  let currentDepth = 0;
   for (const rawLine of normalizeResumeMarkdown(markdown).split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     const h1 = /^#\s+(.+)$/.exec(line.trim());
-    const heading = /^#{2,6}\s+(.+)$/.exec(line.trim());
+    const heading = /^(#{2,6})\s+(.+)$/.exec(line.trim());
     if (h1) {
-      title ??= stripResumeInlineMarkup(h1[1]);
+      title ??= h1[1];
       current = null;
       continue;
     }
     if (heading) {
-      current = { heading: stripResumeInlineMarkup(heading[1]), lines: [] };
+      // Entry/group headings belong to their standard section; extras retain their existing handling.
+      if (current && heading[1].length > currentDepth && Object.values(TEMPLATE_SECTION_NAMES).some((pattern) => pattern.test(stripResumeInlineMarkup(current.heading)))) {
+        current.lines.push(line);
+        continue;
+      }
+      currentDepth = heading[1].length;
+      current = { heading: TEMPLATE_SECTION_NAMES.projects.test(stripResumeInlineMarkup(heading[2])) ? "Projects" : heading[2], lines: [] };
       sections.push(current);
       continue;
     }
     if (current) current.lines.push(line);
   }
   const classified = { title, contact: undefined, summary: undefined, experience: undefined, education: undefined, skills: undefined, certifications: undefined, other: [] };
+  const combine = (existing, section) => existing
+    ? { heading: existing.heading, lines: [...existing.lines, "", ...section.lines] } : section;
   for (const section of sections) {
-    if (TEMPLATE_SECTION_NAMES.contact.test(section.heading)) classified.contact ??= section;
-    else if (TEMPLATE_SECTION_NAMES.summary.test(section.heading)) classified.summary ??= section;
-    else if (TEMPLATE_SECTION_NAMES.experience.test(section.heading)) classified.experience ??= section;
-    else if (TEMPLATE_SECTION_NAMES.education.test(section.heading)) classified.education ??= section;
-    else if (TEMPLATE_SECTION_NAMES.skills.test(section.heading)) classified.skills ??= section;
-    else if (TEMPLATE_SECTION_NAMES.certifications.test(section.heading)) classified.certifications ??= section;
+    if (TEMPLATE_SECTION_NAMES.contact.test(stripResumeInlineMarkup(section.heading))) classified.contact = combine(classified.contact, section);
+    else if (TEMPLATE_SECTION_NAMES.summary.test(stripResumeInlineMarkup(section.heading))) classified.summary = combine(classified.summary, section);
+    else if (TEMPLATE_SECTION_NAMES.experience.test(stripResumeInlineMarkup(section.heading))) classified.experience = combine(classified.experience, section);
+    else if (TEMPLATE_SECTION_NAMES.education.test(stripResumeInlineMarkup(section.heading))) classified.education = combine(classified.education, section);
+    else if (TEMPLATE_SECTION_NAMES.skills.test(stripResumeInlineMarkup(section.heading))) classified.skills = combine(classified.skills, section);
+    else if (TEMPLATE_SECTION_NAMES.certifications.test(stripResumeInlineMarkup(section.heading))) classified.certifications = combine(classified.certifications, section);
     else classified.other.push(section);
   }
   return classified;
 }
 
+function parseResumeField(rawLine) {
+  // Classify the label using the complete line's matched delimiters, then
+  // slice its value without breaking emphasis that encloses label and value.
+  const line = rawLine.trim();
+  const colon = line.indexOf(":");
+  if (colon < 0) return null;
+  const key = stripResumeInlineMarkup(sliceInlineMarkdown(line, 0, colon)).toLowerCase();
+  let start = colon + 1;
+  while (start < line.length && /\s/.test(line[start])) start += 1;
+  return { key, value: sliceInlineMarkdown(line, start).trim() };
+}
+
 function parseResumeContact(lines) {
-  const contact = {};
+  const contact = { extra: [] };
   for (const rawLine of lines) {
-    const line = stripResumeInlineMarkup(rawLine.replace(/^\s*[-*+]\s+/, "").trim());
-    const match = /^([^:*]+?):\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const key = match[1].trim().toLowerCase();
-    const value = stripResumeInlineMarkup(match[2]).trim();
-    if (!value) continue;
-    if (key === "name" || key === "full name") contact.name ??= value;
-    else if (key === "location" || key === "city" || key === "city, state") contact.location ??= value;
-    else if (key === "email" || key === "email address") contact.email ??= value;
-    else if (key === "phone" || key === "phone number") contact.phone ??= value;
+    const field = parseResumeField(rawLine.replace(/^\s*[-*+]\s+/, ""));
+    if (!rawLine.trim()) continue;
+    const slot = field && (field.key === "name" || field.key === "full name" ? "name"
+      : field.key === "location" || field.key === "city" || field.key === "city, state" ? "location"
+      : field.key === "email" || field.key === "email address" ? "email"
+      : field.key === "phone" || field.key === "phone number" ? "phone" : null);
+    // Unrecognized, ambiguous, empty and duplicate fields still contain Profile
+    // text. Keep them verbatim instead of silently discarding the entire line.
+    if (slot && field.value && !contact[slot]) contact[slot] = field.value;
+    else contact.extra.push(rawLine);
   }
   return contact;
 }
 
 function appendResumeTemplateSection(lines, heading, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push(`## ${heading}`, ...content);
 }
 
 function appendResumeExperienceSection(lines, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push("## Experience");
@@ -757,32 +793,34 @@ function appendResumeExperienceSection(lines, rawLines) {
       lines.push(`- ${bullet[1]}`);
       continue;
     }
-    const parts = line.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length >= 2) lines.push(parts[0].startsWith("**") ? parts[0] : `**${parts[0]}**`, parts.slice(1).join("  \u00b7  "));
+    const heading = /^(#{3,6})\s+(.+)$/.exec(line);
+    const parts = splitInlineMarkdownPipes(heading?.[2] ?? line);
+    if (parts.length >= 2) lines.push(`### ${parts[0]}`, parts.slice(1).join("  \u00b7  "));
     else lines.push(line);
   }
 }
 
 function appendResumeEducationSection(lines, rawLines) {
-  const content = rawLines.map((line) => line.trim()).filter(Boolean);
+  const content = rawLines.map((line) => line.trim()).filter((line) => line && !/^(?:[-*+]|\d+[.)])\s*$/.test(line));
   if (content.length === 0) return;
   if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
   lines.push("## Education");
   for (const line of content) {
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     const value = bullet?.[1] ?? line;
-    const parts = value.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+    const parts = splitInlineMarkdownPipes(value);
     if (parts.length >= 3) lines.push(`${parts[0]}, ${parts[1]} \u2014 ${parts.slice(2).join(" | ")}`);
     else lines.push(value);
   }
 }
 
 function stripResumeInlineMarkup(value) {
-  return value.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").trim();
+  return runsPlainText(parsePdfInlineMarkdown(value)).trim();
 }
 
 const DATE_ENDPOINT_PATTERN = String.raw`(?:Present|Current|Now|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[12][0-9]{3}|[12][0-9]{3})`;
 
+// Single block-boundary splitter, verbatim from 2756b32 (TypeScript signature aside).
 function normalizeResumeMarkdown(markdown) {
   const dateTrailingBulletPattern = new RegExp(String.raw`\b(${DATE_ENDPOINT_PATTERN})\s+([-*+]\s+)(?!(?:${DATE_ENDPOINT_PATTERN})\b)`, "gi");
   return String(markdown ?? "")
@@ -808,7 +846,7 @@ function isExportableResumeMarkdown(markdown) {
   if (lines.length < 2) return false;
   if (lines.length === 1 && /^#\s*resume\s*$/i.test(lines[0] ?? "")) return false;
   return lines.some((line) => /^#{2,6}\s+\S/.test(line))
-    && lines.some((line) => !/^#{1,6}\s+\S/.test(line));
+    && lines.some((line) => !/^#{1,6}\s+\S/.test(line) || /^#{3,6}\s+\S/.test(line));
 }
 
 function normalizePdfFilename(value) {
@@ -934,6 +972,7 @@ function markdownToPdfBlocks(markdown) {
       if (blocks.length > 0 && blocks.at(-1)?.kind !== "spacer") blocks.push({ kind: "spacer" });
       continue;
     }
+    if (/^(?:[-*+]|\d+[.)])\s*$/.test(line)) continue;
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
       blocks.push({ kind: "heading", depth: heading[1].length, runs: parsePdfInlineMarkdown(heading[2]) });
@@ -941,7 +980,8 @@ function markdownToPdfBlocks(markdown) {
     }
     const bullet = /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
     if (bullet) {
-      blocks.push({ kind: "bullet", runs: parsePdfInlineMarkdown(bullet[1]) });
+      const runs = parsePdfInlineMarkdown(bullet[1]);
+      if (runsPlainText(runs).trim()) blocks.push({ kind: "bullet", runs });
       continue;
     }
     blocks.push({ kind: "paragraph", runs: parsePdfInlineMarkdown(line) });
@@ -990,11 +1030,20 @@ function renderPdfPages(blocks, fontUsage) {
     }
     if (block.kind === "heading") {
       if (block.depth === 1) {
-        ensure(38);
-        const text = runsPlainText(block.runs);
-        const fontSize = 22;
-        commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
-        y -= 30;
+        const lines = wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 22);
+        for (const line of lines) {
+          ensure(38);
+          const text = runsPlainText(line.runs);
+          commands.push(textCommand("F3", 22, Math.max(left, 306 - (textWidth(text, 22, true) / 2)), y, text, fontUsage.bold));
+          y -= 30;
+        }
+      } else if (block.depth > 2) {
+        ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
+        for (const line of wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 10.5)) {
+          drawRuns(line.runs, left, y, 10.5);
+          y -= 15;
+        }
+        y -= 7;
       } else {
         ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         y -= 10;
@@ -1046,16 +1095,258 @@ function pdfSectionIntroRequiredHeight(blocks, headingIndex, contentWidth) {
 
 function pdfBlockRequiredHeight(block, contentWidth) {
   if (block.kind === "spacer") return 8;
-  if (block.kind === "heading") return block.depth === 1 ? 38 : 38;
+  if (block.kind === "heading") return block.depth > 2 ? wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 10.5).length * 15 + 7 : 38;
   if (block.kind === "bullet") return wrapPdfRuns(block.runs, contentWidth - 20, 10).length * 15 + 6;
   return wrapPdfRuns(block.runs, contentWidth, 10).length * 15 + 8;
 }
 
+// inline-markdown:start (generated by scripts/sync-inline-markdown.mjs)
+function analyzeInlineMarkdown(text) {
+    // Pair emphasis delimiters; unmatched/escaped punctuation remains literal.
+    // Italics use plain text in the two-face PDF font set; strong stays bold.
+    const removed = new Set();
+    const pairs = [];
+    const literal = new Set();
+    const boldChanges = new Int16Array(text.length + 1);
+    const delimiters = [];
+    const whitespace = (character) => !character || /\s/u.test(character);
+    const punctuation = (character) => /[\p{P}\p{S}]/u.test(character);
+    const matchCloser = (closerIndex) => {
+        const closer = delimiters[closerIndex];
+        if (!closer.close)
+            return;
+        for (let openerIndex = closerIndex - 1; openerIndex >= 0 && closer.remaining > 0; openerIndex -= 1) {
+            const opener = delimiters[openerIndex];
+            if (!opener.open || !opener.remaining || opener.marker !== closer.marker)
+                continue;
+            // Ambiguous runs follow Markdown's rule of three.
+            if ((opener.close || closer.open) && (opener.length + closer.length) % 3 === 0
+                && (opener.length % 3 !== 0 || closer.length % 3 !== 0))
+                continue;
+            while (opener.remaining > 0 && closer.remaining > 0) {
+                const width = opener.remaining >= 2 && closer.remaining >= 2 ? 2 : 1;
+                const openStart = opener.start + opener.remaining - width;
+                const closeStart = closer.start + closer.length - closer.remaining;
+                for (let offset = 0; offset < width; offset += 1) {
+                    removed.add(openStart + offset);
+                    removed.add(closeStart + offset);
+                }
+                pairs.push({ openStart, closeStart, width, openRun: openerIndex, closeRun: closerIndex });
+                if (width === 2) {
+                    boldChanges[openStart + width] += 1;
+                    boldChanges[closeStart] -= 1;
+                }
+                opener.remaining -= width;
+                closer.remaining -= width;
+            }
+            // Matched pairs enclose, rather than cross, intervening delimiters.
+            for (let index = openerIndex + 1; index < closerIndex; index += 1)
+                delimiters[index].open = false;
+        }
+    };
+    for (let index = 0; index < text.length; index += 1) {
+        // Code spans and bare URLs/emails are literal; emphasis can still surround them.
+        if (text[index] === "`") {
+            const ticks = /^`+/.exec(text.slice(index))[0];
+            let closing = index + ticks.length;
+            while (closing < text.length) {
+                const match = /`+/.exec(text.slice(closing));
+                if (!match)
+                    break;
+                closing += match.index;
+                if (match[0].length === ticks.length) {
+                    for (let offset = 0; offset < ticks.length; offset += 1) {
+                        removed.add(index + offset);
+                        removed.add(closing + offset);
+                    }
+                    for (let offset = index; offset < closing + ticks.length; offset += 1)
+                        literal.add(offset);
+                    index = closing + ticks.length - 1;
+                    break;
+                }
+                closing += match[0].length;
+            }
+            if (removed.has(index - ticks.length + 1))
+                continue;
+        }
+        // Leading emphasis is syntax; underscores inside an address remain protected.
+        const address = text[index] !== "_" && /^(?:(?:https?:\/\/|www\.)[^\s<>`]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.exec(text.slice(index));
+        if (address) {
+            let length = address[0].length;
+            // A suffix can close several nested emphasis runs before sentence punctuation.
+            // Protect the URL payload, not the surrounding syntax. Internal underscores
+            // (including /_private_/) stay literal; only a trailing matching run is syntax.
+            let suffix = address[0].replace(/(?:(?![*_])[\p{P}\p{S}])+$/u, "");
+            const available = {
+                "*": delimiters.filter((run) => run.open && run.marker === "*").reduce((sum, run) => sum + run.remaining, 0),
+                "_": delimiters.filter((run) => run.open && run.marker === "_").reduce((sum, run) => sum + run.remaining, 0),
+            };
+            let tail;
+            while ((tail = /(\*+|_+)$/.exec(suffix))) {
+                const marker = tail[0][0];
+                if (available[marker] < tail[0].length)
+                    break;
+                available[marker] -= tail[0].length;
+                suffix = suffix.slice(0, -tail[0].length);
+                length = suffix.length;
+            }
+            for (let offset = index; offset < index + length; offset += 1)
+                literal.add(offset);
+            index += length - 1;
+            continue;
+        }
+        if (text[index] === "\\" && /[\\*_]/.test(text[index + 1] ?? "")) {
+            removed.add(index);
+            index += 1;
+            continue;
+        }
+        const marker = text[index];
+        if (marker !== "*" && marker !== "_")
+            continue;
+        const start = index;
+        while (text[index + 1] === marker)
+            index += 1;
+        const before = text[start - 1] ?? "";
+        const after = text[index + 1] ?? "";
+        const left = !whitespace(after) && (!punctuation(after) || whitespace(before) || punctuation(before));
+        const right = !whitespace(before) && (!punctuation(before) || whitespace(after) || punctuation(after));
+        delimiters.push({
+            marker, start, length: index - start + 1, remaining: index - start + 1,
+            open: left && (marker === "*" || !right || punctuation(before)),
+            close: right && (marker === "*" || !left || punctuation(after)),
+        });
+        matchCloser(delimiters.length - 1);
+    }
+    // Never consume only part of an ambiguous delimiter run. Restore the entire
+    // connected match, including enclosing pairs, rather than moving a literal star
+    // into a different field when the source is subsequently sliced.
+    const ambiguous = new Set(delimiters.flatMap((run, index) => run.remaining > 0 && run.remaining < run.length ? [index] : []));
+    let previousSize = -1;
+    while (previousSize !== ambiguous.size) {
+        previousSize = ambiguous.size;
+        for (const pair of pairs) {
+            if (ambiguous.has(pair.openRun) || ambiguous.has(pair.closeRun)) {
+                ambiguous.add(pair.openRun);
+                ambiguous.add(pair.closeRun);
+            }
+        }
+    }
+    const balanced = pairs.filter((pair) => {
+        if (!ambiguous.has(pair.openRun))
+            return true;
+        for (let offset = 0; offset < pair.width; offset += 1) {
+            removed.delete(pair.openStart + offset);
+            removed.delete(pair.closeStart + offset);
+        }
+        if (pair.width === 2) {
+            boldChanges[pair.openStart + pair.width] -= 1;
+            boldChanges[pair.closeStart] += 1;
+        }
+        return false;
+    });
+    const unsafeToSplit = ambiguous.size > 0 || delimiters.some((run) => run.open && run.remaining > 0);
+    return { removed, boldChanges, pairs: balanced, literal, unsafeToSplit };
+}
+function parseInlineMarkdown(text) {
+    const { removed, boldChanges } = analyzeInlineMarkdown(text);
+    const runs = [];
+    let boldDepth = 0;
+    for (let index = 0; index < text.length; index += 1) {
+        boldDepth += boldChanges[index];
+        if (removed.has(index))
+            continue;
+        const bold = boldDepth > 0;
+        const last = runs.at(-1);
+        if (last && last.bold === bold)
+            last.text += text[index];
+        else
+            runs.push({ text: text[index], bold });
+    }
+    return runs;
+}
+// Cut at source offsets, balancing only pairs that actually intersect the slice.
+// Unmatched punctuation stays byte-for-byte literal. Values are parsed only once,
+// at display time, so code content cannot become markup on a second pass.
+function sliceInlineMarkdown(text, start, end = text.length) {
+    const { pairs } = analyzeInlineMarkdown(text);
+    const omitted = new Set();
+    const opening = [];
+    const closing = [];
+    for (const pair of pairs) {
+        const contentStart = pair.openStart + pair.width;
+        const intersects = contentStart < end && pair.closeStart > start;
+        if (!intersects) {
+            for (let offset = 0; offset < pair.width; offset += 1) {
+                omitted.add(pair.openStart + offset);
+                omitted.add(pair.closeStart + offset);
+            }
+            continue;
+        }
+        if (pair.openStart < start)
+            opening.push(pair);
+        if (pair.closeStart + pair.width > end)
+            closing.push(pair);
+    }
+    const prefix = opening.sort((a, b) => a.openStart - b.openStart).map((pair) => text.slice(pair.openStart, pair.openStart + pair.width)).join("");
+    const suffix = closing.sort((a, b) => a.closeStart - b.closeStart).map((pair) => text.slice(pair.closeStart, pair.closeStart + pair.width)).join("");
+    return prefix + text.slice(start, end).split("").filter((_, offset) => !omitted.has(start + offset)).join("") + suffix;
+}
+function splitInlineMarkdownPipes(text) {
+    const { literal, unsafeToSplit } = analyzeInlineMarkdown(text);
+    // A structural interpretation is unsafe when emphasis is unfinished/ambiguous.
+    if (unsafeToSplit)
+        return [text];
+    const boundaries = [...text.matchAll(/\|/g)].map((match) => match.index).filter((index) => !literal.has(index));
+    if (!boundaries.length)
+        return [text];
+    let start = 0;
+    return [...boundaries, text.length].map((end) => {
+        let from = start, to = end;
+        while (from < to && /\s/.test(text[from]))
+            from += 1;
+        while (to > from && /\s/.test(text[to - 1]))
+            to -= 1;
+        const part = sliceInlineMarkdown(text, from, to);
+        start = end + 1;
+        return part;
+    });
+}
+// Legacy flattened-input repair may edit only plain text, never code, addresses,
+// or a matched emphasis span. Placeholders are private and collision-free.
+function mapInlineMarkdownPlainText(text, transform) {
+    const { pairs, literal } = analyzeInlineMarkdown(text);
+    const protectedPositions = new Set(literal);
+    for (const pair of pairs) {
+        for (let index = pair.openStart; index < pair.closeStart + pair.width; index += 1)
+            protectedPositions.add(index);
+    }
+    let sentinel = "\u0000";
+    while (text.includes(sentinel))
+        sentinel += "\u0000";
+    const spans = [];
+    let masked = "";
+    for (let index = 0; index < text.length;) {
+        if (!protectedPositions.has(index)) {
+            masked += text[index++];
+            continue;
+        }
+        const start = index;
+        while (index < text.length && protectedPositions.has(index))
+            index += 1;
+        masked += `${sentinel}${spans.length}${sentinel}`;
+        spans.push(text.slice(start, index));
+    }
+    let result = transform(masked);
+    for (let index = 0; index < spans.length; index += 1)
+        result = result.replace(`${sentinel}${index}${sentinel}`, () => spans[index]);
+    return result;
+}
+// inline-markdown:end
+
 function parsePdfInlineMarkdown(text) {
-  return text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g).filter(Boolean).map((part) => {
-    const strong = /^(\*\*|__)(.+)\1$/.exec(part);
-    return strong ? { text: normalizePdfText(strong[2], true), bold: true } : { text: normalizePdfText(part, false), bold: false };
-  }).filter((run) => run.text.length > 0);
+  return parseInlineMarkdown(text)
+    .map((run) => ({ ...run, text: normalizePdfText(run.text, false) }))
+    .filter((run) => run.text.length > 0);
 }
 
 function wrapPdfRuns(runs, maxWidth, fontSize) {
@@ -1075,22 +1366,30 @@ function wrapPdfRuns(runs, maxWidth, fontSize) {
     currentWidth = 0;
   };
 
+  // Assemble words across style boundaries; only source whitespace separates them.
+  const tokens = [];
   for (const run of runs) {
-    for (const word of run.text.split(/\s+/).filter(Boolean)) {
-      const prefix = current.length > 0 ? " " : "";
-      const piece = `${prefix}${word}`;
-      const pieceWidth = textWidth(piece, fontSize, run.bold);
-      if (current.length > 0 && currentWidth + pieceWidth > maxWidth) flush();
-      if (pieceWidth > maxWidth) {
-        const chunkSize = Math.max(8, Math.floor(maxWidth / (fontSize * 0.55)));
-        for (let index = 0; index < word.length; index += chunkSize) {
-          const chunkPrefix = current.length > 0 ? " " : "";
-          pushRun({ text: `${chunkPrefix}${word.slice(index, index + chunkSize)}`, bold: run.bold });
-          flush();
-        }
-        continue;
+    for (const text of run.text.split(/(\s+)/).filter(Boolean)) {
+      const whitespace = /^\s+$/.test(text);
+      const last = tokens.at(-1);
+      if (last && last.whitespace === whitespace) last.runs.push({ text, bold: run.bold });
+      else tokens.push({ runs: [{ text, bold: run.bold }], whitespace });
+    }
+  }
+  let pending = [];
+  for (const token of tokens) {
+    if (token.whitespace) { pending = token.runs; continue; }
+    const wordWidth = token.runs.reduce((sum, run) => sum + textWidth(run.text, fontSize, run.bold), 0);
+    const spaceWidth = pending.reduce((sum, run) => sum + textWidth(run.text, fontSize, run.bold), 0);
+    if (current.length > 0 && currentWidth + spaceWidth + wordWidth > maxWidth) flush();
+    if (current.length > 0) pending.forEach(pushRun);
+    pending = [];
+    for (const run of token.runs) {
+      // Oversized words flow at character boundaries without inserting spaces.
+      for (const character of run.text) {
+        if (currentWidth + textWidth(character, fontSize, run.bold) > maxWidth) flush();
+        pushRun({ text: character, bold: run.bold });
       }
-      pushRun({ text: current.length > 0 ? piece : word, bold: run.bold });
     }
   }
   flush();
@@ -1121,7 +1420,7 @@ function round(value) {
 
 function normalizePdfText(value, trim = true) {
   const normalized = String(value ?? "")
-    .replace(/[ \t]+/g, " ")
+    .replace(/\t/g, " ")
     .replace(/\u00a0/g, " ");
   return trim ? normalized.trim() : normalized;
 }
