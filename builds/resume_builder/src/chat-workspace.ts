@@ -709,9 +709,9 @@ function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): bool
       if (sectionDepth === 0 || depth <= sectionDepth) {
         sectionDepth = headingPattern.test(stripResumeInlineMarkup(heading[2] ?? "")) ? depth : 0;
       } else {
-        // A title with an employer is an entry even when its details are all on this line.
+        // A substantive role heading is an entry even without an employer or body.
         const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
-        if (title.split(/\s*\|\s*|\s*,\s*|\s+[—–]\s+|\s+at\s+/i).filter(isUsableProfileContentLine).length >= 2) return true;
+        if (!/^unfilled\s+entry$/i.test(title) && isUsableProfileContentLine(title)) return true;
       }
       continue;
     }
@@ -901,13 +901,15 @@ function parseResumeProfileSections(markdown: string): {
     certifications: undefined as ResumeProfileSection | undefined,
     other: [] as ResumeProfileSection[],
   };
+  const combine = (existing: ResumeProfileSection | undefined, section: ResumeProfileSection) => existing
+    ? { heading: existing.heading, lines: [...existing.lines, "", ...section.lines] } : section;
   for (const section of sections) {
-    if (TEMPLATE_SECTION_NAMES.contact.test(stripResumeInlineMarkup(section.heading))) classified.contact ??= section;
-    else if (TEMPLATE_SECTION_NAMES.summary.test(stripResumeInlineMarkup(section.heading))) classified.summary ??= section;
-    else if (TEMPLATE_SECTION_NAMES.experience.test(stripResumeInlineMarkup(section.heading))) classified.experience ??= section;
-    else if (TEMPLATE_SECTION_NAMES.education.test(stripResumeInlineMarkup(section.heading))) classified.education ??= section;
-    else if (TEMPLATE_SECTION_NAMES.skills.test(stripResumeInlineMarkup(section.heading))) classified.skills ??= section;
-    else if (TEMPLATE_SECTION_NAMES.certifications.test(stripResumeInlineMarkup(section.heading))) classified.certifications ??= section;
+    if (TEMPLATE_SECTION_NAMES.contact.test(stripResumeInlineMarkup(section.heading))) classified.contact = combine(classified.contact, section);
+    else if (TEMPLATE_SECTION_NAMES.summary.test(stripResumeInlineMarkup(section.heading))) classified.summary = combine(classified.summary, section);
+    else if (TEMPLATE_SECTION_NAMES.experience.test(stripResumeInlineMarkup(section.heading))) classified.experience = combine(classified.experience, section);
+    else if (TEMPLATE_SECTION_NAMES.education.test(stripResumeInlineMarkup(section.heading))) classified.education = combine(classified.education, section);
+    else if (TEMPLATE_SECTION_NAMES.skills.test(stripResumeInlineMarkup(section.heading))) classified.skills = combine(classified.skills, section);
+    else if (TEMPLATE_SECTION_NAMES.certifications.test(stripResumeInlineMarkup(section.heading))) classified.certifications = combine(classified.certifications, section);
     else classified.other.push(section);
   }
   return classified;
@@ -1247,12 +1249,13 @@ function renderPdfPages(blocks: PdfBlock[], fontUsage: PdfFontUsage): string[] {
     }
     if (block.kind === "heading") {
       if (block.depth === 1) {
-        ensure(38);
-        const text = runsPlainText(block.runs);
-        // Fit the complete header on the page, including long literal URLs/code.
-        const fontSize = Math.min(22, 22 * contentWidth / Math.max(1, textWidth(text, 22, true)));
-        commands.push(textCommand("F3", fontSize, Math.max(left, 306 - (textWidth(text, fontSize, true) / 2)), y, text, fontUsage.bold));
-        y -= 30;
+        const lines = wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 22);
+        for (const line of lines) {
+          ensure(38);
+          const text = runsPlainText(line.runs);
+          commands.push(textCommand("F3", 22, Math.max(left, 306 - (textWidth(text, 22, true) / 2)), y, text, fontUsage.bold));
+          y -= 30;
+        }
       } else if (block.depth > 2) {
         ensure(pdfSectionIntroRequiredHeight(blocks, index, contentWidth));
         for (const line of wrapPdfRuns(block.runs.map((run) => ({ ...run, bold: true })), contentWidth, 10.5)) {

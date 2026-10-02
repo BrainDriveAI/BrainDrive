@@ -1,3 +1,4 @@
+import { inflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -27,6 +28,15 @@ const atoms: Fragment[] = [
   { markdown: "**2020 - item**", text: "2020 - item" },
   { markdown: "alpha, beta — gamma", text: "alpha, beta — gamma" },
   { markdown: "[gap: role, dates]", text: "[gap: role, dates]" },
+];
+// Heading-only forms drawn from accepted P3–P5 career facts, with varied separators.
+const headingOnlyEntries = [
+  "Director of Data Platforms at Horizon Health Systems (2020–present)",
+  "Senior Data Engineering Manager, Horizon Health Systems, 2016–2020",
+  "Marketing Manager, BrightPath Learning (March 2022–January 2026)",
+  "Content Specialist, Learnwell Media (2018–2022)",
+  "Freelance website maintenance (2020–2023)",
+  "Administrative Assistant at Lakeview Property Group (September 2023–present)",
 ];
 const wrappers = ["", "*", "**", "_", "__", "***", "___", "**_", "*__"];
 function wrap(atom: Fragment, marker: string): Fragment {
@@ -91,10 +101,14 @@ function generate(seed: number, count: number): Case[] {
     const bodyText = body.map((item) => item.text).join(" / ") + punctuation;
     const strays = ["C*", "stray *", "stray **", "stray _", "stray __", "***unclosed", "**x***", "***x**", "_x__", "__x_", "left* right**", "*left **middle"];
     const stray = strays[pick(strays.length)];
+    const headingOnly = pick(3) === 0 ? headingOnlyEntries[pick(headingOnlyEntries.length)] : null;
+    const repeated = pick(2) === 0;
+    const education = `## Education\n### A.A. General Studies (2021)\n- school_${index}`;
+    const extras = `## Projects\n- project_${index}\n## Profile Review Notes\n- note_${index}`;
     return {
-      profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${entryHeading}${entryMarkup}\n${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}\n## Skills\n- sample_${index}`,
-      expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${role.text}\n${company.text} · 2020\n${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}\nSKILLS\n• sample_${index}`,
-      literals: [name, email, role, company, ...body].flatMap((item) => item.literal ? [item.literal] : []),
+      profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${headingOnly ? `### ${headingOnly}` : `${entryHeading}${entryMarkup}`}\n${headingOnly ? "" : `${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}`}\n${education}\n## Skills\n- sample_${index}${repeated ? `\n## Skills\n- second_${index}\n## Education\n- course_${index}` : ""}\n${extras}`,
+      expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${headingOnly ?? `${role.text}\n${company.text} · 2020`}\n${headingOnly ? "" : `${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}`}\nEDUCATION\nA.A. General Studies (2021)\nschool_${index}${repeated ? `\ncourse_${index}` : ""}\nSKILLS\n• sample_${index}${repeated ? `\n• second_${index}` : ""}\nPROJECTS\n• project_${index}\nPROFILE REVIEW NOTES\n• note_${index}`,
+      literals: [name, email, ...(headingOnly ? [] : [role, company, ...body])].flatMap((item) => item.literal ? [item.literal] : []),
     };
   });
 }
@@ -155,6 +169,12 @@ describe("no-content-loss Resume / PDF invariant", () => {
         }
         // Exact equality with the independent oracle covers both conservation and
         // absence of authored balanced delimiters, while permitting literal code/strays.
+        if (headingOnlyEntries.some((title) => sample.profile.includes(`### ${title}`))) {
+          for (const planner of [shipped, source]) {
+            const gate = plan(planner, "resume.create", sample.profile, false).steps[0] as any;
+            expect(gate.content?.missing_essentials ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+          }
+        }
         for (const literal of sample.literals) expect(actual, `case ${index}`).toContain(literal);
         expect(resume(shipped, sample.profile)).toBe(markdown);
         expect(resume(source, sample.profile)).toBe(markdown);
@@ -199,6 +219,8 @@ describe("no-content-loss Resume / PDF invariant", () => {
     ["long header cannot clip PDF text (seed case 35)", "## Contact\nName: https://example.test/_private_/first_last?q=a_b (preferred name)\nEmail: a_b@c.d\n## Experience\nRole | Company | 2020", "https://example.test/_private_/first_last?q=a_b (preferred name) a_b@c.d EXPERIENCE Role Company · 2020"],
     ["code that resembles flattened headings and bullets", "## Experience\n- `2020 - x. - y ## z`", "Test Person EXPERIENCE • 2020 - x. - y ## z"],
     ["emphasis that resembles flattened bullets", "## Experience\n**2020 - item**", "Test Person EXPERIENCE 2020 - item"],
+    ["repeated standard sections retain all content", "## Skills\n- Excel\n## Skills\n- SQL\n## Education\n- Degree\n## Education\n- Course", "Test Person EDUCATION Degree Course SKILLS • Excel • SQL"],
+    ["heading-only freelance entry", "## Experience\n### Freelance website maintenance (2020–2023)", "Test Person EXPERIENCE Freelance website maintenance (2020–2023)"],
     ["heading-only comma entry can be exported", "## Experience\n### Senior Data Engineering Manager, Horizon Health Systems, 2016–2020", "Test Person EXPERIENCE Senior Data Engineering Manager, Horizon Health Systems, 2016–2020"],
     ["unbalanced pipe emphasis stays on its original line", "## Experience\n### **Role | Company | 2020", "Test Person EXPERIENCE **Role | Company | 2020"],
     ["plain pipe title with a literal star", "## Experience\nC* | Company | 2020", "Test Person EXPERIENCE C* Company · 2020"],
@@ -218,6 +240,21 @@ describe("no-content-loss Resume / PDF invariant", () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it("wraps long PDF names in bold at the prescribed 22pt", () => {
+    const name = "Alexandra ".repeat(16).trim();
+    for (const planner of [shipped, source]) {
+      const bytes = pdf(planner, resume(planner, `# ${name}\n## Experience\n### Website maintenance`));
+      const raw = bytes.toString("latin1");
+      const streams = [...raw.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map((match) => {
+        const start = match.index! + "stream\n".length;
+        return inflateSync(bytes.subarray(start, start + match[1].length)).toString("utf8");
+      });
+      const commands = streams.join("\n").match(/\/F3 [\d.]+ Tf/g) ?? [];
+      expect(commands.length).toBeGreaterThan(1);
+      expect(commands.every((command) => command.startsWith("/F3 22 Tf"))).toBe(true);
+    }
+  });
+
   it("repairs flattened blocks without rewriting code or balanced emphasis", () => {
     const profile = "# Test Person ## Experience - `2020 - x. - y ## z`";
     const markdown = resume(shipped, profile);
@@ -227,11 +264,11 @@ describe("no-content-loss Resume / PDF invariant", () => {
 
   it("accepts substantive comma-form heading-only experience without accepting empty/gap headings", () => {
     for (const planner of [shipped, source]) {
-      for (const title of ["Senior Data Engineering Manager, Horizon Health Systems, 2016–2020", "Director, Employer, 2020", "Analyst, Company, 2021"]) {
+      for (const title of [...headingOnlyEntries, "Website maintenance", "Director, Employer, 2020", "Analyst, Company, 2021"]) {
         const steps = plan(planner, "resume.create", `# Test Person\n## Experience\n### ${title}`, false).steps;
         expect(steps.some((step) => step.step_id === "write-resume-document")).toBe(true);
       }
-      for (const title of ["Unfilled entry", "[gap: role], [gap: employer], [gap: dates]"]) {
+      for (const title of ["", "Unfilled entry", "[gap: role], [gap: employer], [gap: dates]", "**[gap: role]**"]) {
         const result = plan(planner, "resume.create", `# Test Person\n## Experience\n### ${title}`, false).steps[0] as any;
         expect(result.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
       }
