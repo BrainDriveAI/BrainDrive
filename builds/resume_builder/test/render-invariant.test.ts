@@ -36,6 +36,10 @@ const headingOnlyEntries = [
   "Marketing Manager, BrightPath Learning (March 2022–January 2026)",
   "Content Specialist, Learnwell Media (2018–2022)",
   "Freelance website maintenance (2020–2023)",
+  "Freelance website maintenance: [gap: dates]",
+  "Freelance website maintenance | [gap: dates]",
+  "Freelance website maintenance — [gap: dates]",
+  "Freelance website maintenance ([gap: dates])",
   "Administrative Assistant at Lakeview Property Group (September 2023–present)",
 ];
 const wrappers = ["", "*", "**", "_", "__", "***", "___", "**_", "*__"];
@@ -107,7 +111,7 @@ function generate(seed: number, count: number): Case[] {
     const extras = `## Projects\n- project_${index}\n## Profile Review Notes\n- note_${index}`;
     return {
       profile: `# Resume Profile\n## ${pick(2) ? "**Contact**" : "Contact"}\n${nameLine}\n${pick(2) ? "**Email:**" : "Email:"} ${email.markdown}\n## ${pick(2) ? "**Experience**" : "Experience"}\n${headingOnly ? `### ${headingOnly}` : `${entryHeading}${entryMarkup}`}\n${headingOnly ? "" : `${prefix}${body.map((item) => item.markdown).join(" / ")}${punctuation}\n${stray}`}\n${education}\n## Skills\n- sample_${index}${repeated ? `\n## Skills\n- second_${index}\n## Education\n- course_${index}` : ""}\n${extras}`,
-      expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${headingOnly ?? `${role.text}\n${company.text} · 2020`}\n${headingOnly ? "" : `${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}`}\nEDUCATION\nA.A. General Studies (2021)\nschool_${index}${repeated ? `\ncourse_${index}` : ""}\nSKILLS\n• sample_${index}${repeated ? `\n• second_${index}` : ""}\nPROJECTS\n• project_${index}\nPROFILE REVIEW NOTES\n• note_${index}`,
+      expected: `${name.text}${tail}\n${email.text}\nEXPERIENCE\n${headingOnly?.replace(" | ", "\n") ?? `${role.text}\n${company.text} · 2020`}\n${headingOnly ? "" : `${/^[*-]/.test(prefix) ? "• " : ""}${bodyText}\n${stray}`}\nEDUCATION\nA.A. General Studies (2021)\nschool_${index}${repeated ? `\ncourse_${index}` : ""}\nSKILLS\n• sample_${index}${repeated ? `\n• second_${index}` : ""}\nPROJECTS\n• project_${index}\nPROFILE REVIEW NOTES\n• note_${index}`,
       literals: [name, email, ...(headingOnly ? [] : [role, company, ...body])].flatMap((item) => item.literal ? [item.literal] : []),
     };
   });
@@ -262,9 +266,29 @@ describe("no-content-loss Resume / PDF invariant", () => {
     expect(normalize(paper(markdown))).toBe("Test Person EXPERIENCE • 2020 - x. - y ## z");
   });
 
+  it("counts role headings independently of separators while retaining date gaps", () => {
+    for (const planner of [shipped, source]) {
+      for (const separator of [": ", " | ", " - ", " — ", " ("]) {
+        const suffix = separator === " (" ? ")" : "";
+        const result = plan(planner, "resume.create", `# Test Person\n## Experience\n### Freelance website maintenance${separator}[gap: dates]${suffix}`, false).steps[0] as any;
+        expect(result.content.missing_essentials).toEqual([
+          expect.objectContaining({ field_id: "gap_marker_1", label: "Unresolved gap: dates" }),
+        ]);
+        for (const title of ["", "Unfilled entry", "**Unfilled entry**", "[gap: role]"]) {
+          const missing = plan(planner, "resume.create", `# Test Person\n## Experience\n### ${title}${separator}[gap: dates]${suffix}`, false).steps[0] as any;
+          expect(missing.content.missing_essentials).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "experience" })]));
+        }
+        const body = plan(planner, "resume.create", `# Test Person\n## Experience\n### Unfilled entry${separator}[gap: dates]${suffix}\n- Maintained client websites`, false).steps[0] as any;
+        expect(body.content.missing_essentials).toEqual([
+          expect.objectContaining({ field_id: "gap_marker_1", label: "Unresolved gap: dates" }),
+        ]);
+      }
+    }
+  });
+
   it("accepts substantive comma-form heading-only experience without accepting empty/gap headings", () => {
     for (const planner of [shipped, source]) {
-      for (const title of [...headingOnlyEntries, "Website maintenance", "Director, Employer, 2020", "Analyst, Company, 2021"]) {
+      for (const title of [...headingOnlyEntries.filter((title) => !title.includes("[gap:")), "Website maintenance", "Director, Employer, 2020", "Analyst, Company, 2021"]) {
         const steps = plan(planner, "resume.create", `# Test Person\n## Experience\n### ${title}`, false).steps;
         expect(steps.some((step) => step.step_id === "write-resume-document")).toBe(true);
       }

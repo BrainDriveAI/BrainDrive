@@ -710,8 +710,10 @@ function hasUsableSection(profileMarkdown: string, headingPattern: RegExp): bool
         sectionDepth = headingPattern.test(stripResumeInlineMarkup(heading[2] ?? "")) ? depth : 0;
       } else {
         // A substantive role heading is an entry even without an employer or body.
-        const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "").trim();
-        if (!/^unfilled\s+entry$/i.test(title) && isUsableProfileContentLine(title)) return true;
+        const title = stripResumeInlineMarkup(heading[2]).replace(/\[gap:\s*[^\]]*\]/gi, "")
+          .replace(/^[\s:|–—()\-]+|[\s:|–—()\-]+$/g, "");
+        // Headings are role text, not colon fields: retain the text before any separator.
+        if (!/^unfilled\s+entry$/i.test(title) && /[\p{L}\p{N}]/u.test(title)) return true;
       }
       continue;
     }
