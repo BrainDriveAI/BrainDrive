@@ -238,8 +238,16 @@ export function restoreVerifiedAuthority(
   try {
     auth.tx(() => {
       auth.db
-        .prepare("UPDATE meta SET epoch=?,budget=? WHERE id=1")
-        .run(snapshot.meta.epoch, snapshot.meta.budget);
+        .prepare("UPDATE meta SET epoch=?,budget=?,authorityId=? WHERE id=1")
+        .run(
+          snapshot.meta.epoch,
+          snapshot.meta.budget,
+          snapshot.meta.authorityId,
+        );
+      for (const certificate of snapshot.recoveries)
+        auth.db
+          .prepare("INSERT INTO recoveries VALUES (?,?)")
+          .run(certificate.epoch, canonical(certificate));
       for (const raw of snapshot.grants) {
         const row = raw as {
           id: string;

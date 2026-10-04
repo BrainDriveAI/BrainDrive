@@ -41,7 +41,11 @@ A fresh Node 24 environment can install pinned dependencies, run deterministic f
 ## Execution checkpoint
 
 Overall objective: complete the runnable experiment and preserve code/evidence for review.
-Current: all seven local experiment surfaces implemented; clean pinned install, 48 tests, combined demo, formatting, audit, documentation and secret checks passed.
-Remaining: code branch/draft PR preservation and Library reconciliation with verified pushes.
+Current: all seven local experiment surfaces implemented; clean pinned install, 55 tests, combined demo, formatting, audit, documentation and secret checks passed.
+Remaining: review follow-up push/CI and Library reconciliation with verified pushes.
 Blocked branches: public identity/witness interoperability, production messaging security, real/test-fund payments, independent live implementation, and product qualification remain outside this authorized experiment.
 Next safe action: preserve this reviewed experiment source on its scoped branch, create a draft PR targeting dev, then reconcile Library state. Later product integration requires accepted scope and owner review.
+
+## October 4 review follow-up
+
+Dave W requested Fabel review and then authorized remediation. Shared owner authority/epoch now governs messaging and checked identity bindings; admin proofs bind the exact action/target. Independent recovery certificates preserve paid-result entitlement through owner changes and portable authority snapshots. Resolver-side old-key forgery is rejected. A dedicated Node 24 prototype CI workflow covers the package; Node 22 product compatibility remains an integration decision. Remaining public/production gates are unchanged.

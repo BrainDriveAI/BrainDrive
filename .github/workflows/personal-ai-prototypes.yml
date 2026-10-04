@@ -1,0 +1,36 @@
+name: Personal AI prototypes
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'builds/personal-ai-ecosystem/**'
+      - '.github/workflows/personal-ai-prototypes.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'builds/personal-ai-ecosystem/**'
+      - '.github/workflows/personal-ai-prototypes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prototypes:
+    name: Prototype build, tests and demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: builds/personal-ai-ecosystem
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run format:check
+      - run: npm run demo

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MessagingKey, Messenger } from "../src/messaging.js";
-import { Memory, TestSigner } from "../src/core.js";
+import { Authority, Memory, TestSigner } from "../src/core.js";
 import { LocalNostrRelay, publishWire, queryWire } from "../src/relay.js";
 it("synthetic NIP-17 crosses real WebSockets, survives one relay shutdown and recipient restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "nostr-wire-"));
@@ -11,15 +11,17 @@ it("synthetic NIP-17 crosses real WebSockets, survives one relay shutdown and re
     bOwner = new TestSigner(),
     aKey = new MessagingKey(),
     bKey = new MessagingKey();
+  const aAuth = new Authority(join(root, "a-auth.sqlite"), aOwner.publicKey);
+  const bAuth = new Authority(join(root, "b-auth.sqlite"), bOwner.publicKey);
   const a = new Messenger(
     join(root, "a.sqlite"),
-    aOwner.publicKey,
+    aAuth,
     aKey,
     new Memory(join(root, "a-memory")),
   );
   let b = new Messenger(
     join(root, "b.sqlite"),
-    bOwner.publicKey,
+    bAuth,
     bKey,
     new Memory(join(root, "b-memory")),
   );
@@ -51,7 +53,7 @@ it("synthetic NIP-17 crosses real WebSockets, survives one relay shutdown and re
     ).toBe("transport-accepted");
     b = new Messenger(
       join(root, "b.sqlite"),
-      bOwner.publicKey,
+      bAuth,
       MessagingKey.recoverProtected(join(root, "protected-backup", "b-key")),
       new Memory(join(root, "b-memory")),
     );
@@ -68,6 +70,8 @@ it("synthetic NIP-17 crosses real WebSockets, survives one relay shutdown and re
     } catch {}
     if (relayA) await relayA.close();
     if (relayB) await relayB.close();
+    aAuth.close();
+    bAuth.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

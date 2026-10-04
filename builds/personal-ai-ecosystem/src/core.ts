@@ -155,7 +155,16 @@ export interface GrantInput {
   maxCost: number;
   expiresAt: number;
 }
+export interface RecoveryCertificate {
+  oldOwner: string;
+  newOwner: string;
+  recoveryKey: string;
+  epoch: number;
+  nonce: string;
+  signature: string;
+}
 export interface Grant extends GrantInput {
+  recoveryKey: string;
   issuer: string;
   epoch: number;
   issuedAt: number;
@@ -211,14 +220,15 @@ export class Authority {
     this.db = new DatabaseSync(file);
     this.db
       .exec(`PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
- CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,recovery TEXT NOT NULL,epoch INTEGER NOT NULL,budget INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1);
+ CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,recovery TEXT NOT NULL,epoch INTEGER NOT NULL,budget INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,authorityId TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS grants (id TEXT PRIMARY KEY,body TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,operation TEXT);
  CREATE TABLE IF NOT EXISTS challenges (id TEXT PRIMARY KEY,body TEXT NOT NULL,used INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS recoveries(epoch INTEGER PRIMARY KEY,body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY,body TEXT NOT NULL,cost INTEGER NOT NULL);
  `);
     this.db
-      .prepare("INSERT OR IGNORE INTO meta VALUES (1,?,?,0,100,1)")
-      .run(initialOwnerKey, recoveryKey);
+      .prepare("INSERT OR IGNORE INTO meta VALUES (1,?,?,0,100,1,?)")
+      .run(initialOwnerKey, recoveryKey, randomUUID());
     chmodSync(file, 0o600);
     check(this.meta().owner === initialOwnerKey, "owner mismatch");
   }
@@ -232,6 +242,7 @@ export class Authority {
       epoch: number;
       budget: number;
       active: number;
+      authorityId: string;
     };
   }
   tx<T>(fn: () => T): T {
@@ -245,8 +256,13 @@ export class Authority {
       throw e;
     }
   }
-  private admin(owner: TestSigner) {
-    const payload = { operation: randomUUID(), epoch: this.meta().epoch };
+  private admin(owner: TestSigner, action: string, target: unknown) {
+    const payload = {
+      nonce: randomUUID(),
+      epoch: this.meta().epoch,
+      action,
+      target,
+    };
     check(this.meta().active === 1, "host authority fenced");
     check(
       validSignature(
@@ -259,45 +275,50 @@ export class Authority {
     );
   }
   grant(owner: TestSigner, input: GrantInput) {
-    this.admin(owner);
-    check(/^[\w-]{1,100}$/.test(input.id), "grant id");
-    check(
-      Number.isSafeInteger(input.maxCost) && input.maxCost >= 0,
-      "grant cost",
-    );
-    check(input.expiresAt > Date.now(), "expired grant");
-    check(
-      input.audience &&
-        input.action &&
-        /^[a-f0-9]{64}$/.test(input.fingerprint),
-      "grant scope",
-    );
-    const body = {
-      ...input,
-      issuer: this.ownerKey,
-      epoch: this.meta().epoch,
-      issuedAt: Date.now(),
-    };
-    const grant: Grant = {
-      ...body,
-      signature: owner.sign("owner-grant", body),
-    };
-    this.db
-      .prepare("INSERT INTO grants(id,body) VALUES (?,?)")
-      .run(input.id, canonical(grant));
-    return grant;
+    return this.tx(() => {
+      this.admin(owner, "grant", input);
+      check(/^[\w-]{1,100}$/.test(input.id), "grant id");
+      check(
+        Number.isSafeInteger(input.maxCost) && input.maxCost >= 0,
+        "grant cost",
+      );
+      check(input.expiresAt > Date.now(), "expired grant");
+      check(
+        input.audience &&
+          input.action &&
+          /^[a-f0-9]{64}$/.test(input.fingerprint),
+        "grant scope",
+      );
+      const body = {
+        ...input,
+        issuer: this.ownerKey,
+        recoveryKey: this.meta().recovery,
+        epoch: this.meta().epoch,
+        issuedAt: Date.now(),
+      };
+      const grant: Grant = {
+        ...body,
+        signature: owner.sign("owner-grant", body),
+      };
+      this.db
+        .prepare("INSERT INTO grants(id,body) VALUES (?,?)")
+        .run(input.id, canonical(grant));
+      return grant;
+    });
   }
   revoke(owner: TestSigner, id: string) {
-    this.admin(owner);
-    check(
-      this.db.prepare("UPDATE grants SET revoked=1 WHERE id=?").run(id)
-        .changes === 1,
-      "missing grant",
-    );
+    this.tx(() => {
+      this.admin(owner, "revoke", { id });
+      check(
+        this.db.prepare("UPDATE grants SET revoked=1 WHERE id=?").run(id)
+          .changes === 1,
+        "missing grant",
+      );
+    });
   }
   compromise(owner: TestSigner) {
-    this.admin(owner);
     this.tx(() => {
+      this.admin(owner, "compromise-owner", { owner: this.ownerKey });
       this.db.exec(
         "UPDATE meta SET epoch=epoch+1;UPDATE grants SET revoked=1;",
       );
@@ -305,36 +326,58 @@ export class Authority {
   }
   recover(recovery: TestSigner, newOwnerKey: string) {
     check(newOwnerKey !== this.ownerKey, "replacement owner required");
-    const payload = { epoch: this.meta().epoch, newOwnerKey };
-    check(
-      validSignature(
-        this.meta().recovery,
-        "owner-recovery",
-        payload,
-        recovery.sign("owner-recovery", payload),
-      ),
-      "independent recovery denied",
-    );
     this.tx(() => {
+      check(this.meta().active === 1, "host authority fenced");
+      const payload = {
+        oldOwner: this.ownerKey,
+        newOwner: newOwnerKey,
+        recoveryKey: this.meta().recovery,
+        epoch: this.meta().epoch + 1,
+        nonce: randomUUID(),
+      };
+      const signature = recovery.sign("owner-recovery", payload);
+      check(
+        validSignature(
+          this.meta().recovery,
+          "owner-recovery",
+          payload,
+          signature,
+        ),
+        "independent recovery denied",
+      );
+      this.db
+        .prepare("INSERT INTO recoveries VALUES (?,?)")
+        .run(payload.epoch, canonical({ ...payload, signature }));
       this.db
         .prepare("UPDATE meta SET owner=?,epoch=epoch+1 WHERE id=1")
         .run(newOwnerKey);
       this.db.exec("UPDATE grants SET revoked=1;");
     });
   }
+  recoveryCertificates(): RecoveryCertificate[] {
+    return (
+      this.db.prepare("SELECT body FROM recoveries ORDER BY epoch").all() as {
+        body: string;
+      }[]
+    ).map((r) => JSON.parse(r.body) as RecoveryCertificate);
+  }
   compromiseAgent(owner: TestSigner, agent: string) {
-    this.admin(owner);
-    for (const row of this.db.prepare("SELECT id,body FROM grants").all() as {
-      id: string;
-      body: string;
-    }[])
-      if ((JSON.parse(row.body) as Grant).agent === agent)
-        this.revoke(owner, row.id);
+    this.tx(() => {
+      this.admin(owner, "compromise-agent", { agent });
+      for (const row of this.db.prepare("SELECT id,body FROM grants").all() as {
+        id: string;
+        body: string;
+      }[])
+        if ((JSON.parse(row.body) as Grant).agent === agent)
+          this.db.prepare("UPDATE grants SET revoked=1 WHERE id=?").run(row.id);
+    });
   }
   setBudget(owner: TestSigner, cents: number) {
-    this.admin(owner);
-    check(Number.isSafeInteger(cents) && cents >= 0, "budget units");
-    this.db.prepare("UPDATE meta SET budget=? WHERE id=1").run(cents);
+    this.tx(() => {
+      this.admin(owner, "set-budget", { cents });
+      check(Number.isSafeInteger(cents) && cents >= 0, "budget units");
+      this.db.prepare("UPDATE meta SET budget=? WHERE id=1").run(cents);
+    });
   }
   challenge(
     grantId: string,
@@ -485,6 +528,7 @@ export class Authority {
     return {
       schema: 1,
       meta: this.meta(),
+      recoveries: this.recoveryCertificates(),
       grants: this.db
         .prepare("SELECT id,body,revoked,operation FROM grants ORDER BY id")
         .all(),
@@ -505,7 +549,7 @@ export class MockSeller {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec(
-      "PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;CREATE TABLE IF NOT EXISTS purchases(id TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,buyer TEXT NOT NULL,result TEXT NOT NULL);CREATE TABLE IF NOT EXISTS retrievals(id TEXT PRIMARY KEY,body TEXT NOT NULL,used INTEGER NOT NULL DEFAULT 0);",
+      "PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;CREATE TABLE IF NOT EXISTS purchases(id TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,buyer TEXT NOT NULL,recovery TEXT NOT NULL,result TEXT NOT NULL);CREATE TABLE IF NOT EXISTS retrievals(id TEXT PRIMARY KEY,body TEXT NOT NULL,used INTEGER NOT NULL DEFAULT 0);",
     );
   }
   offer(input: string, amount: number): Offer {
@@ -570,8 +614,8 @@ export class MockSeller {
     const result =
       "Synthetic model response: " + offer.input.slice(0, offer.outputLimit);
     this.db
-      .prepare("INSERT OR IGNORE INTO purchases VALUES (?,?,?,?)")
-      .run(id, fp, buyer, result);
+      .prepare("INSERT OR IGNORE INTO purchases VALUES (?,?,?,?,?)")
+      .run(id, fp, buyer, body.recoveryKey, result);
     const row = this.read(id);
     check(
       row && row.buyer === buyer && row.fingerprint === fp,
@@ -596,7 +640,11 @@ export class MockSeller {
       .run(challenge.nonce, canonical(challenge));
     return challenge;
   }
-  status(challenge: ReturnType<MockSeller["challenge"]>, signature: string) {
+  status(
+    challenge: ReturnType<MockSeller["challenge"]>,
+    signature: string,
+    continuity: RecoveryCertificate[] = [],
+  ) {
     const row = this.db
       .prepare("SELECT body,used FROM retrievals WHERE id=?")
       .get(challenge.nonce) as { body: string; used: number } | undefined;
@@ -620,14 +668,40 @@ export class MockSeller {
       "retrieval replay",
     );
     const result = this.read(challenge.id);
-    if (result) check(result.buyer === challenge.buyer, "buyer entitlement");
+    if (result && result.buyer !== challenge.buyer) {
+      let entitled = result.buyer;
+      let previousEpoch = -1;
+      for (const certificate of continuity) {
+        const { signature, ...payload } = certificate;
+        // Certificates preceding this purchase's issuer do not form its chain.
+        if (payload.oldOwner !== entitled) continue;
+        check(
+          payload.recoveryKey === result.recovery &&
+            Number.isSafeInteger(payload.epoch) &&
+            payload.epoch > previousEpoch &&
+            validSignature(
+              result.recovery,
+              "owner-recovery",
+              payload,
+              signature,
+            ),
+          "invalid entitlement continuity",
+        );
+        entitled = payload.newOwner;
+        previousEpoch = payload.epoch;
+      }
+      check(entitled === challenge.buyer, "buyer entitlement");
+    }
     return result;
   }
   private read(id: string) {
     return this.db
-      .prepare("SELECT fingerprint,buyer,result FROM purchases WHERE id=?")
+      .prepare(
+        "SELECT fingerprint,buyer,recovery,result FROM purchases WHERE id=?",
+      )
       .get(id) as
-      { fingerprint: string; buyer: string; result: string } | undefined;
+      | { fingerprint: string; buyer: string; recovery: string; result: string }
+      | undefined;
   }
   effects() {
     return (
@@ -687,7 +761,11 @@ export class Purchaser {
     const op = this.auth.operation(id);
     check(op, "unknown operation");
     const challenge = this.seller.challenge(id, this.auth.ownerKey);
-    const row = this.seller.status(challenge, this.signRecovery(challenge));
+    const row = this.seller.status(
+      challenge,
+      this.signRecovery(challenge),
+      this.auth.recoveryCertificates(),
+    );
     if (!row) return this.saveResult({ ...op, payment: "unknown" });
     check(row.fingerprint === op.fingerprint, "reconciliation conflict");
     const updated: Operation = {

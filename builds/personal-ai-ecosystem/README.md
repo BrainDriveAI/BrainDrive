@@ -29,6 +29,8 @@ The package-local `.npmrc` disables lifecycle scripts and uses legacy peer resol
 | `scripts/verify-package.py`        | Independent standard-library reader verifies inventory and raw hashes; it does not verify the owner signature or activate authority                                                                       |
 | `scripts/demo.ts`                  | Combined purchase/recovery, relay replacement, readable export, separately recovered secrets, source shutdown and fresh second-host actions                                                               |
 
+Messaging permissions and current identity bindings now use the same Authority owner and epoch as grants. Owner recovery invalidates old contacts, approvals and queued messages; historical records remain readable. Purchase-result continuity uses a certificate signed by the independent recovery key originally pinned in the exact-offer grant, plus fresh replacement-owner possession proof. These certificates authorize retrieval only.
+
 Owner/admin signers remain in the trusted fixture harness; simulated agent operations receive only scoped grants and proofs. Memory stores durable public records, rather than signing secrets. Imported message history cannot become a send queue, and contacts require a fresh owner binding. A lost external response remains unknown/reserved until authenticated status establishes an outcome.
 
 ## Boundaries
@@ -40,3 +42,11 @@ Authority transfer fences the source before activating the target. A failure bet
 ## Documentation impact
 
 The developer catalog registers the experiment guide, plan and evidence as experimental. Existing runtime topics need no revision: this self-contained package is not imported by the product, changes no runtime behavior/configuration, accepted contract, provider, migration route, or release guidance. Its own README, plan, source, tests, and evidence describe the experiment. An accepted product package and integration review are required before moving behavior into BrainDrive.
+
+## Review remediation
+
+The October 4 Fabel review found split messaging authority, action-unbound admin signatures and a missing resolver-side attack test. Independent probing also found that owner-key replacement stranded an already-paid result. The follow-up fixes those boundaries and adds cross-capability recovery, tampered/unrelated entitlement, forged-history, shared-version identity-binding and recovery-chain migration tests. The dedicated `.github/workflows/personal-ai-prototypes.yml` runs this package's build, tests, formatting and demo on Node 24. Existing product jobs use Node 22; integrating or replacing this package requires an explicit runtime compatibility decision. It does not upgrade the product runtime.
+
+Experimental persisted schemas changed (recovery certificates, grant recovery root and seller entitlement root). Reproduction uses fresh task-owned fixture roots. No automatic conversion of earlier disposable fixture databases is provided. The seller verifies lineage, not a live authority feed: superseded owner keys retain retrieval of already-paid results until provider-side revocation is implemented. Some standalone peer fixtures default their recovery key to their owner key; independent compromise recovery is asserted only for fixtures that configure a separate protected root. The protected independent recovery key remains a static fixture root; externally witnessed revocation, recovery-root rotation and production entitlement credentials remain unimplemented.
+
+Shared authority freshness is fail-closed after 60 seconds; the trusted fixture harness must refresh its modeled observation before further messaging. No status-refresh service is implemented. Checked identity bindings require caller-supplied resolution from the latest verified log; the checker does not itself discover the latest DID location or history. The message store pins the persistent Authority ID so an unrelated authority cannot be attached accidentally. Admin proof verification and mutation share one immediate transaction.

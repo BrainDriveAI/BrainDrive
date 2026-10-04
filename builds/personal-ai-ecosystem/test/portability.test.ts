@@ -242,3 +242,42 @@ describe("secret-free portable records and separately verified live authority", 
     expect(() => verifyPackage(s.pkg, s.owner.publicKey)).toThrow("type");
   });
 });
+
+it("migration preserves recovery-chain result entitlement without another payment", async () => {
+  const s = setup();
+  s.seller.dropNextResponse = true;
+  await new Purchaser(s.auth, s.memory, s.seller, recoverySigner(s.owner)).buy(
+    "g1",
+    "paid",
+    s.offer,
+    s.auth.proof(
+      s.agent,
+      s.auth.challenge("g1", "paid", "mock-model", fingerprint(s.offer)),
+    ),
+  );
+  const replacement = new TestSigner();
+  s.auth.recover(s.recovery, replacement.publicKey);
+  exportPackage(s.pkg, s.memory, s.auth, replacement);
+  const next = restoreVerifiedAuthority(
+    s.pkg,
+    join(s.root, "next.sqlite"),
+    s.auth,
+    replacement,
+  );
+  try {
+    expect(next.recoveryCertificates()).toEqual(s.auth.recoveryCertificates());
+    expect(
+      (
+        await new Purchaser(
+          next,
+          s.memory,
+          s.seller,
+          recoverySigner(replacement),
+        ).reconcile("paid")
+      ).payment,
+    ).toBe("settled");
+    expect(s.seller.effects()).toBe(1);
+  } finally {
+    next.close();
+  }
+});

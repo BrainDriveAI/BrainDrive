@@ -292,3 +292,55 @@ describe("durable exact-offer authority and purchases", () => {
     expect(() => s.memory.write("../authority", { bad: true })).toThrow();
   });
 });
+
+it("recovers a paid result after two owner rotations without the old owner key or another effect", async () => {
+  const s = setup();
+  grant(s);
+  s.seller.dropNextResponse = true;
+  await s.buyer.buy("g1", "p1", s.offer, proof(s, "g1"));
+  const replacement = new TestSigner(),
+    next = new TestSigner();
+  s.auth.recover(s.recovery, replacement.publicKey);
+  s.auth.recover(s.recovery, next.publicKey);
+  const buyer = new Purchaser(s.auth, s.memory, s.seller, recoverySigner(next));
+  expect((await buyer.reconcile("p1")).payment).toBe("settled");
+  expect(s.seller.effects()).toBe(1);
+  const certificates = s.auth.recoveryCertificates();
+  const challenge = s.seller.challenge("p1", next.publicKey);
+  const tampered = certificates.map((c) => ({ ...c }));
+  tampered[0]!.newOwner = next.publicKey;
+  expect(() =>
+    s.seller.status(
+      challenge,
+      next.sign("seller-result-recovery", challenge),
+      tampered,
+    ),
+  ).toThrow("continuity");
+  const unrelated = new TestSigner(),
+    bad = s.seller.challenge("p1", unrelated.publicKey);
+  expect(() =>
+    s.seller.status(
+      bad,
+      unrelated.sign("seller-result-recovery", bad),
+      certificates,
+    ),
+  ).toThrow("entitlement");
+});
+it("admin signatures bind action and target; redirected budget signature is denied", () => {
+  const s = setup();
+  const observed: unknown[] = [];
+  const sign = s.owner.sign.bind(s.owner);
+  vi.spyOn(s.owner, "sign").mockImplementation((domain, payload) => {
+    observed.push(payload);
+    if (domain === "owner-admin")
+      return sign(domain, { ...(payload as object), target: { cents: 999 } });
+    return sign(domain, payload);
+  });
+  expect(() => s.auth.setBudget(s.owner, 25)).toThrow("administration");
+  expect(observed[0]).toMatchObject({
+    action: "set-budget",
+    target: { cents: 25 },
+    epoch: 0,
+  });
+  expect(s.auth.meta().budget).toBe(100);
+});

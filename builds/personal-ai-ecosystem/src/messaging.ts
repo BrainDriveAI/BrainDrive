@@ -9,6 +9,7 @@ import {
 } from "nostr-tools/pure";
 import { wrapEvent, unwrapEvent } from "nostr-tools/nip17";
 import {
+  Authority,
   check,
   canonical,
   fingerprint,
@@ -70,7 +71,7 @@ export class Messenger {
   readonly db: DatabaseSync;
   constructor(
     file: string,
-    readonly ownerKey: string,
+    readonly authority: Authority,
     readonly keys: MessagingKey,
     readonly memory: Memory,
   ) {
@@ -78,28 +79,41 @@ export class Messenger {
     this.db = new DatabaseSync(file);
     this.db
       .exec(`PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
- CREATE TABLE IF NOT EXISTS meta(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,messaging TEXT NOT NULL,epoch INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS meta(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,messaging TEXT NOT NULL,epoch INTEGER NOT NULL,authority TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS contacts(pubkey TEXT PRIMARY KEY,identity TEXT NOT NULL,approval TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,body TEXT NOT NULL,event TEXT NOT NULL,epoch INTEGER NOT NULL,status TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS inbox(sender TEXT NOT NULL,id TEXT NOT NULL,body TEXT NOT NULL,hash TEXT NOT NULL,stored INTEGER NOT NULL DEFAULT 0,notified INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(sender,id));`);
     this.db
-      .prepare("INSERT OR IGNORE INTO meta VALUES (1,?,?,0)")
-      .run(ownerKey, keys.publicKey);
+      .prepare("INSERT OR IGNORE INTO meta VALUES (1,?,?,0,?)")
+      .run(authority.ownerKey, keys.publicKey, authority.meta().authorityId);
     chmodSync(file, 0o600);
     const meta = this.db
-      .prepare("SELECT owner,messaging FROM meta WHERE id=1")
-      .get() as { owner: string; messaging: string };
-    check(
-      meta.owner === ownerKey && meta.messaging === keys.publicKey,
-      "messaging owner mismatch",
-    );
+      .prepare("SELECT owner,messaging,authority FROM meta WHERE id=1")
+      .get() as { owner: string; messaging: string; authority: string };
+    if (
+      meta.messaging !== keys.publicKey ||
+      meta.authority !== authority.meta().authorityId
+    ) {
+      this.db.close();
+      throw new Error("messaging owner mismatch");
+    }
+  }
+  get ownerKey() {
+    return this.authority.ownerKey;
   }
   epoch() {
-    return (
-      this.db.prepare("SELECT epoch FROM meta WHERE id=1").get() as {
-        epoch: number;
-      }
-    ).epoch;
+    const meta = this.authority.meta();
+    check(meta.active === 1, "host authority fenced");
+    check(
+      this.authority.statusAvailable &&
+        Date.now() - this.authority.statusObservedAt < 60000,
+      "unavailable or stale authority",
+    );
+    // Shared owner/epoch invalidates every historic contact and queued approval.
+    this.db
+      .prepare("UPDATE meta SET owner=?,epoch=? WHERE id=1")
+      .run(meta.owner, meta.epoch);
+    return meta.epoch;
   }
   bind(owner: TestSigner, publicKey: string, identity: string) {
     check(/^[a-f0-9]{64}$/.test(publicKey), "contact key");
@@ -275,17 +289,7 @@ export class Messenger {
     );
   }
   invalidate(owner: TestSigner) {
-    const payload = { epoch: this.epoch() };
-    check(
-      validSignature(
-        this.ownerKey,
-        "messaging-recovery",
-        payload,
-        owner.sign("messaging-recovery", payload),
-      ),
-      "messaging recovery",
-    );
-    this.db.exec("UPDATE meta SET epoch=epoch+1;");
+    this.authority.compromise(owner);
   }
   notifications() {
     return (

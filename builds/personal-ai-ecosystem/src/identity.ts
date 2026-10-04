@@ -13,10 +13,17 @@ import {
   deriveNextKeyHash,
   prepareDataForSigning,
   multibaseEncode,
+  multibaseDecode,
   MultibaseEncoding,
 } from "didwebvh-ts";
 import type { SigningInput, SigningOutput, DIDLog } from "didwebvh-ts/types";
-import { check, canonical, TestSigner, validSignature } from "./core.js";
+import {
+  Authority,
+  check,
+  canonical,
+  TestSigner,
+  validSignature,
+} from "./core.js";
 /** Independent test fixture signer. Owner administration only, never an agent tool. */
 export class IdentitySigner extends AbstractCrypto {
   #private: KeyObject;
@@ -53,12 +60,20 @@ export class IdentitySigner extends AbstractCrypto {
       did: string;
       meta: { scid: string; versionId: string; updateKeys: string[] };
     },
+    authorityState: Authority,
   ) {
     check(
       resolved.meta.updateKeys.includes(this.key),
       "current identity control",
     );
+    check(
+      authorityState.ownerKey === authority.publicKey &&
+        authorityState.meta().active === 1,
+      "current owner authority",
+    );
     const payload = {
+      authorityEpoch: authorityState.meta().epoch,
+      authorityId: authorityState.meta().authorityId,
       did: resolved.did,
       scid: resolved.meta.scid,
       version: resolved.meta.versionId,
@@ -170,4 +185,66 @@ export async function verifyIdentityHistory(log: DIDLog) {
   });
   check(!result.meta.error, "invalid identity history");
   return result;
+}
+
+export function verifyCurrentIdentityBinding(
+  binding: ReturnType<IdentitySigner["binding"]>,
+  authority: Authority,
+  resolved: {
+    did: string;
+    meta: { scid: string; versionId: string; updateKeys: string[] };
+  },
+) {
+  const { payload } = binding;
+  const state = authority.meta();
+  check(
+    state.active === 1 &&
+      authority.statusAvailable &&
+      Date.now() - authority.statusObservedAt < 60000,
+    "current authority unavailable",
+  );
+  check(
+    payload.authorityKey === state.owner &&
+      payload.authorityEpoch === state.epoch &&
+      payload.authorityId === state.authorityId,
+    "stale identity authority",
+  );
+  check(
+    payload.did === resolved.did &&
+      payload.scid === resolved.meta.scid &&
+      payload.version === resolved.meta.versionId &&
+      resolved.meta.updateKeys.includes(payload.identityKey),
+    "stale identity history",
+  );
+  const raw = multibaseDecode(payload.identityKey).bytes;
+  check(
+    raw.length === 34 && raw[0] === 0xed && raw[1] === 0x01,
+    "identity key type",
+  );
+  const publicKey = createPublicKey({
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: Buffer.from(raw.subarray(2)).toString("base64url"),
+    },
+    format: "jwk",
+  })
+    .export({ type: "spki", format: "pem" })
+    .toString();
+  check(
+    validSignature(
+      publicKey,
+      "identity-authority-binding",
+      payload,
+      binding.identityProof,
+    ) &&
+      validSignature(
+        state.owner,
+        "identity-authority-accept",
+        payload,
+        binding.authorityProof,
+      ),
+    "identity binding proof",
+  );
+  return payload;
 }

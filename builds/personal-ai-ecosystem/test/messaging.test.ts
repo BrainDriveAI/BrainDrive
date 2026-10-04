@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Memory, TestSigner } from "../src/core.js";
+import { Authority, Memory, TestSigner } from "../src/core.js";
 import { MessagingKey, Messenger, RelayFixture } from "../src/messaging.js";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { createRumor, createSeal, createWrap } from "nostr-tools/nip59";
@@ -18,15 +18,25 @@ function setup() {
     bobKey = new MessagingKey();
   const aliceMemory = new Memory(join(root, "alice-memory")),
     bobMemory = new Memory(join(root, "bob-memory"));
+  const recovery = new TestSigner();
+  const aliceAuthority = new Authority(
+    join(root, "alice-authority.sqlite"),
+    aliceOwner.publicKey,
+    recovery.publicKey,
+  );
+  const bobAuthority = new Authority(
+    join(root, "bob-authority.sqlite"),
+    bobOwner.publicKey,
+  );
   const alice = new Messenger(
       join(root, "alice.sqlite"),
-      aliceOwner.publicKey,
+      aliceAuthority,
       aliceKey,
       aliceMemory,
     ),
     bob = new Messenger(
       join(root, "bob.sqlite"),
-      bobOwner.publicKey,
+      bobAuthority,
       bobKey,
       bobMemory,
     );
@@ -46,10 +56,15 @@ function setup() {
     try {
       bob.close();
     } catch {}
+    aliceAuthority.close();
+    bobAuthority.close();
     rmSync(root, { recursive: true, force: true });
   });
   return {
     root,
+    aliceAuthority,
+    bobAuthority,
+    recovery,
     aliceOwner,
     bobOwner,
     aliceKey,
@@ -82,7 +97,7 @@ describe("synthetic NIP-17 and durable logical-message state", () => {
     s.alice.close();
     const restarted = new Messenger(
       join(s.root, "alice.sqlite"),
-      s.aliceOwner.publicKey,
+      s.aliceAuthority,
       s.aliceKey,
       s.aliceMemory,
     );
@@ -206,4 +221,69 @@ describe("synthetic NIP-17 and durable logical-message state", () => {
     expect(s.alice.send("m1", s.relays)).toBe("uncertain");
     expect(s.bob.notifications()).toBe(0);
   });
+});
+
+it("shared owner recovery invalidates contacts, approvals and outbox; replacement reopens and explicitly rebinds", () => {
+  const s = setup(),
+    replacement = new TestSigner();
+  const approval = s.alice.approve(s.aliceOwner, s.message);
+  s.alice.queue(approval);
+  s.aliceAuthority.recover(s.recovery, replacement.publicKey);
+  expect(() =>
+    s.alice.bind(s.aliceOwner, s.bobKey.publicKey, "did:test:bob"),
+  ).toThrow("approval");
+  expect(() => s.alice.queue(approval)).toThrow();
+  expect(() => s.alice.send("m1", s.relays)).toThrow("authority");
+  s.alice.close();
+  const reopened = new Messenger(
+    join(s.root, "alice.sqlite"),
+    s.aliceAuthority,
+    s.aliceKey,
+    s.aliceMemory,
+  );
+  try {
+    expect(() =>
+      reopened.queue(reopened.approve(replacement, { ...s.message, id: "m2" })),
+    ).toThrow("contact");
+    reopened.bind(replacement, s.bobKey.publicKey, "did:test:bob");
+    reopened.queue(reopened.approve(replacement, { ...s.message, id: "m2" }));
+    expect(reopened.send("m2", s.relays)).toBe("transport-accepted");
+    s.aliceAuthority.db.exec("UPDATE meta SET active=0");
+    expect(() =>
+      reopened.bind(replacement, s.bobKey.publicKey, "did:test:bob"),
+    ).toThrow("fenced");
+    expect(() => reopened.send("m2", s.relays)).toThrow("fenced");
+  } finally {
+    reopened.close();
+  }
+});
+
+it("a protected message store cannot attach to an unrelated authority even with the same owner key", () => {
+  const s = setup(),
+    foreign = new Authority(
+      join(s.root, "foreign.sqlite"),
+      s.aliceOwner.publicKey,
+      s.recovery.publicKey,
+    );
+  s.alice.close();
+  try {
+    expect(
+      () =>
+        new Messenger(
+          join(s.root, "alice.sqlite"),
+          foreign,
+          s.aliceKey,
+          s.aliceMemory,
+        ),
+    ).toThrow("owner mismatch");
+    const reopened = new Messenger(
+      join(s.root, "alice.sqlite"),
+      s.aliceAuthority,
+      s.aliceKey,
+      s.aliceMemory,
+    );
+    reopened.close();
+  } finally {
+    foreign.close();
+  }
 });

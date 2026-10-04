@@ -48,16 +48,20 @@ const aliceKey = new MessagingKey(),
   bobKey = new MessagingKey(),
   bobOwner = new TestSigner();
 aliceKey.saveProtected(join(root, "independent-backup", "alice-messaging"));
-const alice = new Messenger(
+let alice = new Messenger(
   join(root, "host-one", "messages.sqlite"),
-  owner.publicKey,
+  auth,
   aliceKey,
   memory,
 );
 const bobMemory = new Memory(join(root, "peer", "memory"));
+const bobAuthority = new Authority(
+  join(root, "peer", "authority.sqlite"),
+  bobOwner.publicKey,
+);
 const bob = new Messenger(
   join(root, "peer", "messages.sqlite"),
-  bobOwner.publicKey,
+  bobAuthority,
   bobKey,
   bobMemory,
 );
@@ -93,7 +97,7 @@ try {
     did: identity.updated.did,
     log: identity.updated.log,
     verification: "local-history proof",
-    binding: identity.replacement.binding(owner, identity.resolved),
+    binding: identity.replacement.binding(owner, identity.resolved, auth),
     dependencies: ["public HTTPS and witness behavior not established"],
   });
   evidence.push("did:webvh local pre-rotation and address continuity verified");
@@ -155,6 +159,7 @@ try {
       ),
     ),
   );
+  alice.close();
   auth.close();
   seller.close();
   auth = new Authority(
@@ -163,6 +168,12 @@ try {
     recovery.publicKey,
   );
   seller = new MockSeller(join(root, "provider", "seller.sqlite"));
+  alice = new Messenger(
+    join(root, "host-one", "messages.sqlite"),
+    auth,
+    aliceKey,
+    memory,
+  );
   const recovered = await new Purchaser(
     auth,
     memory,
@@ -323,7 +334,7 @@ try {
   check(seller.effects() === 2, "fresh post-migration purchase");
   const newMessenger = new Messenger(
     join(root, "host-two", "messages.sqlite"),
-    owner.publicKey,
+    nextAuthority,
     MessagingKey.recoverProtected(
       join(root, "independent-backup", "alice-messaging"),
     ),
@@ -405,6 +416,7 @@ try {
     alice.close();
   } catch {}
   bob.close();
+  bobAuthority.close();
   if (relayOne) await relayOne.close();
   if (relayTwo) await relayTwo.close();
   provider.closeAllConnections();
