@@ -1029,7 +1029,7 @@ describe("manifest-driven Apps surface", () => {
     expect(await screen.findByRole("heading", { name: "Your Profile" })).toHaveFocus();
     expect(screen.getAllByPlaceholderText("Message your BrainDrive...").length).toBeGreaterThan(0);
 
-    await user.click(within(screen.getByRole("navigation", { name: "Resume Builder workspace navigation" })).getByRole("button", { name: destination }));
+    await user.click(within(screen.getByRole("complementary")).getByRole("button", { name: destination }));
     await waitFor(() => expect(appsApi.closeAppSession).toHaveBeenCalledWith("resume-builder", launched.session.session_id));
     await waitFor(() => expect(screen.getByRole("button", { name: "Launch" })).toHaveFocus());
     expect(screen.queryByRole("region", { name: "Resume Builder native app workspace" })).not.toBeInTheDocument();

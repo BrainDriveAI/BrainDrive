@@ -14,6 +14,7 @@ import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
 import * as gatewayApi from "@/api/gateway-adapter";
+import Sidebar from "@/components/layout/Sidebar";
 import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import { documentStyles } from "@/components/document/DocumentSurface";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, WorkspaceDetail } from "./AppChatWorkspace";
@@ -358,6 +359,7 @@ function withEditableAdvancedResource(current: appsApi.AppChatWorkspaceLaunch): 
 describe("AppChatWorkspace", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(() => {
@@ -565,6 +567,37 @@ describe("AppChatWorkspace", () => {
     await user.click(within(drawer).getByRole("button", { name: "Profile" }));
     expect(screen.queryByRole("dialog", { name: "Test Builder workspace navigation" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Profile" })).toHaveFocus();
+  });
+
+  it.each([390, 1440])("matches native sidebar landmarks and geometry classes at %ipx", async (width) => {
+    vi.stubGlobal("innerWidth", width);
+    const native = render(<Sidebar
+      isCollapsed={false} onToggle={() => {}} projects={[]} selectedProjectId={null}
+      selectedProject={null} projectFiles={[]} isLoadingProjects={false} isLoadingFiles={false}
+      onSelectProject={() => {}} onDeselectProject={() => {}} onReturnToChat={() => {}}
+      onFileClick={() => {}} onOpenSettings={() => {}} onOpenApps={() => {}}
+      isAppsActive={false} onLogout={() => {}}
+    />);
+    const nativeSidebar = within(native.container).getByRole("complementary");
+    const landmarkTree = (sidebar: HTMLElement) => [sidebar, ...sidebar.querySelectorAll("aside, nav, [role=region], [role=navigation], [role=complementary]")]
+      .map((element) => ({ tag: element.tagName.toLowerCase(), role: element.getAttribute("role"), name: element.getAttribute("aria-label") }));
+    const nativeTree = landmarkTree(nativeSidebar);
+    const nativeClasses = nativeSidebar.className;
+    native.unmount();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={launch()} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    if (width === 390) {
+      await userEvent.click(screen.getByRole("button", { name: "Open workspace navigation menu" }));
+    }
+    const scope = width === 390 ? within(screen.getByRole("dialog")) : screen;
+    const sidebar = scope.getByRole("complementary");
+    expect(nativeTree).toEqual([{ tag: "aside", role: null, name: null }]);
+    expect(landmarkTree(sidebar)).toEqual(nativeTree);
+    expect(sidebar.className).toBe(nativeClasses);
+    expect(within(sidebar).getByRole("button", { name: "Conversation" })).toBeInTheDocument();
+    await userEvent.click(within(sidebar).getByRole("button", { name: "Show advanced" }));
+    expect(landmarkTree(sidebar)).toEqual(nativeTree);
   });
 
   it.each([390, 1440])("shares native document DOM and classes with a %ipx viewport setting", async (width) => {
@@ -2258,7 +2291,7 @@ describe("AppChatWorkspace", () => {
 
     render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
 
-    const navigation = screen.getByRole("navigation", { name: "Test Builder workspace navigation" });
+    const navigation = screen.getByRole("complementary");
     const conversation = within(navigation).getByRole("button", { name: "Conversation" });
     expect(conversation).toHaveClass(sidebarStyles.itemRadius);
     conversation.focus();
@@ -2286,7 +2319,7 @@ describe("AppChatWorkspace", () => {
     const user = userEvent.setup();
     render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} />);
 
-    const navigation = screen.getByRole("navigation", { name: "Test Builder workspace navigation" });
+    const navigation = screen.getByRole("complementary");
     const logo = within(navigation).getByRole("img", { name: "BrainDrive" });
     expect(logo).toHaveAttribute("src", "/braindrive-logo.svg");
     const mobileBar = screen.getByRole("button", { name: "Open workspace navigation menu" }).parentElement!;
@@ -2318,7 +2351,7 @@ describe("AppChatWorkspace", () => {
 
     render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} onGoHome={onGoHome} onRenewSession={onRenewSession} />);
 
-    await user.click(within(screen.getByRole("navigation", { name: "Test Builder workspace navigation" })).getByRole("button", { name: destination }));
+    await user.click(within(screen.getByRole("complementary")).getByRole("button", { name: destination }));
     await act(async () => {
       rejectSession(new Error("session closed after owner departure"));
       await Promise.resolve();

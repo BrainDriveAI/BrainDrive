@@ -735,8 +735,7 @@ function WorkspaceNavigation({
   tier: "local" | "concierge";
 }) {
   return (
-    <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary md:h-full md:w-sidebar">
-    <nav className="flex min-h-0 flex-1 flex-col" aria-label={`${appName} workspace navigation`}>
+    <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
       <div className="flex items-center justify-between gap-3 px-4 py-4">
         <button
           type="button"
@@ -827,7 +826,6 @@ function WorkspaceNavigation({
           />
         </div>
       </div>
-    </nav>
     </aside>
   );
 }
