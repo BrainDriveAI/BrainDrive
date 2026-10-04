@@ -406,6 +406,7 @@
     { "id": "installer-release", "sources": ["installer/bootstrap", "installer/docker"], "status": "current-distinct-domain", "branchTagContract": "Bootstrap markers, installer source, and published assets are evaluated on the same release tag", "compatibilityContract": "Manifest channel, digest-pinned images, config bounds, checksums, and signature apply only to the specific published installer release" }
   ],
   "migrationPolicies": [
+    { "id": "retain-isolated-experiments", "classifications": ["experimental-build-guide", "experimental-build-plan", "experimental-execution-evidence"], "disposition": "retain", "rule": "Retain self-contained experiment sources and evidence at their stable paths; experimental status does not establish runtime authority, acceptance or release readiness" },
     { "id": "retain-current-authority", "classifications": ["agent-compatibility-mirror", "community-governance", "developer-authority", "developer-security-authority", "developer-security-router", "evidence-template", "github-governance", "governing-agent-authority", "legal-governance", "non-authoritative-evidence-record", "operator-mode-overview", "operator-script-reference", "operator-trust-reference", "release-history", "scoped-agent-authority", "security-authority", "source-adjacent-developer-authority", "validator-reference"], "disposition": "retain", "rule": "Keep the declared authority, role, lifecycle, and stable path; link rather than duplicate cross-cutting contracts" },
     { "id": "reclassify-boundary-artifacts", "classifications": ["credentialed-developer-reference", "normal-user-operator-guide", "product-agent-artifact", "product-front-door", "product-memory-artifact", "product-roadmap", "product-skill-artifact", "source-adjacent-internal-beta", "synthetic-test-provenance"], "disposition": "reclassify", "rule": "Retain the stable file but keep its product, operator, credentialed, synthetic, or internal-beta boundary out of current developer authority" },
     { "id": "reclassify-stable-pointers", "classifications": ["gateway-contract-migration-pointer", "legacy-developer-entry"], "disposition": "reclassify", "rule": "Retain a visible non-current pointer to canonical guidance and preserve useful migration access" },
@@ -430,6 +431,9 @@
     { "id": "OPEN-10", "state": "resolved-isolated", "summary": "The Playwright runner creates and removes disposable task-owned memory, secrets, auth, runtime, Vite, and artifact roots; it seeds a synthetic local account and credential-free usable shell, with passing desktop and mobile source-side runs" }
   ],
   "documents": [
+    { "path": "builds/personal-ai-ecosystem/README.md", "classification": "experimental-build-guide", "status": "experimental", "ownerRole": "repository-maintainers" },
+    { "path": "builds/personal-ai-ecosystem/PLAN.md", "classification": "experimental-build-plan", "status": "experimental", "ownerRole": "repository-maintainers" },
+    { "path": "builds/personal-ai-ecosystem/evidence/validation.md", "classification": "experimental-execution-evidence", "status": "experimental", "ownerRole": "repository-maintainers" },
     { "path": ".github/CODEOWNERS", "classification": "github-governance", "status": "current", "ownerRole": "repository-maintainers" },
     { "path": ".github/pull_request_template.md", "classification": "github-governance", "status": "current", "ownerRole": "repository-maintainers" },
     { "path": "AGENTS.md", "classification": "governing-agent-authority", "status": "current", "ownerRole": "repository-maintainers" },

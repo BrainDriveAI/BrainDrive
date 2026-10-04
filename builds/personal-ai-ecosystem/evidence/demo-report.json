@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "result": "local prototype demonstration passed",
+  "runtime": "v24.19.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "root": "task-owned temporary fixture root (not distributed)",
+  "checks": [
+    "did:webvh local pre-rotation and address continuity verified",
+    "directory replacement and direct HTTP provider description verified",
+    "buyer/seller restart recovered original result with exactly one mock charge",
+    "real local WebSocket NIP-17 transport, relay failover and one logical notification",
+    "original host stopped; independent secret backup plus fenced authority migration supports fresh synthetic message and mock purchase"
+  ],
+  "independentReader": {
+    "schema": 1,
+    "filesVerified": 9,
+    "memoryRecords": 7,
+    "authorityActivation": "none",
+    "ownerSignature": "not verified by this reader",
+    "dependencies": [
+      "live authority verification before activation",
+      "separate protected secret recovery",
+      "provider reconciliation for unresolved effects"
+    ],
+    "recordPaths": [
+      "authority.json",
+      "memory/identity.json",
+      "memory/message-8276e67e48a748c8f9bd6bfd62977fcd.json",
+      "memory/provider-1337ef486025f1764ffa.json",
+      "memory/purchase-one.json",
+      "memory/purchase-uncertain.json",
+      "memory/selected-conversation.json",
+      "memory/trust.json",
+      "messaging.json"
+    ]
+  },
+  "mockCharges": 2,
+  "peerNotifications": 2,
+  "pendingOperation": "unknown and reserved",
+  "grants": "revoked/consumed history preserved; valid grant used after current-state verification",
+  "missing": [
+    "public identity HTTPS/witness ecosystem proof",
+    "production messaging forward secrecy/post-compromise protection",
+    "real/test-fund payment rails",
+    "independent live implementation and hostile-host migration",
+    "product runtime integration and Factory qualification"
+  ]
+}
