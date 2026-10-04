@@ -26,6 +26,7 @@ import { isTauriRuntime } from "@/api/runtime-api-base";
 import type { ChatEvent } from "@/api/types";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { MobileSidebarDrawer, MobileSidebarHeader } from "@/components/layout/MobileSidebarShell";
+import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import ProfileMenu from "@/components/layout/ProfileMenu";
 import { DocumentButton, DocumentHeader, documentStyles } from "@/components/document/DocumentSurface";
 import MarkdownContent, { markdownStyles } from "@/components/markdown/MarkdownContent";
@@ -273,7 +274,6 @@ export default function AppChatWorkspace({
       ? launch.workspace.resources.find((resource) => resource.resource_id === activeDocument.resource_id) ?? null
       : null;
   const isConversation = activeDocument?.role === "conversation";
-  const activeItemTitle = activeItem.kind === "document" ? activeItem.document.title : activeItem.resource.title;
   const messageMetadata = useMemo(() => buildAppChatMessageMetadata(launch), [launch]);
   const emptyStateIntro = useMemo(() => workspaceEmptyStateIntro(launch), [launch]);
 
@@ -595,20 +595,21 @@ export default function AppChatWorkspace({
     />
   );
 
-  const NavigationRegion = isConversation ? "div" : "aside";
-
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary md:flex-row" aria-label={`${appName} native app workspace`} data-testid="app-chat-workspace">
       <div className="md:hidden">
         <MobileSidebarHeader
           openLabel="Open workspace navigation menu"
           onOpen={() => setIsMobileNavOpen(true)}
-          eyebrow={isConversation ? appName : undefined}
-          title={isConversation ? activeItemTitle : undefined}
+          leading={(
+            <button type="button" aria-label="Go to BrainDrive home" onClick={() => closeWorkspace(onGoHome)} className="cursor-pointer bg-transparent p-0">
+              <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
+            </button>
+          )}
         />
       </div>
 
-      <NavigationRegion className="hidden md:flex md:shrink-0">
+      <div className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:shrink-0">
         <WorkspaceNavigation
           appName={appName}
           sessionError={sessionError}
@@ -629,7 +630,7 @@ export default function AppChatWorkspace({
           onLogout={onLogout}
           tier={tier}
         />
-      </NavigationRegion>
+      </div>
 
       <MobileSidebarDrawer
         isOpen={isMobileNavOpen}
@@ -660,7 +661,7 @@ export default function AppChatWorkspace({
         />
       </MobileSidebarDrawer>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
         {!isConversation && exportNotice ? (
           <div
             role={exportNotice.tone === "error" ? "alert" : "status"}
@@ -687,7 +688,7 @@ export default function AppChatWorkspace({
             <p className="mt-2 max-w-sm text-sm text-bd-text-secondary">Return to Apps and launch a current app workspace.</p>
           </div>
         ) : chatPanel}
-      </main>
+      </div>
     </section>
   );
 }
@@ -734,7 +735,8 @@ function WorkspaceNavigation({
   tier: "local" | "concierge";
 }) {
   return (
-    <nav className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary md:h-full md:w-sidebar" aria-label={`${appName} workspace navigation`}>
+    <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary md:h-full md:w-sidebar">
+    <nav className="flex min-h-0 flex-1 flex-col" aria-label={`${appName} workspace navigation`}>
       <div className="flex items-center justify-between gap-3 px-4 py-4">
         <button
           type="button"
@@ -826,6 +828,7 @@ function WorkspaceNavigation({
         </div>
       </div>
     </nav>
+    </aside>
   );
 }
 
@@ -864,7 +867,7 @@ function WorkspaceNavGroup({
             onClick={() => onSelect(item.key)}
             onKeyDown={(event) => onMoveFocus(event, item.key)}
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber",
+              `flex w-full min-w-0 items-center gap-3 ${sidebarStyles.itemRadius} px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber`,
               activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
             )}
           >
@@ -1371,32 +1374,48 @@ export function WorkspaceDetail({
     <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary" aria-labelledby="app-workspace-document-title">
         <DocumentHeader>
           <div className="min-w-0">
-            <p className="truncate text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">{presentationSubtitle}</p>
+            <p className={documentStyles.eyebrow}>{presentationSubtitle}</p>
             <h1 id="app-workspace-document-title" ref={headingRef} tabIndex={-1} className={cn(documentStyles.title, "outline-none focus-visible:ring-2 focus-visible:ring-bd-amber")}>
               {presentationTitle}
             </h1>
             {!isDocumentChrome ? <p className="mt-2 text-sm leading-6 text-bd-text-secondary">{description}</p> : null}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 max-w-[70%] sm:max-w-none">
-            {presentation?.header_actions.map((action) => (
+          <div className={documentStyles.headerActions}>
+            {presentation?.header_actions.filter((action) => action.type !== "app_action" && !(shouldShowEditor && action.type === "edit_document")).map((action) => (
               <DocumentButton
                 key={`${action.type}:${action.type === "app_action" ? action.action_id : action.label}`}
                 type="button"
-                variant={action.type === "app_action" ? "default" : "ghost"}
+                variant="ghost"
                 size="sm"
+                aria-label={action.label}
                 onClick={() => handleHeaderAction(action)}
                 disabled={
                   runningActionId !== null ||
                   (action.type === "edit_document" && (!editable || isEditing))
                 }
-                className={action.type === "app_action" ? documentStyles.primary : documentStyles.secondary}
+                className={documentStyles.secondary}
               >
-                {action.type === "app_action" && runningActionId === action.action_id
-                  ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                  : <HeaderActionIcon action={action} />}
-                {action.label}
+                <HeaderActionIcon action={action} />
+                {action.type === "edit_document" ? "Edit" : action.label}
               </DocumentButton>
             ))}
+            {shouldShowEditor ? (
+              <DocumentButton type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className={documentStyles.primary}>
+                {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={16} />}
+                Save
+              </DocumentButton>
+            ) : null}
+          </div>
+        </DocumentHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6">
+          <div className="mx-auto w-full max-w-[780px]">
+            <div className="flex flex-wrap items-center gap-2" aria-label="Document app actions">
+              {presentation?.header_actions.filter((action) => action.type === "app_action").map((action) => (
+                <DocumentButton key={action.action_id} type="button" onClick={() => handleHeaderAction(action)} disabled={runningActionId !== null}>
+                  {runningActionId === action.action_id ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <HeaderActionIcon action={action} />}
+                  {action.label}
+                </DocumentButton>
+              ))}
             {canResetToPackageDefault ? (
               <DocumentButton
                 type="button"
@@ -1410,16 +1429,7 @@ export function WorkspaceDetail({
                 Reset to package default
               </DocumentButton>
             ) : null}
-            {shouldShowEditor ? (
-              <DocumentButton type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className={documentStyles.primary}>
-                {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={16} />}
-                Save
-              </DocumentButton>
-            ) : null}
-          </div>
-        </DocumentHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6">
-          <div className="mx-auto w-full max-w-[780px]">
+            </div>
 
         {sourceIsStale && sourceDocument ? (
           <aside role="status" aria-label="Source document changed" className="mt-4 rounded-md border border-bd-amber bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
@@ -1738,7 +1748,7 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
     if (bullet) {
       if (!parsePaperInlineMarkdown(bullet[1]).some((run) => run.text.trim())) return null;
       return (
-        <div key={key} className={cn("flex gap-3", variant === "paper" ? "mb-1 text-[15px] leading-7 text-bd-text-primary" : "mb-2 text-base leading-7 text-bd-text-primary")}>
+        <div key={key} className={cn("flex gap-3", variant === "paper" ? cn("mb-1", documentStyles.body) : "mb-2 text-base leading-7 text-bd-text-primary")}>
           <span aria-hidden="true" className={variant === "paper" ? "text-bd-text-muted" : "text-bd-text-muted"}>•</span>
           <p className="min-w-0 flex-1 whitespace-pre-wrap">{renderInlineMarkdownText(bullet[1])}</p>
         </div>

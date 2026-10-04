@@ -14,6 +14,7 @@ import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
 import * as gatewayApi from "@/api/gateway-adapter";
+import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import { documentStyles } from "@/components/document/DocumentSurface";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, WorkspaceDetail } from "./AppChatWorkspace";
 
@@ -566,11 +567,11 @@ describe("AppChatWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Profile" })).toHaveFocus();
   });
 
-  it.each([390, 1440])("shares the native document header, body and editor at %ipx", async (width) => {
+  it.each([390, 1440])("shares native document DOM and classes with a %ipx viewport setting", async (width) => {
     const previousWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
     try {
-      const current = withProfileDocumentPresentation(launch());
+      const current = withDirectResumeActions(launch());
       vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
       vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
         result_version: 1, state: "current", document_id: "profile", document_binding_id: "profile.current",
@@ -586,13 +587,16 @@ describe("AppChatWorkspace", () => {
       expect(header).toHaveClass(...documentStyles.header.split(" "));
       expect(header).not.toHaveClass("hidden", "md:hidden");
       expect(within(header).getByRole("button", { name: "Back to chat" })).toHaveClass(...documentStyles.secondary.split(" "));
+      expect(screen.getByRole("button", { name: "Create resume" }).closest("header")).toBeNull();
       const body = await screen.findByText("Experience:");
       expect(body.closest(".prose-bd")).toHaveClass(...documentStyles.body.split(" "));
       expect(container.querySelector("code")).toHaveClass("text-sm", "text-bd-amber", "bg-bd-bg-secondary");
       await user.click(within(header).getByRole("button", { name: "Edit Profile" }));
       expect(screen.getByRole("textbox", { name: "Profile content" })).toHaveClass(...documentStyles.editor.split(" "));
       expect(within(header).getByRole("button", { name: "Save" })).toHaveClass(...documentStyles.primary.split(" "));
-      expect(screen.getByRole("main")).toContainElement(header);
+      expect(screen.getByTestId("app-chat-workspace-pane")).toContainElement(header);
+      expect(screen.queryByRole("main")).not.toBeInTheDocument();
+      expect(within(header).queryByRole("button", { name: "Create resume" })).not.toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
     }
@@ -2256,6 +2260,7 @@ describe("AppChatWorkspace", () => {
 
     const navigation = screen.getByRole("navigation", { name: "Test Builder workspace navigation" });
     const conversation = within(navigation).getByRole("button", { name: "Conversation" });
+    expect(conversation).toHaveClass(sidebarStyles.itemRadius);
     conversation.focus();
     await user.keyboard("{ArrowDown}");
     expect(within(navigation).getByRole("button", { name: "Profile" })).toHaveFocus();
@@ -2284,6 +2289,8 @@ describe("AppChatWorkspace", () => {
     const navigation = screen.getByRole("navigation", { name: "Test Builder workspace navigation" });
     const logo = within(navigation).getByRole("img", { name: "BrainDrive" });
     expect(logo).toHaveAttribute("src", "/braindrive-logo.svg");
+    const mobileBar = screen.getByRole("button", { name: "Open workspace navigation menu" }).parentElement!;
+    expect(within(mobileBar).getByRole("img", { name: "BrainDrive" })).toHaveClass("h-5", "w-auto");
     expect(logo.compareDocumentPosition(within(navigation).getByRole("button", { name: "Back to Apps" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open workspace navigation menu" }));
@@ -2311,7 +2318,7 @@ describe("AppChatWorkspace", () => {
 
     render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={onSessionClosed} onGoHome={onGoHome} onRenewSession={onRenewSession} />);
 
-    await user.click(await screen.findByRole("button", { name: destination }));
+    await user.click(within(screen.getByRole("navigation", { name: "Test Builder workspace navigation" })).getByRole("button", { name: destination }));
     await act(async () => {
       rejectSession(new Error("session closed after owner departure"));
       await Promise.resolve();

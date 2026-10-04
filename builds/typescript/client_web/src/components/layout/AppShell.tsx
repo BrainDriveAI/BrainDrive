@@ -243,7 +243,7 @@ export default function AppShell({
   ) : undefined;
 
   const appShellVars = {
-    "--mobile-header-height": `${mobileHeaderHeight}px`
+    "--mobile-header-height": `${isAppWorkspaceActive ? 0 : mobileHeaderHeight}px`
   } as CSSProperties;
 
   const mobileHeader = typeof document === "undefined"
@@ -271,8 +271,6 @@ export default function AppShell({
         </div>,
         document.body
       );
-
-  const MainRegion = isAppWorkspaceActive ? "div" : "main";
 
   return (
     <div
@@ -345,7 +343,7 @@ export default function AppShell({
         />
       </MobileSidebarDrawer>
 
-      <MainRegion className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
+      <main className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary${isAppWorkspaceActive ? " md:ml-sidebar" : ""}`} style={appShellVars}>
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
@@ -380,7 +378,7 @@ export default function AppShell({
             />
           ) : null}
         </div>
-      </MainRegion>
+      </main>
 
       {isSettingsOpen && (
         <SettingsModal

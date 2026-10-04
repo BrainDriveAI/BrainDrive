@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
 
+import { sidebarStyles } from "./sidebar-styles";
 import ProfileMenu from "./ProfileMenu";
 import {
   buildProjectSidebarModel,
@@ -607,7 +608,7 @@ function SidebarFileButton({
           onFileClick(item.file);
           onClose?.();
         }}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover"
+        className={`flex min-w-0 flex-1 items-center gap-3 ${sidebarStyles.itemRadius} px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover`}
         title={item.canonicalPath}
       >
         <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />

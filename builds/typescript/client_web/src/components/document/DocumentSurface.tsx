@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 export const documentStyles = {
   header: "border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6",
   headerInner: "mx-auto flex w-full max-w-[780px] items-center justify-between gap-3",
+  eyebrow: "text-[11px] uppercase tracking-[0.24em] text-bd-text-muted",
+  headerActions: "flex shrink-0 items-center gap-2",
   title: "truncate font-heading text-lg text-bd-text-heading",
   secondary: "text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading",
   primary: "bg-bd-amber text-white hover:bg-bd-amber-hover",

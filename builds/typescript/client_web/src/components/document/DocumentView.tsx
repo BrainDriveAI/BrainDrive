@@ -149,7 +149,7 @@ export default function DocumentView({
     <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary">
       <DocumentHeader>
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
+            <div className={documentStyles.eyebrow}>
               {projectName}
             </div>
             <h1 className={documentStyles.title}>{file.displayName ?? file.name}</h1>
@@ -169,7 +169,7 @@ export default function DocumentView({
             ) : null}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className={documentStyles.headerActions}>
             <DocumentButton
               type="button"
               variant="ghost"
