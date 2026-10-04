@@ -40,3 +40,7 @@ Main product runtime/web/desktop checks were not run: no product source, UI, pro
 ## Final checkpoint
 
 `npm run format:check` passed; `npm audit` reported zero vulnerabilities. From repository root, `node tools/docs/check.mjs` passed (225 candidates, zero diagnostics), `node tools/docs/sync-generated.mjs --check` passed, and `tools/security/scan-secrets.sh --current` passed with pinned Gitleaks 8.30.1 and zero findings. `npm run docs:verify` in `builds/typescript` passed: 163 tests passed, one existing skip, zero failures; catalog validation passed. Branch push/PR and Library reconciliation follow this evidence checkpoint; Git and the PR identify the preserved source without a self-referential hash.
+
+## Pull-request freshness correction
+
+The initial GitHub CI run passed runtime, web, MCP, Docker, installer and secret checks but failed two documentation tests: its PR-aware freshness check required the mapped developer front door to accompany the changed catalog. Local checks had not loaded a pull-request event, so they did not exercise that comparison. The follow-up adds an explicitly experimental guide link to `docs/developers/README.md` and reruns documentation validation with a synthetic event containing the real PR base/head and body. CI status remains separate from local evidence and must be checked after push.

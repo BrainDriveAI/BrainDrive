@@ -60,6 +60,10 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Tests and CI | Workspace checks plus repository CI composition | [Change verification matrix](verification.md) |
 | Security and release | Reporting, scanning, version domains, tag truth, artifacts, and restricted operations | [Developer security router](security.md) and [release/version truth](releases.md) |
 
+## Isolated experiments
+
+The [Personal AI Ecosystem prototypes](../../builds/personal-ai-ecosystem/README.md) are an **experimental** standalone build with synthetic data, local test keys and mock payments. The package guide routes its plan, reproduction commands and execution evidence. Catalog registration preserves discovery and lifecycle boundaries; it does not establish product integration, accepted protocol choices or release readiness.
+
 ## Search terms
 
 GitHub search should find the vocabulary contributors actually use: web client, gateway, API, engine, tools, auth, config, local-owner, local, managed, BrainDrive Models, BYOK OpenRouter, Ollama, providers, MCP, file-backed memory, secrets, Docker dev, Docker local, Docker prod, installer, Tauri desktop, tests, CI, security, release, documentation impact, and sanitized evidence.
