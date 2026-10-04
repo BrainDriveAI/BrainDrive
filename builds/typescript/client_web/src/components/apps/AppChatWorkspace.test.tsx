@@ -14,6 +14,7 @@ import userEvent from "@testing-library/user-event";
 
 import * as appsApi from "@/api/apps-adapter";
 import * as gatewayApi from "@/api/gateway-adapter";
+import { documentStyles } from "@/components/document/DocumentSurface";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, WorkspaceDetail } from "./AppChatWorkspace";
 
 const { chatPanelProps } = vi.hoisted(() => ({
@@ -565,6 +566,38 @@ describe("AppChatWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Profile" })).toHaveFocus();
   });
 
+  it.each([390, 1440])("shares the native document header, body and editor at %ipx", async (width) => {
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    try {
+      const current = withProfileDocumentPresentation(launch());
+      vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+      vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
+        result_version: 1, state: "current", document_id: "profile", document_binding_id: "profile.current",
+        record: { revision: 2, media_type: "text/markdown", content: "**Experience:** Owner work ` [gap: dates] `" } as appsApi.AppDocumentRecord,
+      });
+      const user = userEvent.setup();
+      const { container } = render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+      await user.click(screen.getByRole("button", { name: "Profile" }));
+      const title = await screen.findByRole("heading", { level: 1, name: "Your Resume Profile" });
+      expect(title).toHaveAttribute("id", "app-workspace-document-title");
+      expect(title).toHaveClass(...documentStyles.title.split(" "));
+      const header = title.closest("header")!;
+      expect(header).toHaveClass(...documentStyles.header.split(" "));
+      expect(header).not.toHaveClass("hidden", "md:hidden");
+      expect(within(header).getByRole("button", { name: "Back to chat" })).toHaveClass(...documentStyles.secondary.split(" "));
+      const body = await screen.findByText("Experience:");
+      expect(body.closest(".prose-bd")).toHaveClass(...documentStyles.body.split(" "));
+      expect(container.querySelector("code")).toHaveClass("text-sm", "text-bd-amber", "bg-bd-bg-secondary");
+      await user.click(within(header).getByRole("button", { name: "Edit Profile" }));
+      expect(screen.getByRole("textbox", { name: "Profile content" })).toHaveClass(...documentStyles.editor.split(" "));
+      expect(within(header).getByRole("button", { name: "Save" })).toHaveClass(...documentStyles.primary.split(" "));
+      expect(screen.getByRole("main")).toContainElement(header);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+    }
+  });
+
   it("navigates documents and advanced resources with focus moving to the selected heading", async () => {
     const current = launch();
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
@@ -581,7 +614,8 @@ describe("AppChatWorkspace", () => {
     expect(screen.queryByRole("button", { name: "Agent Instructions" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show advanced" }));
     await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Agent Instructions" })).toHaveFocus();
+    await waitFor(() => expect(document.getElementById("app-workspace-document-title")).toHaveFocus());
+    expect(document.getElementById("app-workspace-document-title")).toHaveTextContent("Agent Instructions");
     expect(screen.getByText("Package resource")).toBeInTheDocument();
     expect(await screen.findByText("Use the package-owned instructions.")).toBeInTheDocument();
     expect(screen.getByText(/text\/markdown/)).toBeInTheDocument();
@@ -738,6 +772,8 @@ describe("AppChatWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Resume" }));
     await screen.findByRole("heading", { name: "Marketing Manager", level: 3 });
     const paper = rendered.container.querySelector("article")!;
+    expect(paper).toHaveClass(...documentStyles.body.split(" "));
+    expect(paper).not.toHaveClass("bg-white");
     const paragraphs = Array.from(paper.querySelectorAll("p"), (node) => node.textContent);
     expect(paragraphs).toEqual([
       "September 2025–Present", "strong nested italic text", "strong nested italic text",
@@ -789,6 +825,8 @@ describe("AppChatWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Resume" }));
     await screen.findByRole("heading", { name: "Experience", level: 2 });
     const paper = rendered.container.querySelector("article")!;
+    expect(paper).toHaveClass(...documentStyles.body.split(" "));
+    expect(paper).not.toHaveClass("bg-white");
     const logicalLines = Array.from(paper.children, (node) => {
       const text = node.textContent ?? "";
       if (node.tagName === "H2") return text.toUpperCase();

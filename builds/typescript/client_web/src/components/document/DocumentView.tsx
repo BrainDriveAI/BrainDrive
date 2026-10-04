@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
 
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
-import { Button } from "@/components/ui/button";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import { DocumentButton, DocumentHeader, documentStyles } from "./DocumentSurface";
 import type { ProjectFile } from "@/types/ui";
 
 type DocumentViewProps = {
@@ -147,13 +147,12 @@ export default function DocumentView({
 
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary">
-      <header className="border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6">
-        <div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-3">
+      <DocumentHeader>
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
               {projectName}
             </div>
-            <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.displayName ?? file.name}</h1>
+            <h1 className={documentStyles.title}>{file.displayName ?? file.name}</h1>
             {file.sourceType === "app_published" && file.sourceLabel ? (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-bd-text-secondary">
                 <span>Published by {file.sourceLabel}</span>
@@ -171,44 +170,44 @@ export default function DocumentView({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <Button
+            <DocumentButton
               type="button"
               variant="ghost"
               size="sm"
               onClick={onBack}
               disabled={isSaving}
-              className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+              className={documentStyles.secondary}
             >
               <ArrowLeft size={16} />
               Back to chat
-            </Button>
+            </DocumentButton>
 
             {isEditing ? (
               <>
-                <Button
+                <DocumentButton
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={handleCancel}
                   disabled={isSaving}
-                  className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+                  className={documentStyles.secondary}
                 >
                   <X size={16} />
                   Cancel
-                </Button>
-                <Button
+                </DocumentButton>
+                <DocumentButton
                   type="button"
                   size="sm"
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="bg-bd-amber text-white hover:bg-bd-amber-hover"
+                  className={documentStyles.primary}
                 >
                   {isSaving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}
                   {isSaving ? "Saving..." : "Save"}
-                </Button>
+                </DocumentButton>
               </>
             ) : file.readOnly ? null : (
-              <Button
+              <DocumentButton
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -218,15 +217,14 @@ export default function DocumentView({
                   setIsEditing(true);
                 }}
                 disabled={isLoading}
-                className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+                className={documentStyles.secondary}
               >
                 <PencilLine size={16} />
                 Edit
-              </Button>
+              </DocumentButton>
             )}
           </div>
-        </div>
-      </header>
+      </DocumentHeader>
 
       <div
         className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6"
@@ -263,11 +261,11 @@ export default function DocumentView({
                 setNotice(null);
               }}
               spellCheck={false}
-              className="min-h-[420px] flex-1 resize-none rounded-2xl border border-bd-border bg-bd-bg-secondary px-5 py-4 font-mono text-[14px] leading-7 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
+              className={documentStyles.editor}
             />
           ) : (
             <article className="py-2">
-              <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
+              <div className={documentStyles.body}>
                 <MarkdownContent content={content} />
               </div>
             </article>

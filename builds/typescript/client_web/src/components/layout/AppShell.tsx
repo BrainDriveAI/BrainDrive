@@ -272,6 +272,8 @@ export default function AppShell({
         document.body
       );
 
+  const MainRegion = isAppWorkspaceActive ? "div" : "main";
+
   return (
     <div
       className="flex overflow-hidden bg-bd-bg-chat text-bd-text-primary"
@@ -343,7 +345,7 @@ export default function AppShell({
         />
       </MobileSidebarDrawer>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
+      <MainRegion className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
@@ -378,7 +380,7 @@ export default function AppShell({
             />
           ) : null}
         </div>
-      </main>
+      </MainRegion>
 
       {isSettingsOpen && (
         <SettingsModal
