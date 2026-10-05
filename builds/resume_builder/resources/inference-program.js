@@ -436,9 +436,11 @@ function buildResumeProfileUpdateCapabilityInput(input, context) {
     progress: {
       expected_revision: null,
       status: "review_needed",
-      current_topic: input.current_topic ?? null,
-      completed_topics: [...(input.completed_topics ?? ["direction", "experience", "education", "credentials", "skills"])],
-      skipped_topics: [...(input.skipped_topics ?? [])],
+      // FR-HIDDEN-1: the app keeps no interview topic state. The record schema still
+      // requires these fields, so they are written empty and never derived or defaulted.
+      current_topic: null,
+      completed_topics: [],
+      skipped_topics: [],
       draft_state: "owner_reviewed",
       session_id: context.sessionId,
       audit_turn: {

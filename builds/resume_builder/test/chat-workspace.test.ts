@@ -228,7 +228,6 @@ describe("Resume Builder chat workspace contract", () => {
     expect(profile).toMatchObject({
       bindingId: convergence.chatWorkspace.profileBindingId,
       recoveryDraftPresent: true,
-      currentTopic: "contact",
     });
     expect(resume).toMatchObject({
       bindingId: convergence.structuredSurface.resumeBindingId,
@@ -247,14 +246,19 @@ describe("Resume Builder chat workspace contract", () => {
       source: "resume-domain",
       entryPoint: "career",
       confirmedFactCount: 7,
-      currentTopic: "accomplishments",
       recoveryDraftPresent: false,
       jobCount: 1,
       generalResumeCount: 1,
     });
-    expect(profile.topics.find((topic) => topic.topic === "contact")?.status).toBe("completed");
-    expect(profile.topics.find((topic) => topic.topic === "accomplishments")?.status).toBe("current");
-    expect(profile.topics.find((topic) => topic.topic === "links")?.status).toBe("skipped");
+  });
+
+  it("FR-HIDDEN-1: the Profile projection and storage documents carry no interview topic state even when stored data has it", () => {
+    const stored = snapshot();
+    expect(stored.interview?.current_topic).toBe("accomplishments");
+    const serialized = JSON.stringify([projectResumeProfile(stored), projectResumeStorageDocuments(stored)]);
+    expect(serialized).not.toMatch(/topic|completed|skipped|accomplishments/i);
+    expect(projectResumeProfile(stored)).not.toHaveProperty("topics");
+    expect(projectResumeProfile(stored)).not.toHaveProperty("currentTopic");
   });
 
   it("projects the formatted Resume as a derivative of the current general definition", () => {
@@ -338,13 +342,12 @@ describe("Resume Builder chat workspace contract", () => {
     expect(buildResumeProfileReadCapabilityInput()).toEqual({});
     expect(buildResumeProfileUpdateCapabilityInput({
       profile_markdown: "Maya Torres profile",
-      completed_topics: ["direction", "experience"],
-      current_topic: null,
     }, { sessionId, turnId, occurredAt })).toMatchObject({
       kind: "interview_progress",
       progress: {
         status: "review_needed",
-        completed_topics: ["direction", "experience"],
+        current_topic: null,
+        completed_topics: [],
         skipped_topics: [],
         draft_state: "owner_reviewed",
         session_id: sessionId,
@@ -1318,6 +1321,10 @@ describe("Resume Builder chat workspace contract", () => {
     expect(interview).toContain("Resume dates are absolute");
     expect(interview).toContain("An owner's hedge stays hedged");
     expect(interview).toContain("Do not use this as a checklist");
+    // FR-HIDDEN-1: no topic tracking in anything the model reads.
+    for (const text of [agent, interview]) {
+      expect(text).not.toMatch(/mark a topic complete|completed_topics|current_topic|skipped_topics|default topic order|topic coverage/i);
+    }
     expect(quality).toContain("The Resume Profile is the editable source of truth");
     expect(quality).toContain("[gap: ...]");
   });

@@ -156,10 +156,8 @@ function profileUpdateInputSchema(): Record<string, unknown> {
     additionalProperties: false,
     properties: {
       profile_markdown: { type: "string", minLength: 1, maxLength: 65536 },
-      completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-      current_topic: { type: ["string", "null"], maxLength: 64 },
     },
-    required: ["profile_markdown", "completed_topics", "current_topic"],
+    required: ["profile_markdown"],
   };
 }
 
@@ -2194,8 +2192,6 @@ describe("app-chat workspace session authority", () => {
     const createOperationId = randomUUID();
     const profileInput = {
       profile_markdown: "# Resume Profile\n\nMaya Torres profile",
-      completed_topics: ["direction", "experience"],
-      current_topic: null,
     };
     expect(model.prompt_context).toContain("profile_markdown");
     expect(model.prompt_context).not.toContain("resume_markdown");
@@ -2229,7 +2225,9 @@ describe("app-chat workspace session authority", () => {
       expect.objectContaining({
         kind: "interview_progress",
         progress: expect.objectContaining({
-          completed_topics: ["direction", "experience"],
+          current_topic: null,
+          completed_topics: [],
+          skipped_topics: [],
           audit_turn: expect.objectContaining({ answer: "# Resume Profile\n\nMaya Torres profile" }),
         }),
       }),
@@ -2305,8 +2303,6 @@ describe("app-chat workspace session authority", () => {
           "## Experience",
           "- [gap: prior role details]",
         ].join("\n"),
-        completed_topics: ["direction"],
-        current_topic: "experience",
       },
     })).resolves.toMatchObject({ status: "ok" });
 
