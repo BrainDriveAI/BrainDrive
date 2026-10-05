@@ -15,7 +15,6 @@ import userEvent from "@testing-library/user-event";
 import * as appsApi from "@/api/apps-adapter";
 import * as gatewayApi from "@/api/gateway-adapter";
 import Sidebar from "@/components/layout/Sidebar";
-import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import { documentStyles } from "@/components/document/DocumentSurface";
 import AppChatWorkspace, { buildAppChatMessageMetadata, extractPreparedAppChatExport, WorkspaceDetail } from "./AppChatWorkspace";
 
@@ -583,6 +582,9 @@ describe("AppChatWorkspace", () => {
       .map((element) => ({ tag: element.tagName.toLowerCase(), role: element.getAttribute("role"), name: element.getAttribute("aria-label") }));
     const nativeTree = landmarkTree(nativeSidebar);
     const nativeClasses = nativeSidebar.className;
+    const nativeHeader = nativeSidebar.firstElementChild!.outerHTML;
+    const nativeAppsClasses = within(nativeSidebar).getByRole("button", { name: "Apps" }).className;
+    const nativeProfileClasses = within(nativeSidebar).getByRole("button", { name: "Open profile menu" }).parentElement!.className;
     native.unmount();
 
     render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={launch()} onSessionClosed={() => undefined} />);
@@ -595,9 +597,34 @@ describe("AppChatWorkspace", () => {
     expect(nativeTree).toEqual([{ tag: "aside", role: null, name: null }]);
     expect(landmarkTree(sidebar)).toEqual(nativeTree);
     expect(sidebar.className).toBe(nativeClasses);
-    expect(within(sidebar).getByRole("button", { name: "Conversation" })).toBeInTheDocument();
+    // Desktop header is exactly native, including Collapse and its icon props.
+    if (width === 1440) expect(sidebar.firstElementChild!.outerHTML).toBe(nativeHeader);
+    expect(within(sidebar).getByRole("button", { name: "Back to Apps" }).className).toBe(nativeAppsClasses);
+    expect(within(sidebar).getByRole("button", { name: "Open profile menu" }).parentElement!.className).toBe(nativeProfileClasses);
+    const conversation = within(sidebar).getByRole("button", { name: "Conversation" });
+    expect(conversation).toHaveClass("rounded-xl");
+    expect(conversation.querySelector("svg")).toHaveAttribute("stroke-width", "1.5");
+    const profile = within(sidebar).getByRole("button", { name: "Profile" });
+    expect(profile).toHaveClass("rounded-md", "text-bd-text-primary");
+    expect(profile.querySelector("svg")).toHaveAttribute("stroke-width", "1.5");
     await userEvent.click(within(sidebar).getByRole("button", { name: "Show advanced" }));
     expect(landmarkTree(sidebar)).toEqual(nativeTree);
+  });
+
+  it("collapses and expands the native rail without remounting chat or losing navigation state", async () => {
+    const current = launch();
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    const chat = await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.getByRole("complementary")).toHaveClass("w-[48px]");
+    expect(screen.getByRole("button", { name: "Back to Apps" })).toBeInTheDocument();
+    expect(screen.getByText("Conversation transcript")).toBe(chat);
+    await user.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(screen.getByRole("button", { name: "Hide advanced" })).toBeInTheDocument();
+    expect(screen.getByText("Conversation transcript")).toBe(chat);
   });
 
   it.each([390, 1440])("shares native document DOM and classes with a %ipx viewport setting", async (width) => {
@@ -605,6 +632,7 @@ describe("AppChatWorkspace", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
     try {
       const current = withDirectResumeActions(launch());
+      current.workspace.documents.find((document) => document.document_id === "profile")!.presentation!.subtitle = "Owner editable app instructions";
       vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
       vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
         result_version: 1, state: "current", document_id: "profile", document_binding_id: "profile.current",
@@ -627,12 +655,66 @@ describe("AppChatWorkspace", () => {
       await user.click(within(header).getByRole("button", { name: "Edit Profile" }));
       expect(screen.getByRole("textbox", { name: "Profile content" })).toHaveClass(...documentStyles.editor.split(" "));
       expect(within(header).getByRole("button", { name: "Save" })).toHaveClass(...documentStyles.primary.split(" "));
+      expect(within(header).getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(title.previousElementSibling).toHaveClass("truncate");
+      const editor = screen.getByRole("textbox", { name: "Profile content" });
+      await user.type(editor, " changed");
+      expect(within(header).getByRole("button", { name: "Save" })).toBeEnabled();
+      await user.click(within(header).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("textbox", { name: "Profile content" })).not.toBeInTheDocument();
+      expect(appsApi.writeAppChatWorkspaceDocument).not.toHaveBeenCalled();
+      await user.click(within(header).getByRole("button", { name: "Edit Profile" }));
+      expect(screen.getByRole("textbox", { name: "Profile content" })).not.toHaveValue(expect.stringContaining("changed"));
       expect(screen.getByTestId("app-chat-workspace-pane")).toContainElement(header);
       expect(screen.queryByRole("main")).not.toBeInTheDocument();
       expect(within(header).queryByRole("button", { name: "Create resume" })).not.toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
     }
+  });
+
+  it("preserves Save's accessible name and disables native edit actions during a pending save", async () => {
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    const result: appsApi.AppDocumentReadResult = {
+      result_version: 1, state: "current", document_id: "profile", document_binding_id: "profile.current",
+      record: { revision: 2, media_type: "text/markdown", content: "Saved profile" } as appsApi.AppDocumentRecord,
+    };
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue(result);
+    let finishSave!: (result: appsApi.AppDocumentReadResult) => void;
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument).mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }));
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(await screen.findByRole("button", { name: "Edit Profile" }));
+    await user.type(screen.getByRole("textbox", { name: "Profile content" }), " changed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeDisabled();
+    await act(async () => finishSave(result));
+    expect(screen.getByRole("button", { name: "Edit Profile" })).toBeEnabled();
+  });
+
+  it.each([390, 1440])("keeps derived Resume export controls below the native header at %ipx", async (width) => {
+    vi.stubGlobal("innerWidth", width);
+    const current = withDirectResumeActions(launch());
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
+      result_version: 1, state: "current", document_id: "resume", document_binding_id: "resume.current",
+      record: { revision: 2, media_type: "text/markdown", content: "# Candidate\n\nCreated resume" } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    const title = await screen.findByRole("heading", { name: "Your Resume" });
+    const header = title.closest("header")!;
+    expect(title.previousElementSibling).toHaveClass("truncate");
+    expect(header).toHaveClass(...documentStyles.header.split(" "));
+    expect(within(header).getAllByRole("button")).toHaveLength(1);
+    expect(within(header).getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export PDF" }).closest("header")).toBeNull();
+    expect(await screen.findByText("Created resume")).toBeInTheDocument();
   });
 
   it("navigates documents and advanced resources with focus moving to the selected heading", async () => {
@@ -1773,6 +1855,10 @@ describe("AppChatWorkspace", () => {
         });
       });
       expect(await screen.findByText("Export PDF completed.")).toBeInTheDocument();
+      const downloadNotice = screen.getByText("Downloaded resume.pdf.").closest<HTMLElement>("[role=status]")!;
+      const title = screen.getByRole("heading", { name: "Your Resume" });
+      expect(title.closest("section")).toContainElement(downloadNotice);
+      expect(downloadNotice.closest("header")).toBeNull();
       expect(chatPanelProps.some((props) => props.queuedMessage?.content.includes("Please export"))).toBe(false);
     } finally {
       create.mockRestore();
@@ -2293,7 +2379,7 @@ describe("AppChatWorkspace", () => {
 
     const navigation = screen.getByRole("complementary");
     const conversation = within(navigation).getByRole("button", { name: "Conversation" });
-    expect(conversation).toHaveClass(sidebarStyles.itemRadius);
+    expect(conversation).toHaveClass("rounded-xl");
     conversation.focus();
     await user.keyboard("{ArrowDown}");
     expect(within(navigation).getByRole("button", { name: "Profile" })).toHaveFocus();

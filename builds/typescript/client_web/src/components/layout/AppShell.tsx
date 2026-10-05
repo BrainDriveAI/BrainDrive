@@ -343,7 +343,7 @@ export default function AppShell({
         />
       </MobileSidebarDrawer>
 
-      <main className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary${isAppWorkspaceActive ? " md:ml-sidebar" : ""}`} style={appShellVars}>
+      <main className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary${isAppWorkspaceActive ? " md:ml-sidebar md:[&:has([data-app-sidebar-collapsed])]:ml-[48px]" : ""}`} style={appShellVars}>
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >

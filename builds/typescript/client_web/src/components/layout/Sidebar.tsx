@@ -1,4 +1,4 @@
-import { AppWindow, Bot, ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AppWindow, Bot, ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -14,6 +14,7 @@ import {
 } from "./sidebar-categorize";
 import { projectDisplayLabel, rootProjectDisplayLabel } from "./sidebar-labels";
 import { getProjectIcon } from "./project-icons";
+import SidebarChrome from "./SidebarChrome";
 import SidebarCollapsed from "./SidebarCollapsed";
 
 const DEFAULT_USER: UserProfile = {
@@ -181,38 +182,7 @@ export default function Sidebar({
     : "";
 
   return (
-    <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
-      <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <button
-          type="button"
-          aria-label="Go to BrainDrive home"
-          onClick={() => onSelectProject(ROOT_AGENT_PROJECT_ID)}
-          className="cursor-pointer bg-transparent p-0 hover:opacity-80"
-        >
-          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
-        </button>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Collapse sidebar"
-            onClick={onToggle}
-            className="hidden text-bd-text-muted transition-colors duration-200 hover:text-bd-text-secondary md:inline-flex"
-          >
-            <ChevronLeft size={18} strokeWidth={1.5} />
-          </button>
-          {onClose ? (
-            <button
-              type="button"
-              aria-label="Close sidebar"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover md:hidden"
-            >
-              <X size={18} strokeWidth={1.5} />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
+    <SidebarChrome onGoHome={() => onSelectProject(ROOT_AGENT_PROJECT_ID)} onToggle={onToggle} onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="px-4 pb-2 pt-1">
           <button
@@ -220,7 +190,7 @@ export default function Sidebar({
             aria-current={isAppsActive ? "page" : undefined}
             onClick={() => { onOpenApps(); onClose?.(); }}
             className={[
-              "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover",
+              sidebarStyles.nav,
               isAppsActive ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
             ].join(" ")}
           >
@@ -530,7 +500,7 @@ export default function Sidebar({
           </button>
         </div>
       </div>
-    </aside>
+    </SidebarChrome>
   );
 }
 
@@ -581,7 +551,7 @@ function ProjectConversationButton({
       aria-current={isActive ? "page" : undefined}
       onClick={onReturnToChat}
       className={[
-        "mb-3 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover",
+        sidebarStyles.conversation,
         isActive ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
       ].join(" ")}
     >
@@ -608,7 +578,7 @@ function SidebarFileButton({
           onFileClick(item.file);
           onClose?.();
         }}
-        className={`flex min-w-0 flex-1 items-center gap-3 ${sidebarStyles.itemRadius} px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover`}
+        className={sidebarStyles.file}
         title={item.canonicalPath}
       >
         <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />

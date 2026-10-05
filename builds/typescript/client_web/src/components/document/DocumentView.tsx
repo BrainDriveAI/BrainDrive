@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine } from "lucide-react";
 
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
+import DocumentEditActions from "./DocumentEditActions";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { DocumentButton, DocumentHeader, documentStyles } from "./DocumentSurface";
 import type { ProjectFile } from "@/types/ui";
@@ -183,29 +184,7 @@ export default function DocumentView({
             </DocumentButton>
 
             {isEditing ? (
-              <>
-                <DocumentButton
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  disabled={isSaving}
-                  className={documentStyles.secondary}
-                >
-                  <X size={16} />
-                  Cancel
-                </DocumentButton>
-                <DocumentButton
-                  type="button"
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className={documentStyles.primary}
-                >
-                  {isSaving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}
-                  {isSaving ? "Saving..." : "Save"}
-                </DocumentButton>
-              </>
+              <DocumentEditActions onCancel={handleCancel} onSave={handleSave} isSaving={isSaving} />
             ) : file.readOnly ? null : (
               <DocumentButton
                 type="button"

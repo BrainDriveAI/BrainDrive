@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from "react";
-import { AlertCircle, ArrowLeft, ChevronLeft, Download, FileText, LoaderCircle, PencilLine, RefreshCw, Save, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, AppWindow, Download, FileText, LoaderCircle, PencilLine, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { getSession } from "@/api/auth-adapter";
 import { deleteConversation, listConversations } from "@/api/gateway-adapter";
@@ -26,8 +26,11 @@ import { isTauriRuntime } from "@/api/runtime-api-base";
 import type { ChatEvent } from "@/api/types";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { MobileSidebarDrawer, MobileSidebarHeader } from "@/components/layout/MobileSidebarShell";
+import SidebarChrome from "@/components/layout/SidebarChrome";
+import SidebarCollapsed from "@/components/layout/SidebarCollapsed";
 import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import ProfileMenu from "@/components/layout/ProfileMenu";
+import DocumentEditActions from "@/components/document/DocumentEditActions";
 import { DocumentButton, DocumentHeader, documentStyles } from "@/components/document/DocumentSurface";
 import MarkdownContent, { markdownStyles } from "@/components/markdown/MarkdownContent";
 import { Button } from "@/components/ui/button";
@@ -557,6 +560,20 @@ export default function AppChatWorkspace({
 
   const primaryItems = items.filter((item) => item.kind === "document" && item.document.default_visibility !== "advanced");
   const advancedItems = items.filter((item) => item.kind === "resource" || (item.kind === "document" && item.document.default_visibility === "advanced"));
+  const documentExportNotice = exportNotice ? (
+    <div
+      role={exportNotice.tone === "error" ? "alert" : "status"}
+      className={cn(
+        "mb-4 flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
+        exportNotice.tone === "error"
+          ? "border-bd-danger-border bg-bd-danger-bg text-bd-danger"
+          : "border-bd-border bg-bd-bg-secondary text-bd-text-primary",
+      )}
+    >
+      {exportNotice.tone === "error" ? <AlertCircle size={15} className="mt-0.5 shrink-0" /> : <ShieldCheck size={15} className="mt-0.5 shrink-0 text-bd-amber" />}
+      <span>{exportNotice.message}</span>
+    </div>
+  ) : null;
   const chatPanel = (
     <ChatPanel
       activeConversationId={activeConversationId}
@@ -576,6 +593,7 @@ export default function AppChatWorkspace({
           documents={launch.workspace.documents}
           actions={launch.workspace.actions}
           headingRef={activeHeadingRef}
+          noticeSlot={documentExportNotice}
           onRecoverSession={recoverSession}
           onBackToChat={() => setActiveItemKey(itemKey(items.find((candidate) => candidate.kind === "document" && candidate.document.role === "conversation") ?? items[0] ?? { key: "document:conversation", kind: "document", document: FALLBACK_CONVERSATION }))}
           onOpenWorkspaceItem={(documentId) => {
@@ -662,20 +680,7 @@ export default function AppChatWorkspace({
       </MobileSidebarDrawer>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
-        {!isConversation && exportNotice ? (
-          <div
-            role={exportNotice.tone === "error" ? "alert" : "status"}
-            className={cn(
-              "mx-4 mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-sm md:mx-6",
-              exportNotice.tone === "error"
-                ? "border-bd-danger-border bg-bd-danger-bg text-bd-danger"
-                : "border-bd-border bg-bd-bg-secondary text-bd-text-primary",
-            )}
-          >
-            {exportNotice.tone === "error" ? <AlertCircle size={15} className="mt-0.5 shrink-0" /> : <ShieldCheck size={15} className="mt-0.5 shrink-0 text-bd-amber" />}
-            <span>{exportNotice.message}</span>
-          </div>
-        ) : null}
+
         {sessionState === "loading" ? (
           <div className="flex h-full min-h-[320px] items-center justify-center gap-3 text-bd-text-secondary" role="status" aria-live="polite">
             <LoaderCircle size={18} className="animate-spin" />
@@ -734,35 +739,33 @@ function WorkspaceNavigation({
   onLogout?: () => void;
   tier: "local" | "concierge";
 }) {
-  return (
-    <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
-      <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <button
-          type="button"
-          aria-label="Go to BrainDrive home"
-          onClick={onGoHome}
-          className="cursor-pointer bg-transparent p-0 hover:opacity-80"
-        >
-          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
-        </button>
-        {onCloseNavigation ? (
-          <button
-            type="button"
-            aria-label="Close workspace navigation"
-            onClick={onCloseNavigation}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover md:hidden"
-          >
-            <X size={18} strokeWidth={1.5} />
-          </button>
-        ) : null}
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  if (isCollapsed && !onCloseNavigation) {
+    return (
+      <div data-app-sidebar-collapsed>
+        <SidebarCollapsed
+          onToggle={() => setIsCollapsed(false)}
+          projects={[]}
+          selectedProjectId={null}
+          onSelectProject={onGoHome}
+          onOpenSettings={onOpenSettings ?? (() => undefined)}
+          onOpenApps={onCloseWorkspace}
+          isAppsActive={false}
+          workspaceExitLabel="Back to Apps"
+        />
       </div>
-
-      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <Button type="button" variant="ghost" size="sm" onClick={onCloseWorkspace} className="mb-7 w-fit gap-2 px-1 text-bd-text-secondary hover:bg-transparent hover:text-bd-text-heading">
-          <ChevronLeft size={16} />
-          Back to Apps
-        </Button>
-
+    );
+  }
+  return (
+    <SidebarChrome onGoHome={onGoHome} onToggle={() => setIsCollapsed(true)} onClose={onCloseNavigation} closeLabel="Close workspace navigation">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pb-2 pt-1">
+          <button type="button" onClick={onCloseWorkspace} className={cn(sidebarStyles.nav, "text-bd-text-secondary")}>
+            <AppWindow size={17} strokeWidth={1.5} aria-hidden="true" />
+            <span>Back to Apps</span>
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         <p className="px-1 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
         {sessionError ? (
           <div role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
@@ -818,15 +821,14 @@ function WorkspaceNavigation({
           ) : null}
         </div>
 
-        <div className="mt-auto space-y-2 pt-4">
+        </div>
           <AppWorkspaceProfileControl
             onOpenSettings={onOpenSettings}
             onLogout={onLogout}
             tier={tier}
           />
-        </div>
       </div>
-    </aside>
+    </SidebarChrome>
   );
 }
 
@@ -865,11 +867,12 @@ function WorkspaceNavGroup({
             onClick={() => onSelect(item.key)}
             onKeyDown={(event) => onMoveFocus(event, item.key)}
             className={cn(
-              `flex w-full min-w-0 items-center gap-3 ${sidebarStyles.itemRadius} px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber`,
-              activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
+              item.kind === "document" && item.document.role === "conversation" ? sidebarStyles.conversation : sidebarStyles.file,
+              "w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber",
+              activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : item.kind === "document" && item.document.role === "conversation" ? "text-bd-text-secondary" : "text-bd-text-primary",
             )}
           >
-            <Icon size={17} strokeWidth={1.7} aria-hidden="true" className="shrink-0 text-bd-text-secondary" />
+            <Icon size={item.kind === "document" && item.document.role === "conversation" ? 17 : 16} strokeWidth={1.5} aria-hidden="true" className={item.kind === "document" && item.document.role === "conversation" ? "shrink-0 text-bd-text-secondary" : "shrink-0 text-bd-text-muted"} />
             <span className="truncate">{title}</span>
           </button>
         );
@@ -931,7 +934,7 @@ function AppWorkspaceProfileControl({
   }, [isProfileMenuOpen]);
 
   return (
-    <div ref={profileMenuRef} className="relative">
+    <div ref={profileMenuRef} className="relative px-2 pb-2 pt-2">
       {isProfileMenuOpen ? (
         <ProfileMenu
           onClose={() => setIsProfileMenuOpen(false)}
@@ -984,6 +987,7 @@ export function WorkspaceDetail({
   onClearExportNotice,
   onDirectActionResult,
   onDirectActionComplete,
+  noticeSlot,
 }: {
   appKey: string;
   appName: string;
@@ -1001,6 +1005,7 @@ export function WorkspaceDetail({
   onClearExportNotice: () => void;
   onDirectActionResult: (result: unknown) => Promise<AppChatExportHandlingResult>;
   onDirectActionComplete: (message: string) => void;
+  noticeSlot?: ReactNode;
 }) {
   const title = item.kind === "document" ? item.document.title : item.resource.title;
   const description = item.kind === "document" ? item.document.description : item.resource.description;
@@ -1372,11 +1377,10 @@ export function WorkspaceDetail({
     <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary" aria-labelledby="app-workspace-document-title">
         <DocumentHeader>
           <div className="min-w-0">
-            <p className={documentStyles.eyebrow}>{presentationSubtitle}</p>
+            <p className={cn(documentStyles.eyebrow, "truncate")}>{presentationSubtitle}</p>
             <h1 id="app-workspace-document-title" ref={headingRef} tabIndex={-1} className={cn(documentStyles.title, "outline-none focus-visible:ring-2 focus-visible:ring-bd-amber")}>
               {presentationTitle}
             </h1>
-            {!isDocumentChrome ? <p className="mt-2 text-sm leading-6 text-bd-text-secondary">{description}</p> : null}
           </div>
           <div className={documentStyles.headerActions}>
             {presentation?.header_actions.filter((action) => action.type !== "app_action" && !(shouldShowEditor && action.type === "edit_document")).map((action) => (
@@ -1388,7 +1392,7 @@ export function WorkspaceDetail({
                 aria-label={action.label}
                 onClick={() => handleHeaderAction(action)}
                 disabled={
-                  runningActionId !== null ||
+                  runningActionId !== null || documentStatus === "saving" ||
                   (action.type === "edit_document" && (!editable || isEditing))
                 }
                 className={documentStyles.secondary}
@@ -1398,15 +1402,26 @@ export function WorkspaceDetail({
               </DocumentButton>
             ))}
             {shouldShowEditor ? (
-              <DocumentButton type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className={documentStyles.primary}>
-                {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={16} />}
-                Save
-              </DocumentButton>
+              <DocumentEditActions
+                onCancel={() => {
+                  draftStateRef.current.content = draftFromRecord(documentRecord);
+                  setDraftContent(draftStateRef.current.content);
+                  setDocumentError(null);
+                  setDocumentNotice(null);
+                  setIsEditing(false);
+                }}
+                onSave={() => void saveDocument()}
+                isSaving={documentStatus === "saving"}
+                saveDisabled={!isDirty}
+                saveAriaLabel="Save"
+              />
             ) : null}
           </div>
         </DocumentHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6">
           <div className="mx-auto w-full max-w-[780px]">
+            {noticeSlot}
+            {!isDocumentChrome ? <p className="mb-4 text-sm leading-6 text-bd-text-secondary">{description}</p> : null}
             <div className="flex flex-wrap items-center gap-2" aria-label="Document app actions">
               {presentation?.header_actions.filter((action) => action.type === "app_action").map((action) => (
                 <DocumentButton key={action.action_id} type="button" onClick={() => handleHeaderAction(action)} disabled={runningActionId !== null}>
