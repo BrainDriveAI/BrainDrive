@@ -34,3 +34,8 @@ export function DocumentButton({ variant = "default", size = "sm", className, ..
     />
   );
 }
+
+// App actions can be text-only; keep the native small icon button's 10px inset.
+export function DocumentActionButton({ className, ...props }: ComponentProps<typeof DocumentButton>) {
+  return <DocumentButton {...props} className={cn("px-2.5", className)} />;
+}

@@ -653,6 +653,8 @@ describe("AppChatWorkspace", () => {
       expect(header).toHaveClass(...documentStyles.header.split(" "));
       expect(header).not.toHaveClass("hidden", "md:hidden");
       expect(within(header).getByRole("button", { name: "Back to chat" })).toHaveClass(...documentStyles.secondary.split(" "));
+      expect(screen.getByRole("button", { name: "Create resume" })).toHaveClass("px-2.5", "rounded-md", "h-8");
+      expect(within(header).getByRole("button", { name: "Edit Profile" })).toHaveClass("px-2.5", "rounded-md", "h-8");
       expect(screen.getByRole("button", { name: "Create resume" }).closest("header")).toBeNull();
       const body = await screen.findByText("Experience:");
       expect(body.closest(".prose-bd")).toHaveClass(...documentStyles.body.split(" "));
@@ -718,6 +720,7 @@ describe("AppChatWorkspace", () => {
     expect(header).toHaveClass(...documentStyles.header.split(" "));
     expect(within(header).getAllByRole("button")).toHaveLength(1);
     expect(within(header).getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export PDF" })).toHaveClass("px-2.5", "rounded-md", "h-8");
     expect(screen.getByRole("button", { name: "Export PDF" }).closest("header")).toBeNull();
     expect(await screen.findByText("Created resume")).toBeInTheDocument();
   });
@@ -1391,6 +1394,7 @@ describe("AppChatWorkspace", () => {
       expect(recoverSession).toHaveBeenCalledTimes(1);
       expect(appsApi.readAppChatWorkspaceDocument).toHaveBeenCalledWith("resume-builder", renewedSessionId, "resume");
     }
+    expect(screen.getByRole("button", { name: /^Refresh$/ })).toHaveClass("px-2.5", "rounded-md", "h-8");
     await user.click(screen.getByRole("button", { name: trigger === "failed refresh" ? "Retry" : /^Refresh$/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Resume content" })).toHaveValue("# Stored resume revision 3"));
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();

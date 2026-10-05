@@ -31,7 +31,7 @@ import SidebarCollapsed from "@/components/layout/SidebarCollapsed";
 import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import ProfileMenu from "@/components/layout/ProfileMenu";
 import DocumentEditActions from "@/components/document/DocumentEditActions";
-import { DocumentButton, DocumentHeader, documentStyles } from "@/components/document/DocumentSurface";
+import { DocumentActionButton as DocumentButton, DocumentHeader, documentStyles } from "@/components/document/DocumentSurface";
 import MarkdownContent, { markdownStyles } from "@/components/markdown/MarkdownContent";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
