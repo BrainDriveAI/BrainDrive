@@ -680,6 +680,35 @@ describe("AppChatWorkspace", () => {
     }
   });
 
+  it("returns from a read-only action result to chat through the shared document header", async () => {
+    const current = launch();
+    current.workspace.documents.push({
+      document_version: 1, document_id: "resume.action-result", role: "action_result_document",
+      title: "Resume Action Result", description: "Read-only action result.", editable: false,
+      default_visibility: "advanced", model_access: "action_result", data_binding_id: "resume.action-result.latest", resource_id: null,
+    });
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument).mockResolvedValue({
+      result_version: 1, state: "current", document_id: "resume.action-result", document_binding_id: "resume.action-result.latest",
+      record: { revision: 1, media_type: "application/json", content: { status: "missing_essentials" } } as appsApi.AppDocumentRecord,
+    });
+    const user = userEvent.setup();
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Resume Action Result" }));
+    const title = await screen.findByRole("heading", { name: "Resume Action Result" });
+    const header = title.closest("header")!;
+    expect(header).toHaveClass(...documentStyles.header.split(" "));
+    const back = within(header).getByRole("button", { name: "Back to chat" });
+    expect(back).toHaveClass(...documentStyles.secondary.split(" "));
+    expect(screen.queryByRole("button", { name: /edit/i })).not.toBeInTheDocument();
+    expect(await screen.findByText(/"missing_essentials"/)).toBeInTheDocument();
+    await user.click(back);
+    expect(await screen.findByText("Conversation transcript")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Resume Action Result" })).not.toBeInTheDocument();
+  });
+
   it("preserves Save's accessible name and disables native edit actions during a pending save", async () => {
     const current = withDirectResumeActions(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
