@@ -265,14 +265,14 @@ describe("SCAF-007 self-contained installed app proof", () => {
         { action_id: "resume.export.pdf.request", tool_name: null, model_exposure: "hidden", exposed: false },
       ]));
       expect(model.prompt_context).not.toMatch(/Bearer\s+[A-Za-z0-9._-]+|\/home\/|[A-Za-z]:\\/i);
+      // FR-HIDDEN-1: neither the prompt nor the model-callable tools carry interview topic state.
+      expect(model.prompt_context).not.toMatch(/completed_topics|current_topic|skipped_topics/);
+      expect(JSON.stringify(model.tools)).not.toMatch(/completed_topics|current_topic|skipped_topics/);
       const executor = new ToolExecutor(model.tools);
       const readOperationId = randomUUID();
       const profileOperationId = randomUUID();
       const profileActionInput = {
         profile_markdown: "# Maya Torres\n\nProduct operations leader with launch and process improvement experience.",
-        completed_topics: ["direction", "experience"],
-        skipped_topics: [],
-        current_topic: null,
       };
       const createOperationId = randomUUID();
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_read", {
@@ -346,7 +346,7 @@ describe("SCAF-007 self-contained installed app proof", () => {
             expected_revision: null,
             status: "review_needed",
             current_topic: null,
-            completed_topics: ["direction", "experience"],
+            completed_topics: [],
             skipped_topics: [],
             draft_state: "owner_reviewed",
             session_id: launch.session.session_id,

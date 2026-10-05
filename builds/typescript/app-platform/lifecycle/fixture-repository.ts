@@ -506,9 +506,6 @@ function profileUpdateInputSchema(): Record<string, unknown> {
     additionalProperties: false,
     properties: {
       profile_markdown: { type: "string", minLength: 1, maxLength: 131072 },
-      completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-      skipped_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-      current_topic: { type: ["string", "null"], maxLength: 64 },
     },
     required: ["profile_markdown"],
   };

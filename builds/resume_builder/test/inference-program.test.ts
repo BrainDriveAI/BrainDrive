@@ -250,8 +250,6 @@ describe("Resume Builder-owned General draft inference program", () => {
       action_id: "resume.profile.update",
       action_input: {
         profile_markdown: "# Maya Torres\n\nProduct operations leader.",
-        completed_topics: ["direction", "experience"],
-        current_topic: null,
       },
       owner_confirmed: false,
       operation_id: operationId,
@@ -275,6 +273,8 @@ describe("Resume Builder-owned General draft inference program", () => {
       ],
     });
     expect(JSON.stringify(plan)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
+    // FR-HIDDEN-1: no default or derived interview topic state is written from the chat path.
+    expect(plan.steps[0].input.progress).toMatchObject({ current_topic: null, completed_topics: [], skipped_topics: [] });
   });
 
   it("plans document reads and Career memory actions without host-specific action semantics", () => {

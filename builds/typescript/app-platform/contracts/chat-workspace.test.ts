@@ -234,10 +234,8 @@ function awaitedWorkspace(): unknown {
           additionalProperties: false,
           properties: {
             profile_markdown: { type: "string", minLength: 1, maxLength: 65536 },
-            completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-            current_topic: { type: ["string", "null"], maxLength: 64 },
           },
-          required: ["profile_markdown", "completed_topics", "current_topic"],
+          required: ["profile_markdown"],
         }),
         confirmation: "none",
         idempotency_policy: "required",
@@ -454,6 +452,11 @@ describe("chat workspace descriptor contracts", () => {
 
   it("accepts the positive descriptor fixture and rejects duplicate workspace document ids", async () => {
     expect(ChatWorkspaceDescriptorSchema.safeParse(await fixture("valid/chat-workspace-descriptor.json")).success).toBe(true);
+    // FR-HIDDEN-1: the model-callable Profile update schema carries no interview topic state.
+    const descriptor = ChatWorkspaceDescriptorSchema.parse(await fixture("valid/chat-workspace-descriptor.json"));
+    const profileUpdate = descriptor.actions.find((action) => action.action_id === "resume.profile.update")!;
+    expect(Object.keys(profileUpdate.input_schema.schema.properties as object)).toEqual(["profile_markdown"]);
+    expect(profileUpdate.input_schema.content_digest).toBe(canonicalInputDigest(profileUpdate.input_schema.schema));
     expect(ChatWorkspaceDescriptorSchema.safeParse(await fixture("invalid/chat-workspace-duplicate-document.json")).success).toBe(false);
   });
 

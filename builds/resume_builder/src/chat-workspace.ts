@@ -4,7 +4,7 @@ import { deflateSync } from "node:zlib";
 
 import { parseInlineMarkdown, sliceInlineMarkdown, splitInlineMarkdownPipes } from "./inline-markdown.js";
 
-import { INTERVIEW_TOPICS, type DurableWorkflowSnapshot, type InterviewTopic } from "./workflow.js";
+import type { DurableWorkflowSnapshot } from "./workflow.js";
 
 export const RESUME_CHAT_PRESENTATION_ID = "just.chat" as const;
 export const RESUME_STRUCTURED_PRESENTATION_ID = "structured.internal" as const;
@@ -169,9 +169,6 @@ export const RESUME_CHAT_ACTIONS = [
 
 export type ResumeChatProfileUpdateActionInput = {
   profile_markdown: string;
-  completed_topics?: readonly string[];
-  current_topic?: string | null;
-  skipped_topics?: readonly string[];
 };
 
 export type ResumeChatCreateSectionInput = {
@@ -278,9 +275,11 @@ export function buildResumeProfileUpdateCapabilityInput(
     progress: {
       expected_revision: null,
       status: "review_needed",
-      current_topic: input.current_topic ?? null,
-      completed_topics: [...(input.completed_topics ?? ["direction", "experience", "education", "credentials", "skills"])],
-      skipped_topics: [...(input.skipped_topics ?? [])],
+      // FR-HIDDEN-1: the app keeps no interview topic state. The record schema still
+      // requires these fields, so they are written empty and never derived or defaulted.
+      current_topic: null,
+      completed_topics: [],
+      skipped_topics: [],
       draft_state: "owner_reviewed",
       session_id: context.sessionId,
       audit_turn: {
@@ -444,18 +443,11 @@ export function planResumeAction(request: ResumeActionPlanRequest, options: Resu
   throw new Error("resume_action_unknown");
 }
 
-export type ResumeProfileTopicProjection = {
-  topic: InterviewTopic;
-  status: "current" | "completed" | "skipped" | "pending";
-};
-
 export type ResumeProfileProjection = {
   bindingId: typeof RESUME_PROFILE_BINDING_ID;
   source: "resume-domain";
   entryPoint: DurableWorkflowSnapshot["entry_point"] | null;
   confirmedFactCount: number;
-  topics: ResumeProfileTopicProjection[];
-  currentTopic: InterviewTopic | null;
   recoveryDraftPresent: boolean;
   jobCount: number;
   generalResumeCount: number;
@@ -472,19 +464,11 @@ export type ResumeDocumentProjection = {
 };
 
 export function projectResumeProfile(snapshot: DurableWorkflowSnapshot | null): ResumeProfileProjection {
-  const completed = new Set(snapshot?.interview?.completed_topics ?? []);
-  const skipped = new Set(snapshot?.interview?.skipped_topics ?? []);
-  const current = normalizeTopic(snapshot?.interview?.current_topic ?? null);
   return {
     bindingId: RESUME_PROFILE_BINDING_ID,
     source: "resume-domain",
     entryPoint: snapshot?.entry_point ?? null,
     confirmedFactCount: snapshot?.confirmed_fact_count ?? 0,
-    topics: INTERVIEW_TOPICS.map((topic) => ({
-      topic,
-      status: current === topic ? "current" : completed.has(topic) ? "completed" : skipped.has(topic) ? "skipped" : "pending",
-    })),
-    currentTopic: current,
     recoveryDraftPresent: Boolean(snapshot?.interview?.recovery_draft),
     jobCount: snapshot?.jobs.length ?? 0,
     generalResumeCount: snapshot?.general_definitions.length ?? 0,
@@ -625,10 +609,6 @@ function parseResumeChatContent(input: ResumeChatCreateActionInput, context?: Re
     statements,
     sectionOrder: sectionOrder.length > 0 ? sectionOrder : ["summary"],
   };
-}
-
-function normalizeTopic(value: string | null): InterviewTopic | null {
-  return INTERVIEW_TOPICS.find((topic) => topic === value) ?? null;
 }
 
 function selectCurrentGeneralDefinition(snapshot: DurableWorkflowSnapshot | null): DurableWorkflowSnapshot["general_definitions"][number] | null {
