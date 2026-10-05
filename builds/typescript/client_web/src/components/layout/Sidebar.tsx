@@ -177,6 +177,8 @@ export default function Sidebar({
   const isRootAgentSelected = !isAppsActive && isRootAgentProjectId(selectedProjectId);
   const isProjectView = !isAppsActive && selectedProject !== null && !isRootAgentSelected;
   const projectModel = selectedProject ? buildProjectSidebarModel(selectedProject.id, projectFiles) : null;
+  // An unseeded owner overlay is not listed itself, so its managed base row stands in as the open file.
+  const activeFileListed = activeFilePath != null && projectFiles.some((file) => file.path === activeFilePath);
   const selectedProjectLabel = selectedProject
     ? projectDisplayLabel(selectedProject.id, selectedProject.name)
     : "";
@@ -245,6 +247,7 @@ export default function Sidebar({
                         label="Plan"
                         items={[projectModel.goals, projectModel.plan, projectModel.journal].filter(Boolean) as SidebarFileItem[]}
                         activeFilePath={activeFilePath}
+                        activeFileListed={activeFileListed}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
@@ -252,6 +255,7 @@ export default function Sidebar({
                         label="Your Files"
                         items={projectModel.files}
                         activeFilePath={activeFilePath}
+                        activeFileListed={activeFileListed}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
@@ -265,6 +269,7 @@ export default function Sidebar({
                           label="Advanced"
                           items={projectModel.advanced}
                           activeFilePath={activeFilePath}
+                          activeFileListed={activeFileListed}
                           onFileClick={onFileClick}
                           onClose={onClose}
                         />
@@ -511,12 +516,14 @@ function SidebarFileSection({
   label,
   items,
   activeFilePath,
+  activeFileListed = true,
   onFileClick,
   onClose,
 }: {
   label: string;
   items: SidebarFileItem[];
   activeFilePath?: string | null;
+  activeFileListed?: boolean;
   onFileClick: (file: ProjectFile) => void;
   onClose?: () => void;
 }) {
@@ -534,7 +541,10 @@ function SidebarFileSection({
           <SidebarFileButton
             key={item.file.path}
             item={item}
-            isActive={activeFilePath != null && item.file.path === activeFilePath}
+            isActive={
+              activeFilePath != null &&
+              (item.file.path === activeFilePath || (!activeFileListed && item.overlayPath === activeFilePath))
+            }
             onFileClick={onFileClick}
             onClose={onClose}
           />

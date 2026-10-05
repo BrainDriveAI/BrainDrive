@@ -282,6 +282,25 @@ describe("Sidebar", () => {
     expect(current[0]).toHaveAttribute("title", expect.stringContaining("compare-user"));
   });
 
+  it("marks the managed row current when its unseeded overlay is open", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="home"
+        selectedProject={{ id: "home", name: "Home", icon: "home", conversationId: null }}
+        projectFiles={[{ name: "garden/compare.md", path: "documents/home/garden/compare.md" }]}
+        activeFilePath="documents/home/garden/compare-user.md"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    const current = document.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("title", expect.stringContaining("compare"));
+    expect(current[0]).not.toHaveAttribute("title", expect.stringContaining("compare-user"));
+  });
+
   it("gives the open file item the active row treatment and no other file", () => {
     render(
       <Sidebar
