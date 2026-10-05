@@ -574,7 +574,7 @@ export default function AppChatWorkspace({
           : "border-bd-border bg-bd-bg-secondary text-bd-text-primary",
       )}
     >
-      {exportNotice.tone === "error" ? <AlertCircle size={15} className="mt-0.5 shrink-0" /> : <ShieldCheck size={15} className="mt-0.5 shrink-0 text-bd-amber" />}
+      {exportNotice.tone === "error" ? <AlertCircle size={16} className="mt-0.5 shrink-0" /> : <ShieldCheck size={16} className="mt-0.5 shrink-0 text-bd-amber" />}
       <span>{exportNotice.message}</span>
     </div>
   ) : null;
@@ -1024,6 +1024,10 @@ export function WorkspaceDetail({
   const bindingId = item.kind === "document" ? item.document.data_binding_id : null;
   const presentation = item.kind === "document" ? item.document.presentation ?? null : null;
   const isDocumentChrome = presentation?.chrome === "document";
+  const headerActions: AppWorkspaceDocumentHeaderAction[] = presentation?.header_actions
+    ?? (item.kind === "document" && item.document.role === "action_result_document"
+      ? [{ type: "back_to_chat", label: "Back to chat" }]
+      : []);
   const exposedActions = actions.filter((action) => action.model_exposure === "available");
   const [documentResult, setDocumentResult] = useState<AppDocumentReadResult | null>(null);
   const [resourceResult, setResourceResult] = useState<AppResourceReadResult | null>(null);
@@ -1426,7 +1430,7 @@ export function WorkspaceDetail({
             </h1>
           </div>
           <div className={documentStyles.headerActions}>
-            {presentation?.header_actions.filter((action) => action.type !== "app_action" && !(shouldShowEditor && action.type === "edit_document")).map((action) => (
+            {headerActions.filter((action) => action.type !== "app_action" && !(shouldShowEditor && action.type === "edit_document")).map((action) => (
               <DocumentButton
                 key={`${action.type}:${action.type === "app_action" ? action.action_id : action.label}`}
                 type="button"
