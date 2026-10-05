@@ -1223,11 +1223,43 @@ export function WorkspaceDetail({
       setCurrentRevisionHint(null);
       setDocumentRetryable(false);
     try {
-      const result = await withSessionRecovery((activeSessionId) => writeAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id, {
-        expectedRevision: documentRecord?.revision ?? null,
-        content,
-        mediaType,
-      }));
+      const expectedRevision = documentRecord?.revision ?? null;
+      let result: AppDocumentReadResult;
+      try {
+        result = await withSessionRecovery((activeSessionId) => writeAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id, {
+          expectedRevision,
+          content,
+          mediaType,
+        }));
+      } catch (error) {
+        // The first read and the package's initial seed can race. If the UI read
+        // saw no record, recover only when the winning revision is still exactly
+        // the verified package default. A real concurrent owner edit remains a
+        // normal CAS conflict and is never overwritten.
+        const canRecoverInitialSeedRace = error instanceof AppDocumentError
+          && error.code === "conflict"
+          && expectedRevision === null
+          && error.currentRevision === 1
+          && boundDocument.role === "advanced_resource"
+          && Boolean(boundDocument.resource_id);
+        if (!canRecoverInitialSeedRace) throw error;
+
+        result = await withSessionRecovery(async (activeSessionId) => {
+          const [current, packageDefault] = await Promise.all([
+            readAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id),
+            readAppChatWorkspaceResource(appKey, activeSessionId, boundDocument.resource_id!),
+          ]);
+          const verifiedDefault = contentFromDraft(packageDefault.content, packageDefault.media_type);
+          if (!current.record || current.record.revision !== 1 || current.record.content !== verifiedDefault) {
+            throw error;
+          }
+          return writeAppChatWorkspaceDocument(appKey, activeSessionId, boundDocument.document_id, {
+            expectedRevision: current.record.revision,
+            content,
+            mediaType,
+          });
+        });
+      }
       applyDocumentResult(result, true);
       setDocumentStatus("ready");
       setDocumentNotice(`Saved ${title}.`);

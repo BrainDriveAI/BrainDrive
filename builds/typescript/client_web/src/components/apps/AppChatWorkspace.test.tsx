@@ -2165,6 +2165,94 @@ describe("AppChatWorkspace", () => {
     expect(screen.queryByRole("textbox", { name: "Agent Instructions content" })).not.toBeInTheDocument();
   });
 
+  it("recovers the first Advanced-document save when package seeding wins the initial race", async () => {
+    const current = withEditableAdvancedResource(launch());
+    const packageDefault = "# Agent Instructions\nUse the package default.";
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
+    vi.mocked(appsApi.readAppChatWorkspaceDocument)
+      .mockResolvedValueOnce({
+        result_version: 1,
+        state: "missing",
+        document_id: "instructions",
+        document_binding_id: "instructions.owner",
+        record: null,
+      })
+      .mockResolvedValueOnce({
+        result_version: 1,
+        state: "current",
+        document_id: "instructions",
+        document_binding_id: "instructions.owner",
+        record: {
+          revision: 1,
+          media_type: "text/markdown",
+          content: packageDefault,
+        } as appsApi.AppDocumentRecord,
+      });
+    vi.mocked(appsApi.readAppChatWorkspaceResource).mockResolvedValueOnce({
+      result_version: 1,
+      resource_id: "instructions",
+      title: "Agent Instructions",
+      description: "Read-only app package resource.",
+      role: "agent_instructions",
+      media_type: "text/markdown",
+      content_digest: `sha256:${"c".repeat(64)}`,
+      owner_editable: true,
+      prompt_inclusion: "workspace_start",
+      content: packageDefault,
+    });
+    vi.mocked(appsApi.writeAppChatWorkspaceDocument)
+      .mockRejectedValueOnce(new appsApi.AppDocumentError(
+        "The saved version changed. Refresh and review before saving again.",
+        409,
+        "conflict",
+        {
+          state_version: 1,
+          state: "conflict",
+          safe_message: "The saved version changed. Refresh and review before saving again.",
+          retryable: false,
+          refresh_required: true,
+          current_revision: 1,
+        },
+      ))
+      .mockResolvedValueOnce({
+        result_version: 1,
+        state: "current",
+        document_id: "instructions",
+        document_binding_id: "instructions.owner",
+        record: {
+          revision: 2,
+          media_type: "text/markdown",
+          content: "# Agent Instructions\nUse owner edits.",
+        } as appsApi.AppDocumentRecord,
+      });
+    const user = userEvent.setup();
+
+    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+
+    await screen.findByText("Conversation transcript");
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Agent Instructions content" });
+    await user.clear(editor);
+    await user.type(editor, "# Agent Instructions\nUse owner edits.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenCalledTimes(2));
+    expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenNthCalledWith(1, "test-builder", current.session.session_id, "instructions", {
+      expectedRevision: null,
+      content: "# Agent Instructions\nUse owner edits.",
+      mediaType: "text/markdown",
+    });
+    expect(appsApi.writeAppChatWorkspaceDocument).toHaveBeenNthCalledWith(2, "test-builder", current.session.session_id, "instructions", {
+      expectedRevision: 1,
+      content: "# Agent Instructions\nUse owner edits.",
+      mediaType: "text/markdown",
+    });
+    expect(await screen.findByText("Saved Agent Instructions.")).toBeInTheDocument();
+    expect(screen.queryByText("The saved version changed. Refresh and review before saving again.")).not.toBeInTheDocument();
+  });
+
   it("resets owner-edited agent instructions to the verified package default", async () => {
     const current = withEditableAdvancedResource(launch());
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
