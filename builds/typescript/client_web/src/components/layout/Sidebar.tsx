@@ -534,7 +534,7 @@ function SidebarFileSection({
           <SidebarFileButton
             key={item.file.path}
             item={item}
-            isActive={activeFilePath != null && (item.file.path === activeFilePath || item.overlayPath === activeFilePath)}
+            isActive={activeFilePath != null && item.file.path === activeFilePath}
             onFileClick={onFileClick}
             onClose={onClose}
           />

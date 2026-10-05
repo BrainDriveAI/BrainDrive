@@ -261,6 +261,27 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("marks exactly one row current when a managed file's overlay is open", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="home"
+        selectedProject={{ id: "home", name: "Home", icon: "home", conversationId: null }}
+        projectFiles={[
+          { name: "garden/compare.md", path: "documents/home/garden/compare.md" },
+          { name: "garden/compare-user.md", path: "documents/home/garden/compare-user.md" }
+        ]}
+        activeFilePath="documents/home/garden/compare-user.md"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    const current = document.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("title", expect.stringContaining("compare-user"));
+  });
+
   it("gives the open file item the active row treatment and no other file", () => {
     render(
       <Sidebar
