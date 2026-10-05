@@ -63,6 +63,8 @@ export default function AppsPage({
   onWorkspaceActiveChange,
   onLogout,
   tier = "local",
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }: {
   entryPoint?: "direct" | "career";
   onOpenSettings?: () => void;
@@ -71,6 +73,8 @@ export default function AppsPage({
   onWorkspaceActiveChange?: (active: boolean) => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }) {
   const [apps, setApps] = useState<AppStatus[] | null>(null);
   const [packages, setPackages] = useState<InstalledPackageStatus[] | null>(null);
@@ -244,7 +248,7 @@ export default function AppsPage({
   };
 
   if (selected) return isChatWorkspaceLaunch(selected.launch)
-    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onGoHome={onGoHome} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
+    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onGoHome={onGoHome} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={onToggleSidebar} />
     : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from "react";
-import { AlertCircle, ChevronLeft, Download, FileText, LoaderCircle, Pencil, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, AppWindow, Download, FileText, LoaderCircle, PencilLine, RefreshCw, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { getSession } from "@/api/auth-adapter";
 import { deleteConversation, listConversations } from "@/api/gateway-adapter";
@@ -26,8 +26,13 @@ import { isTauriRuntime } from "@/api/runtime-api-base";
 import type { ChatEvent } from "@/api/types";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { MobileSidebarDrawer, MobileSidebarHeader } from "@/components/layout/MobileSidebarShell";
+import SidebarChrome from "@/components/layout/SidebarChrome";
+import SidebarCollapsed from "@/components/layout/SidebarCollapsed";
+import { sidebarStyles } from "@/components/layout/sidebar-styles";
 import ProfileMenu from "@/components/layout/ProfileMenu";
-import MarkdownContent from "@/components/markdown/MarkdownContent";
+import DocumentEditActions from "@/components/document/DocumentEditActions";
+import { DocumentActionButton as DocumentButton, DocumentHeader, documentStyles } from "@/components/document/DocumentSurface";
+import MarkdownContent, { markdownStyles } from "@/components/markdown/MarkdownContent";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { parsePaperInlineMarkdown } from "@/lib/paper-inline-markdown";
@@ -60,6 +65,8 @@ type AppChatWorkspaceProps = {
   onOpenSettings?: () => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 };
 
 const APP_CHAT_SESSION_HEARTBEAT_MS = 2 * 60_000;
@@ -219,6 +226,8 @@ export default function AppChatWorkspace({
   onOpenSettings,
   onLogout,
   tier = "local",
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }: AppChatWorkspaceProps) {
   const items = useMemo(() => buildItems(launch), [launch]);
   const itemKeysSignature = useMemo(() => items.map(itemKey).join("|"), [items]);
@@ -272,7 +281,6 @@ export default function AppChatWorkspace({
       ? launch.workspace.resources.find((resource) => resource.resource_id === activeDocument.resource_id) ?? null
       : null;
   const isConversation = activeDocument?.role === "conversation";
-  const activeItemTitle = activeItem.kind === "document" ? activeItem.document.title : activeItem.resource.title;
   const messageMetadata = useMemo(() => buildAppChatMessageMetadata(launch), [launch]);
   const emptyStateIntro = useMemo(() => workspaceEmptyStateIntro(launch), [launch]);
 
@@ -556,6 +564,20 @@ export default function AppChatWorkspace({
 
   const primaryItems = items.filter((item) => item.kind === "document" && item.document.default_visibility !== "advanced");
   const advancedItems = items.filter((item) => item.kind === "resource" || (item.kind === "document" && item.document.default_visibility === "advanced"));
+  const documentExportNotice = exportNotice ? (
+    <div
+      role={exportNotice.tone === "error" ? "alert" : "status"}
+      className={cn(
+        "mb-4 flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
+        exportNotice.tone === "error"
+          ? "border-bd-danger-border bg-bd-danger-bg text-bd-danger"
+          : "border-bd-border bg-bd-bg-secondary text-bd-text-primary",
+      )}
+    >
+      {exportNotice.tone === "error" ? <AlertCircle size={15} className="mt-0.5 shrink-0" /> : <ShieldCheck size={15} className="mt-0.5 shrink-0 text-bd-amber" />}
+      <span>{exportNotice.message}</span>
+    </div>
+  ) : null;
   const chatPanel = (
     <ChatPanel
       activeConversationId={activeConversationId}
@@ -575,6 +597,7 @@ export default function AppChatWorkspace({
           documents={launch.workspace.documents}
           actions={launch.workspace.actions}
           headingRef={activeHeadingRef}
+          noticeSlot={documentExportNotice}
           onRecoverSession={recoverSession}
           onBackToChat={() => setActiveItemKey(itemKey(items.find((candidate) => candidate.kind === "document" && candidate.document.role === "conversation") ?? items[0] ?? { key: "document:conversation", kind: "document", document: FALLBACK_CONVERSATION }))}
           onOpenWorkspaceItem={(documentId) => {
@@ -600,12 +623,15 @@ export default function AppChatWorkspace({
         <MobileSidebarHeader
           openLabel="Open workspace navigation menu"
           onOpen={() => setIsMobileNavOpen(true)}
-          eyebrow={appName}
-          title={activeItemTitle}
+          leading={(
+            <button type="button" aria-label="Go to BrainDrive home" onClick={() => closeWorkspace(onGoHome)} className="cursor-pointer bg-transparent p-0">
+              <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
+            </button>
+          )}
         />
       </div>
 
-      <div className="hidden md:flex md:shrink-0">
+      <div className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:shrink-0">
         <WorkspaceNavigation
           appName={appName}
           sessionError={sessionError}
@@ -625,6 +651,8 @@ export default function AppChatWorkspace({
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           tier={tier}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={onToggleSidebar}
         />
       </div>
 
@@ -654,24 +682,13 @@ export default function AppChatWorkspace({
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           tier={tier}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={onToggleSidebar}
         />
       </MobileSidebarDrawer>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
-        {!isConversation && exportNotice ? (
-          <div
-            role={exportNotice.tone === "error" ? "alert" : "status"}
-            className={cn(
-              "mx-4 mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-sm md:mx-6",
-              exportNotice.tone === "error"
-                ? "border-bd-danger-border bg-bd-danger-bg text-bd-danger"
-                : "border-bd-border bg-bd-bg-secondary text-bd-text-primary",
-            )}
-          >
-            {exportNotice.tone === "error" ? <AlertCircle size={15} className="mt-0.5 shrink-0" /> : <ShieldCheck size={15} className="mt-0.5 shrink-0 text-bd-amber" />}
-            <span>{exportNotice.message}</span>
-          </div>
-        ) : null}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="app-chat-workspace-pane">
+
         {sessionState === "loading" ? (
           <div className="flex h-full min-h-[320px] items-center justify-center gap-3 text-bd-text-secondary" role="status" aria-live="polite">
             <LoaderCircle size={18} className="animate-spin" />
@@ -709,6 +726,8 @@ function WorkspaceNavigation({
   onOpenSettings,
   onLogout,
   tier,
+  isCollapsed,
+  onToggle,
 }: {
   appName: string;
   sessionError: string | null;
@@ -729,36 +748,35 @@ function WorkspaceNavigation({
   onOpenSettings?: () => void;
   onLogout?: () => void;
   tier: "local" | "concierge";
+  isCollapsed: boolean;
+  onToggle?: () => void;
 }) {
-  return (
-    <nav className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary md:h-full md:w-sidebar" aria-label={`${appName} workspace navigation`}>
-      <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <button
-          type="button"
-          aria-label="Go to BrainDrive home"
-          onClick={onGoHome}
-          className="cursor-pointer bg-transparent p-0 hover:opacity-80"
-        >
-          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
-        </button>
-        {onCloseNavigation ? (
-          <button
-            type="button"
-            aria-label="Close workspace navigation"
-            onClick={onCloseNavigation}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover md:hidden"
-          >
-            <X size={18} strokeWidth={1.5} />
-          </button>
-        ) : null}
+  if (isCollapsed && !onCloseNavigation) {
+    return (
+      <div data-app-sidebar-collapsed>
+        <SidebarCollapsed
+          onToggle={onToggle ?? (() => undefined)}
+          projects={[]}
+          selectedProjectId={null}
+          onSelectProject={onGoHome}
+          onOpenSettings={onOpenSettings ?? (() => undefined)}
+          onOpenApps={onCloseWorkspace}
+          isAppsActive={false}
+          workspaceExitLabel="Back to Apps"
+        />
       </div>
-
-      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <Button type="button" variant="ghost" size="sm" onClick={onCloseWorkspace} className="mb-7 w-fit gap-2 px-1 text-bd-text-secondary hover:bg-transparent hover:text-bd-text-heading">
-          <ChevronLeft size={16} />
-          Back to Apps
-        </Button>
-
+    );
+  }
+  return (
+    <SidebarChrome onGoHome={onGoHome} onToggle={onToggle ?? (() => undefined)} onClose={onCloseNavigation} closeLabel="Close workspace navigation">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pb-2 pt-1">
+          <button type="button" onClick={onCloseWorkspace} className={cn(sidebarStyles.nav, "text-bd-text-secondary")}>
+            <AppWindow size={17} strokeWidth={1.5} aria-hidden="true" />
+            <span>Back to Apps</span>
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         <p className="px-1 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">{appName}</p>
         {sessionError ? (
           <div role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
@@ -814,15 +832,14 @@ function WorkspaceNavigation({
           ) : null}
         </div>
 
-        <div className="mt-auto space-y-2 pt-4">
+        </div>
           <AppWorkspaceProfileControl
             onOpenSettings={onOpenSettings}
             onLogout={onLogout}
             tier={tier}
           />
-        </div>
       </div>
-    </nav>
+    </SidebarChrome>
   );
 }
 
@@ -861,11 +878,12 @@ function WorkspaceNavGroup({
             onClick={() => onSelect(item.key)}
             onKeyDown={(event) => onMoveFocus(event, item.key)}
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber",
-              activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
+              item.kind === "document" && item.document.role === "conversation" ? sidebarStyles.conversation : sidebarStyles.file,
+              "w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber",
+              activeKey === item.key ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : item.kind === "document" && item.document.role === "conversation" ? "text-bd-text-secondary" : "text-bd-text-primary",
             )}
           >
-            <Icon size={17} strokeWidth={1.7} aria-hidden="true" className="shrink-0 text-bd-text-secondary" />
+            <Icon size={item.kind === "document" && item.document.role === "conversation" ? 17 : 16} strokeWidth={1.5} aria-hidden="true" className={item.kind === "document" && item.document.role === "conversation" ? "shrink-0 text-bd-text-secondary" : "shrink-0 text-bd-text-muted"} />
             <span className="truncate">{title}</span>
           </button>
         );
@@ -927,7 +945,7 @@ function AppWorkspaceProfileControl({
   }, [isProfileMenuOpen]);
 
   return (
-    <div ref={profileMenuRef} className="relative">
+    <div ref={profileMenuRef} className="relative px-2 pb-2 pt-2">
       {isProfileMenuOpen ? (
         <ProfileMenu
           onClose={() => setIsProfileMenuOpen(false)}
@@ -980,6 +998,7 @@ export function WorkspaceDetail({
   onClearExportNotice,
   onDirectActionResult,
   onDirectActionComplete,
+  noticeSlot,
 }: {
   appKey: string;
   appName: string;
@@ -997,6 +1016,7 @@ export function WorkspaceDetail({
   onClearExportNotice: () => void;
   onDirectActionResult: (result: unknown) => Promise<AppChatExportHandlingResult>;
   onDirectActionComplete: (message: string) => void;
+  noticeSlot?: ReactNode;
 }) {
   const title = item.kind === "document" ? item.document.title : item.resource.title;
   const description = item.kind === "document" ? item.document.description : item.resource.description;
@@ -1365,70 +1385,82 @@ export function WorkspaceDetail({
   const readOnlyExplanation = !editable ? presentation?.read_only_explanation ?? null : null;
 
   return (
-    <section
-      className={cn(
-        "h-full overflow-y-auto pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] md:pb-6",
-        isDocumentChrome ? "px-4 pt-4 sm:px-6 md:px-10" : "px-4 pt-6 sm:px-6",
-      )}
-      aria-labelledby="app-workspace-document-title"
-    >
-      <div className={cn("mx-auto w-full", isDocumentChrome ? "max-w-[1120px]" : "max-w-[780px]")}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary" aria-labelledby="app-workspace-document-title">
+        <DocumentHeader>
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">{presentationSubtitle}</p>
-            <h2 id="app-workspace-document-title" ref={headingRef} tabIndex={-1} className="mt-1 font-heading text-2xl text-bd-text-heading outline-none focus-visible:ring-2 focus-visible:ring-bd-amber">
+            <p className={cn(documentStyles.eyebrow, "truncate")}>{presentationSubtitle}</p>
+            <h1 id="app-workspace-document-title" ref={headingRef} tabIndex={-1} className={cn(documentStyles.title, "outline-none focus-visible:ring-2 focus-visible:ring-bd-amber")}>
               {presentationTitle}
-            </h2>
-            {!isDocumentChrome ? <p className="mt-2 text-sm leading-6 text-bd-text-secondary">{description}</p> : null}
+            </h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {presentation?.header_actions.map((action) => (
-              <Button
+          <div className={documentStyles.headerActions}>
+            {presentation?.header_actions.filter((action) => action.type !== "app_action" && !(shouldShowEditor && action.type === "edit_document")).map((action) => (
+              <DocumentButton
                 key={`${action.type}:${action.type === "app_action" ? action.action_id : action.label}`}
                 type="button"
-                variant={action.type === "app_action" ? "default" : "ghost"}
+                variant="ghost"
                 size="sm"
+                aria-label={action.label}
                 onClick={() => handleHeaderAction(action)}
                 disabled={
-                  runningActionId !== null ||
+                  runningActionId !== null || documentStatus === "saving" ||
                   (action.type === "edit_document" && (!editable || isEditing))
                 }
-                className="gap-2"
+                className={documentStyles.secondary}
               >
-                {action.type === "app_action" && runningActionId === action.action_id
-                  ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                  : <HeaderActionIcon action={action} />}
-                {action.label}
-              </Button>
+                <HeaderActionIcon action={action} />
+                {action.type === "edit_document" ? "Edit" : action.label}
+              </DocumentButton>
             ))}
+            {shouldShowEditor ? (
+              <DocumentEditActions
+                onCancel={() => {
+                  draftStateRef.current.content = draftFromRecord(documentRecord);
+                  setDraftContent(draftStateRef.current.content);
+                  setDocumentError(null);
+                  setDocumentNotice(null);
+                  setIsEditing(false);
+                }}
+                onSave={() => void saveDocument()}
+                isSaving={documentStatus === "saving"}
+                saveDisabled={!isDirty}
+                saveAriaLabel="Save"
+              />
+            ) : null}
+          </div>
+        </DocumentHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6">
+          <div className="mx-auto w-full max-w-[780px]">
+            {noticeSlot}
+            {!isDocumentChrome ? <p className="mb-4 text-sm leading-6 text-bd-text-secondary">{description}</p> : null}
+            <div className="flex flex-wrap items-center gap-2" aria-label="Document app actions">
+              {presentation?.header_actions.filter((action) => action.type === "app_action").map((action) => (
+                <DocumentButton key={action.action_id} type="button" onClick={() => handleHeaderAction(action)} disabled={runningActionId !== null}>
+                  {runningActionId === action.action_id ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <HeaderActionIcon action={action} />}
+                  {action.label}
+                </DocumentButton>
+              ))}
             {canResetToPackageDefault ? (
-              <Button
+              <DocumentButton
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => void resetDocumentToPackageDefault()}
                 disabled={documentStatus === "loading" || documentStatus === "saving" || documentRecord === null || runningActionId !== null}
-                className="gap-2"
+                className={documentStyles.secondary}
               >
                 {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                 Reset to package default
-              </Button>
+              </DocumentButton>
             ) : null}
-            {shouldShowEditor ? (
-              <Button type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className="gap-2">
-                {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <FileText size={15} />}
-                Save
-              </Button>
-            ) : null}
-          </div>
-        </div>
+            </div>
 
         {sourceIsStale && sourceDocument ? (
           <aside role="status" aria-label="Source document changed" className="mt-4 rounded-md border border-bd-amber bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary">
             <p>{sourceDocument.title.trim() || "The source document"} changed since this document was created.{sourceRenderAction ? ` Choose ${sourceRenderAction.label} again to update it.` : " Open the source document to update it."}</p>
-            <Button type="button" size="sm" className="mt-2" disabled={runningActionId !== null} onClick={() => sourceRenderAction ? void executeDirectHeaderAction(sourceRenderAction) : onOpenWorkspaceItem(sourceDocument.document_id)}>
+            <DocumentButton type="button" size="sm" className="mt-2" disabled={runningActionId !== null} onClick={() => sourceRenderAction ? void executeDirectHeaderAction(sourceRenderAction) : onOpenWorkspaceItem(sourceDocument.document_id)}>
               {sourceRenderAction?.label ?? "Open source document"}
-            </Button>
+            </DocumentButton>
           </aside>
         ) : null}
 
@@ -1436,7 +1468,7 @@ export function WorkspaceDetail({
           <aside className="mt-4 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-3 text-sm text-bd-text-primary" aria-label="Read-only explanation">
             <p>{readOnlyExplanation.text}</p>
             {readOnlyExplanation.source_document_id && readOnlyExplanation.source_action_label ? (
-              <Button
+              <DocumentButton
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -1444,7 +1476,7 @@ export function WorkspaceDetail({
                 onClick={() => onOpenWorkspaceItem(readOnlyExplanation.source_document_id!)}
               >
                 {readOnlyExplanation.source_action_label}
-              </Button>
+              </DocumentButton>
             ) : null}
           </aside>
         ) : null}
@@ -1467,15 +1499,15 @@ export function WorkspaceDetail({
                   <p className="mt-1 text-sm text-bd-text-secondary">{documentStatusLabel}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void loadDocument("owner_reload")} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
+                  <DocumentButton type="button" variant="ghost" size="sm" onClick={() => void loadDocument("owner_reload")} disabled={documentStatus === "loading" || documentStatus === "saving"} className="gap-2">
                     <RefreshCw size={15} />
                     Refresh
-                  </Button>
+                  </DocumentButton>
                   {editable ? (
-                    <Button type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className="gap-2">
+                    <DocumentButton type="button" size="sm" onClick={() => void saveDocument()} disabled={!isDirty || documentStatus === "saving"} className="gap-2">
                       {documentStatus === "saving" ? <LoaderCircle size={15} className="animate-spin" /> : <FileText size={15} />}
                       Save {title}
-                    </Button>
+                    </DocumentButton>
                   ) : null}
                 </div>
               </div>
@@ -1488,7 +1520,7 @@ export function WorkspaceDetail({
               <p>{documentError}</p>
               {currentRevisionHint !== null ? <p className="mt-1">The current revision is {currentRevisionHint}.</p> : null}
               {documentRetryable ? (
-                <Button
+                <DocumentButton
                   type="button"
                   variant="ghost"
                   size="sm"
@@ -1504,7 +1536,7 @@ export function WorkspaceDetail({
                   disabled={documentStatus === "loading" || documentStatus === "saving"}
                 >
                   Retry
-                </Button>
+                </DocumentButton>
               ) : null}
             </div>
             ) : null}
@@ -1522,7 +1554,7 @@ export function WorkspaceDetail({
                   {missingResumeEssentials.missing_essentials.map((item, index) => <li key={index}>{item.label}</li>)}
                 </ul>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
+                  <DocumentButton
                     type="button"
                     variant="ghost"
                     size="sm"
@@ -1535,8 +1567,8 @@ export function WorkspaceDetail({
                     }}
                   >
                     Edit the Profile
-                  </Button>
-                  <Button
+                  </DocumentButton>
+                  <DocumentButton
                     type="button"
                     variant="ghost"
                     size="sm"
@@ -1544,8 +1576,8 @@ export function WorkspaceDetail({
                     onClick={onBackToChat}
                   >
                     Return to chat
-                  </Button>
-                  <Button
+                  </DocumentButton>
+                  <DocumentButton
                     type="button"
                     variant="ghost"
                     size="sm"
@@ -1556,8 +1588,8 @@ export function WorkspaceDetail({
                     }}
                   >
                     Return later
-                  </Button>
-                  <Button
+                  </DocumentButton>
+                  <DocumentButton
                     type="button"
                     size="sm"
                     className="gap-2"
@@ -1568,7 +1600,7 @@ export function WorkspaceDetail({
                     }}
                   >
                     Proceed with limitations
-                  </Button>
+                  </DocumentButton>
                 </div>
               </div>
             ) : null}
@@ -1587,7 +1619,7 @@ export function WorkspaceDetail({
                   setDraftContent(event.target.value);
                   setDocumentNotice(null);
                 }}
-                className="mt-4 min-h-72 w-full resize-y rounded-md border border-bd-border bg-bd-bg-primary px-3 py-3 font-mono text-sm leading-6 text-bd-text-primary outline-none focus-visible:ring-2 focus-visible:ring-bd-amber"
+                className={cn(documentStyles.editor, "mt-4 w-full")}
                 spellCheck={false}
               />
             ) : renderer === "paper_document" ? (
@@ -1611,10 +1643,10 @@ export function WorkspaceDetail({
                   {packageResource.owner_editable ? "Editable package resource declaration" : "Read-only package resource"} · {packageResource.media_type} · digest {descriptorDigestLabel(packageResource.content_digest)}
                 </p>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => void loadResource()} disabled={resourceStatus === "loading"} className="gap-2">
+              <DocumentButton type="button" variant="ghost" size="sm" onClick={() => void loadResource()} disabled={resourceStatus === "loading"} className="gap-2">
                 {resourceStatus === "loading" ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                 Refresh
-              </Button>
+              </DocumentButton>
             </div>
 
             {resourceError ? (
@@ -1656,6 +1688,7 @@ export function WorkspaceDetail({
             This workspace document is declared. App-owned content will appear when a later document binding supplies it.
           </div>
         ) : null}
+          </div>
       </div>
     </section>
   );
@@ -1691,23 +1724,25 @@ function formatJsonResource(content: string): string {
 }
 
 function HeaderActionIcon({ action }: { action: AppWorkspaceDocumentHeaderAction }) {
-  if (action.type === "back_to_chat") return <ChevronLeft size={15} aria-hidden="true" />;
-  if (action.type === "edit_document") return <Pencil size={15} aria-hidden="true" />;
+  if (action.type === "back_to_chat") return <ArrowLeft size={16} aria-hidden="true" />;
+  if (action.type === "edit_document") return <PencilLine size={16} aria-hidden="true" />;
   if (action.action_id.toLowerCase().includes("export")) return <Download size={15} aria-hidden="true" />;
   return <Send size={15} aria-hidden="true" />;
 }
 
 function MarkdownDocumentView({ markdown }: { markdown: string }) {
   return (
-    <article className="mt-6 max-w-[820px] text-bd-text-primary">
-      <MarkdownContent content={markdown || "No saved content yet"} />
+    <article className="py-2">
+      <div className={documentStyles.body}>
+        <MarkdownContent content={markdown || "No saved content yet"} />
+      </div>
     </article>
   );
 }
 
 function PaperDocumentPreview({ markdown }: { markdown: string }) {
   return (
-    <article className="mx-auto mt-6 min-h-[900px] w-full max-w-[820px] bg-white px-10 py-12 text-[#17202a] shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:px-14 md:px-16">
+    <article className={cn(documentStyles.body, "py-2")}>
       {renderMarkdownLines(markdown || "No saved content yet", "paper")}
     </article>
   );
@@ -1725,9 +1760,9 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
       const depth = heading[1].length;
       const text = heading[2];
       if (variant === "paper") {
-        if (depth === 1) return <h1 key={key} className="mb-2 text-center font-heading text-3xl font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h1>;
-        if (depth > 2) return <h3 key={key} className="mb-2 mt-3 whitespace-pre-wrap font-heading text-sm font-bold tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h3>;
-        return <h2 key={key} className="mb-2 mt-6 font-heading text-sm font-bold uppercase tracking-normal text-[#101820]">{renderInlineMarkdownText(text)}</h2>;
+        if (depth === 1) return <h1 key={key} className={markdownStyles.h1}>{renderInlineMarkdownText(text)}</h1>;
+        if (depth > 2) return <h3 key={key} className={markdownStyles.h3}>{renderInlineMarkdownText(text)}</h3>;
+        return <h2 key={key} className={markdownStyles.h2}>{renderInlineMarkdownText(text)}</h2>;
       }
       if (depth === 1) return <h1 key={key} className="mb-4 font-heading text-3xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h1>;
       return <h2 key={key} className="mb-3 mt-7 font-heading text-xl text-bd-text-heading">{renderInlineMarkdownText(text)}</h2>;
@@ -1737,14 +1772,14 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
     if (bullet) {
       if (!parsePaperInlineMarkdown(bullet[1]).some((run) => run.text.trim())) return null;
       return (
-        <div key={key} className={cn("flex gap-3", variant === "paper" ? "mb-1.5 text-[13px] leading-6 text-[#17202a]" : "mb-2 text-base leading-7 text-bd-text-primary")}>
-          <span aria-hidden="true" className={variant === "paper" ? "mt-0.5 text-[#596273]" : "text-bd-text-muted"}>•</span>
+        <div key={key} className={cn("flex gap-3", variant === "paper" ? cn("mb-1", documentStyles.body) : "mb-2 text-base leading-7 text-bd-text-primary")}>
+          <span aria-hidden="true" className={variant === "paper" ? "text-bd-text-muted" : "text-bd-text-muted"}>•</span>
           <p className="min-w-0 flex-1 whitespace-pre-wrap">{renderInlineMarkdownText(bullet[1])}</p>
         </div>
       );
     }
     return (
-      <p key={key} className={variant === "paper" ? "mb-2 whitespace-pre-wrap text-[13px] leading-6 text-[#17202a]" : "mb-4 text-base leading-7 text-bd-text-primary"}>
+      <p key={key} className={variant === "paper" ? cn(markdownStyles.paragraph, "whitespace-pre-wrap") : "mb-4 text-base leading-7 text-bd-text-primary"}>
         {renderInlineMarkdownText(line)}
       </p>
     );
@@ -1753,7 +1788,7 @@ function renderMarkdownLines(markdown: string, variant: "markdown" | "paper") {
 
 function renderInlineMarkdownText(text: string): ReactNode[] {
   return parsePaperInlineMarkdown(text).map((run, index) =>
-    run.bold ? <strong key={index}>{run.text}</strong> : run.text,
+    run.bold ? <strong key={index} className={markdownStyles.strong}>{run.text}</strong> : run.text,
   );
 }
 

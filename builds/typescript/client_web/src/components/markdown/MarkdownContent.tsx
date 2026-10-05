@@ -4,6 +4,14 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
+export const markdownStyles = {
+  h1: "mb-3 mt-6 text-xl font-semibold text-bd-text-heading",
+  h2: "mb-2 mt-5 text-lg font-semibold text-bd-text-heading",
+  h3: "mb-2 mt-4 text-base font-semibold text-bd-text-heading",
+  paragraph: "mb-3 last:mb-0",
+  strong: "font-semibold text-bd-text-heading",
+} as const;
+
 function CopyButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -83,16 +91,16 @@ export default function MarkdownContent({ content }: { content: string }) {
           );
         },
         h1({ children }) {
-          return <h1 className="mb-3 mt-6 text-xl font-semibold text-bd-text-heading">{children}</h1>;
+          return <h1 className={markdownStyles.h1}>{children}</h1>;
         },
         h2({ children }) {
-          return <h2 className="mb-2 mt-5 text-lg font-semibold text-bd-text-heading">{children}</h2>;
+          return <h2 className={markdownStyles.h2}>{children}</h2>;
         },
         h3({ children }) {
-          return <h3 className="mb-2 mt-4 text-base font-semibold text-bd-text-heading">{children}</h3>;
+          return <h3 className={markdownStyles.h3}>{children}</h3>;
         },
         p({ children }) {
-          return <p className="mb-3 last:mb-0">{children}</p>;
+          return <p className={markdownStyles.paragraph}>{children}</p>;
         },
         ul({ children }) {
           return <ul className="mb-3 ml-6 list-disc space-y-1">{children}</ul>;
@@ -142,7 +150,7 @@ export default function MarkdownContent({ content }: { content: string }) {
           return <hr className="my-4 border-bd-border" />;
         },
         strong({ children }) {
-          return <strong className="font-semibold text-bd-text-heading">{children}</strong>;
+          return <strong className={markdownStyles.strong}>{children}</strong>;
         }
       }}
     >

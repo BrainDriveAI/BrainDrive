@@ -243,7 +243,7 @@ export default function AppShell({
   ) : undefined;
 
   const appShellVars = {
-    "--mobile-header-height": `${mobileHeaderHeight}px`
+    "--mobile-header-height": `${isAppWorkspaceActive ? 0 : mobileHeaderHeight}px`
   } as CSSProperties;
 
   const mobileHeader = typeof document === "undefined"
@@ -343,7 +343,7 @@ export default function AppShell({
         />
       </MobileSidebarDrawer>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
+      <main className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary${isAppWorkspaceActive ? " md:ml-sidebar md:[&:has([data-app-sidebar-collapsed])]:ml-[48px]" : ""}`} style={appShellVars}>
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
@@ -359,6 +359,8 @@ export default function AppShell({
                 onSessionClosed={handleAppSessionClosed}
                 onGoHome={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
                 onWorkspaceActiveChange={setIsAppWorkspaceActive}
+                isSidebarCollapsed={isCollapsed}
+                onToggleSidebar={() => setIsCollapsed((current) => !current)}
                 onLogout={() => onLogout?.()}
                 tier={deploymentMode === "managed" ? "concierge" : "local"}
               />

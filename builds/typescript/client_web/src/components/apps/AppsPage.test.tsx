@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -1029,11 +1029,31 @@ describe("manifest-driven Apps surface", () => {
     expect(await screen.findByRole("heading", { name: "Your Profile" })).toHaveFocus();
     expect(screen.getAllByPlaceholderText("Message your BrainDrive...").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: destination }));
+    await user.click(within(screen.getByRole("complementary")).getByRole("button", { name: destination }));
     await waitFor(() => expect(appsApi.closeAppSession).toHaveBeenCalledWith("resume-builder", launched.session.session_id));
     await waitFor(() => expect(screen.getByRole("button", { name: "Launch" })).toHaveFocus());
     expect(screen.queryByRole("region", { name: "Resume Builder native app workspace" })).not.toBeInTheDocument();
     expect(onGoHome).toHaveBeenCalledTimes(destination === "Go to BrainDrive home" ? 1 : 0);
+  });
+
+  it("preserves shell collapse across Back to Apps and reopening a workspace", async () => {
+    const current = installed({ catalog: { ...installed().catalog!, presentations: chatPresentation() } });
+    const launched = chatLaunch();
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    vi.mocked(appsApi.launchAppChatWorkspace).mockResolvedValue(launched);
+    vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(launched.session);
+    function Shell() {
+      const [collapsed, setCollapsed] = useState(false);
+      return <AppsPage isSidebarCollapsed={collapsed} onToggleSidebar={() => setCollapsed((value) => !value)} />;
+    }
+    const user = userEvent.setup();
+    renderApps(<Shell />);
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
+    await user.click(await screen.findByRole("button", { name: "Collapse sidebar" }));
+    await user.click(screen.getByRole("button", { name: "Back to Apps" }));
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
+    expect(await screen.findByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary")).toHaveClass("w-[48px]");
   });
 
   it("attempts the bounded session resume handshake when the owner relaunches the app", async () => {
