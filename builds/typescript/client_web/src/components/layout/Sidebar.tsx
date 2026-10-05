@@ -244,12 +244,14 @@ export default function Sidebar({
                       <SidebarFileSection
                         label="Plan"
                         items={[projectModel.goals, projectModel.plan, projectModel.journal].filter(Boolean) as SidebarFileItem[]}
+                        activeFilePath={activeFilePath}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
                       <SidebarFileSection
                         label="Your Files"
                         items={projectModel.files}
+                        activeFilePath={activeFilePath}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
@@ -262,6 +264,7 @@ export default function Sidebar({
                         <SidebarFileSection
                           label="Advanced"
                           items={projectModel.advanced}
+                          activeFilePath={activeFilePath}
                           onFileClick={onFileClick}
                           onClose={onClose}
                         />
@@ -507,11 +510,13 @@ export default function Sidebar({
 function SidebarFileSection({
   label,
   items,
+  activeFilePath,
   onFileClick,
   onClose,
 }: {
   label: string;
   items: SidebarFileItem[];
+  activeFilePath?: string | null;
   onFileClick: (file: ProjectFile) => void;
   onClose?: () => void;
 }) {
@@ -529,6 +534,7 @@ function SidebarFileSection({
           <SidebarFileButton
             key={item.file.path}
             item={item}
+            isActive={activeFilePath != null && (item.file.path === activeFilePath || item.overlayPath === activeFilePath)}
             onFileClick={onFileClick}
             onClose={onClose}
           />
@@ -563,10 +569,12 @@ function ProjectConversationButton({
 
 function SidebarFileButton({
   item,
+  isActive,
   onFileClick,
   onClose,
 }: {
   item: SidebarFileItem;
+  isActive: boolean;
   onFileClick: (file: ProjectFile) => void;
   onClose?: () => void;
 }) {
@@ -578,7 +586,13 @@ function SidebarFileButton({
           onFileClick(item.file);
           onClose?.();
         }}
-        className={sidebarStyles.file}
+        aria-current={isActive ? "page" : undefined}
+        className={[
+          sidebarStyles.file,
+          isActive && "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px]",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         title={item.canonicalPath}
       >
         <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
