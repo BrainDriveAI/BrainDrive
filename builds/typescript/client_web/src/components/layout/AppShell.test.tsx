@@ -66,12 +66,15 @@ vi.mock("@/hooks/useProjects", () => ({
 
 vi.mock("./Sidebar", () => ({
   default: (props: {
+    isCollapsed: boolean;
+    onToggle: () => void;
     selectedProjectId: string | null;
     projectFiles: ProjectFile[];
     onOpenApps: () => void;
     onSelectProject: (projectId: string) => void;
   }) => (
     <aside>
+      <button onClick={props.onToggle}>{props.isCollapsed ? "Expand native" : "Collapse native"}</button>
       <button type="button" onClick={props.onOpenApps}>Apps</button>
       <button type="button" onClick={() => props.onSelectProject("finance")}>Finance</button>
       <div data-testid="selected-project">{props.selectedProjectId}</div>
@@ -88,7 +91,11 @@ vi.mock("@/components/apps/AppsPage", () => ({
     onSessionClosed,
     onWorkspaceActiveChange,
     onGoHome,
+    isSidebarCollapsed,
+    onToggleSidebar,
   }: {
+    isSidebarCollapsed?: boolean;
+    onToggleSidebar?: () => void;
     onOpenSettings?: () => void;
     onSessionClosed?: () => void;
     onWorkspaceActiveChange?: (active: boolean) => void;
@@ -97,7 +104,7 @@ vi.mock("@/components/apps/AppsPage", () => ({
     const [selected, setSelected] = useState(false);
     return (
     <section aria-label="Apps surface">
-      {selected ? <span>Selected workspace session</span> : null}
+      {selected ? <><span>Selected workspace session</span><button onClick={onToggleSidebar}>{isSidebarCollapsed ? "Expand app" : "Collapse app"}</button></> : null}
       Apps surface
       <input aria-label="App draft" defaultValue="" />
       <button type="button" onClick={onOpenSettings}>Open model settings recovery</button>
@@ -232,6 +239,23 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Back to app catalog" }));
     expect(screen.getByRole("region", { name: "Apps surface" })).toBe(workspace);
     expect(draft).toHaveValue("selected workspace state");
+  });
+
+  it("shares collapse state between native and app navigation without remounting the Apps surface", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Collapse native" }));
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    const surface = screen.getByRole("region", { name: "Apps surface" });
+    await user.click(screen.getByRole("button", { name: "Open app workspace" }));
+    await user.click(screen.getByRole("button", { name: "Expand app" }));
+    expect(screen.getByRole("region", { name: "Apps surface" })).toBe(surface);
+    await user.click(screen.getByRole("button", { name: "Back to app catalog" }));
+    expect(screen.getByRole("button", { name: "Collapse native" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open app workspace" }));
+    await user.click(screen.getByRole("button", { name: "Collapse app" }));
+    await user.click(screen.getByRole("button", { name: "Back to app catalog" }));
+    expect(screen.getByRole("button", { name: "Expand native" })).toBeInTheDocument();
   });
 
   it("hides the BrainDrive sidebar while an app workspace owns the page", async () => {

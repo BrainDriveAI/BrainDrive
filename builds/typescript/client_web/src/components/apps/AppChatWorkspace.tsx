@@ -65,6 +65,8 @@ type AppChatWorkspaceProps = {
   onOpenSettings?: () => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 };
 
 const APP_CHAT_SESSION_HEARTBEAT_MS = 2 * 60_000;
@@ -224,6 +226,8 @@ export default function AppChatWorkspace({
   onOpenSettings,
   onLogout,
   tier = "local",
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }: AppChatWorkspaceProps) {
   const items = useMemo(() => buildItems(launch), [launch]);
   const itemKeysSignature = useMemo(() => items.map(itemKey).join("|"), [items]);
@@ -647,6 +651,8 @@ export default function AppChatWorkspace({
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           tier={tier}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={onToggleSidebar}
         />
       </div>
 
@@ -676,6 +682,8 @@ export default function AppChatWorkspace({
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
           tier={tier}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={onToggleSidebar}
         />
       </MobileSidebarDrawer>
 
@@ -718,6 +726,8 @@ function WorkspaceNavigation({
   onOpenSettings,
   onLogout,
   tier,
+  isCollapsed,
+  onToggle,
 }: {
   appName: string;
   sessionError: string | null;
@@ -738,13 +748,14 @@ function WorkspaceNavigation({
   onOpenSettings?: () => void;
   onLogout?: () => void;
   tier: "local" | "concierge";
+  isCollapsed: boolean;
+  onToggle?: () => void;
 }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
   if (isCollapsed && !onCloseNavigation) {
     return (
       <div data-app-sidebar-collapsed>
         <SidebarCollapsed
-          onToggle={() => setIsCollapsed(false)}
+          onToggle={onToggle ?? (() => undefined)}
           projects={[]}
           selectedProjectId={null}
           onSelectProject={onGoHome}
@@ -757,7 +768,7 @@ function WorkspaceNavigation({
     );
   }
   return (
-    <SidebarChrome onGoHome={onGoHome} onToggle={() => setIsCollapsed(true)} onClose={onCloseNavigation} closeLabel="Close workspace navigation">
+    <SidebarChrome onGoHome={onGoHome} onToggle={onToggle ?? (() => undefined)} onClose={onCloseNavigation} closeLabel="Close workspace navigation">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="px-4 pb-2 pt-1">
           <button type="button" onClick={onCloseWorkspace} className={cn(sidebarStyles.nav, "text-bd-text-secondary")}>

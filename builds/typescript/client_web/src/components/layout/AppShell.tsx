@@ -359,6 +359,8 @@ export default function AppShell({
                 onSessionClosed={handleAppSessionClosed}
                 onGoHome={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
                 onWorkspaceActiveChange={setIsAppWorkspaceActive}
+                isSidebarCollapsed={isCollapsed}
+                onToggleSidebar={() => setIsCollapsed((current) => !current)}
                 onLogout={() => onLogout?.()}
                 tier={deploymentMode === "managed" ? "concierge" : "local"}
               />

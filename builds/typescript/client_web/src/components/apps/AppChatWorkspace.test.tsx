@@ -615,7 +615,12 @@ describe("AppChatWorkspace", () => {
     const current = launch();
     vi.mocked(appsApi.readAppChatWorkspaceSession).mockResolvedValue(current.session);
     const user = userEvent.setup();
-    render(<AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined} />);
+    function Shell() {
+      const [isCollapsed, setIsCollapsed] = useState(false);
+      return <AppChatWorkspace appKey="test-builder" appName="Test Builder" launch={current} onSessionClosed={() => undefined}
+        isSidebarCollapsed={isCollapsed} onToggleSidebar={() => setIsCollapsed((value) => !value)} />;
+    }
+    render(<Shell />);
     const chat = await screen.findByText("Conversation transcript");
     await user.click(screen.getByRole("button", { name: "Show advanced" }));
     await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
