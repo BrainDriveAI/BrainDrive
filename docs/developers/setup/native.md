@@ -54,6 +54,8 @@ cd builds/typescript
 npm run dev
 ```
 
+On Windows, the supervisor invokes npm through the current Node executable and the `npm_execpath` supplied by `npm run dev`; this avoids shell-specific `.cmd` spawning behavior. Directly invoking `node scripts/dev-runtime.mjs` on Windows without that npm CLI path fails before child services start. This source contract does not replace a controlled native-Windows execution result.
+
 Do not treat the printed “web server starting” line alone as success. Observe the earlier gateway-ready line and confirm that the web shell responds. See [safe debugging](../debugging.md) before collecting logs.
 
 ## Provider-independent baseline

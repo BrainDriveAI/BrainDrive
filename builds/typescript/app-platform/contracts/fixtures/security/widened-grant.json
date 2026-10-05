@@ -1,0 +1,4 @@
+{
+  "installed": ["career.facts.read"],
+  "requested": ["career.facts.read", "career.facts.confirm"]
+}

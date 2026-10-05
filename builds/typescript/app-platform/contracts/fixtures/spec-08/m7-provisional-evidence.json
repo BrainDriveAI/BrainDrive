@@ -1,0 +1,67 @@
+{
+  "evidence_version": 1,
+  "milestone": 7,
+  "status": "provisional",
+  "candidate": "working-tree-uncommitted",
+  "requirements": [
+    "APP8-REQ-005",
+    "APP8-REQ-009",
+    "APP8-REQ-020",
+    "APP8-REQ-023",
+    "APP8-REQ-029",
+    "APP8-REQ-030",
+    "APP8-REQ-031",
+    "APP8-REQ-032",
+    "APP8-REQ-033",
+    "APP8-REQ-034",
+    "APP8-REQ-035",
+    "APP8-REQ-039",
+    "APP8-REQ-040",
+    "APP8-REQ-041",
+    "APP8-REQ-042"
+  ],
+  "attack_matrix": {
+    "identity_fields": [
+      "route_key",
+      "app_id",
+      "publisher_id",
+      "version",
+      "package_digest",
+      "installation_id",
+      "grant_id",
+      "token_generation",
+      "runtime_id",
+      "connection_id",
+      "session_id",
+      "view_id",
+      "operation_id",
+      "idempotency_key",
+      "capability",
+      "purpose_id",
+      "resource_uri",
+      "resource_digest",
+      "owner_id",
+      "actor_id",
+      "state_root",
+      "data_root",
+      "backup_root"
+    ],
+    "forbidden_pre_denial_side_effects": [
+      "handler_invocation",
+      "provider_invocation",
+      "owner_data_access",
+      "process_start",
+      "token_consumption"
+    ],
+    "test_locations": [
+      "app-platform/two-app-isolation.test.ts",
+      "app-platform/lifecycle/routes.integration.test.ts",
+      "app-platform/mcp-host/routes.integration.test.ts",
+      "app-platform/mcp-host/app-host.test.ts",
+      "app-platform/lifecycle/capability-token.test.ts",
+      "app-platform/lifecycle/app-lifecycle.m2.test.ts",
+      "app-platform/lifecycle/app-lifecycle.m6.test.ts"
+    ]
+  },
+  "release_adjudication": "deferred_to_m8"
+}

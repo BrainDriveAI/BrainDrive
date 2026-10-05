@@ -1,0 +1,114 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/package-trust.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "trust_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "descriptor_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "package_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "publisher_id": {
+      "type": "string",
+      "const": "ai.braindrive"
+    },
+    "signing_key_id": {
+      "type": "string",
+      "pattern": "^braindrive-app-(?:root|release)-[A-Za-z0-9-]{4,64}$"
+    },
+    "trust_root_version": {
+      "type": "number",
+      "const": 1
+    },
+    "source_index_sequence": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "source_index_signature_valid": {
+      "type": "boolean"
+    },
+    "package_signature_valid": {
+      "type": "boolean"
+    },
+    "archive_digest_valid": {
+      "type": "boolean"
+    },
+    "file_inventory_valid": {
+      "type": "boolean"
+    },
+    "source_trusted": {
+      "type": "boolean"
+    },
+    "compatibility_valid": {
+      "type": "boolean"
+    },
+    "revocation_list_sequence": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "revocation_status": {
+      "type": "string",
+      "enum": [
+        "not_revoked_fresh",
+        "not_revoked_stale",
+        "revoked"
+      ]
+    },
+    "revocation_age_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "verification_context": {
+      "type": "string",
+      "enum": [
+        "candidate_install_or_update",
+        "verified_local_recheck"
+      ]
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "executable_allowed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "trust_policy_version",
+    "descriptor_digest",
+    "package_digest",
+    "manifest_digest",
+    "publisher_id",
+    "signing_key_id",
+    "trust_root_version",
+    "source_index_sequence",
+    "source_index_signature_valid",
+    "package_signature_valid",
+    "archive_digest_valid",
+    "file_inventory_valid",
+    "source_trusted",
+    "compatibility_valid",
+    "revocation_list_sequence",
+    "revocation_status",
+    "revocation_age_seconds",
+    "verification_context",
+    "checked_at",
+    "executable_allowed"
+  ],
+  "additionalProperties": false
+}

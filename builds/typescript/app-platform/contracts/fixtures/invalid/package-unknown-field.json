@@ -1,0 +1,41 @@
+{
+  "manifest_version": 1,
+  "app_id": "ai.braindrive.resume-builder",
+  "publisher_id": "ai.braindrive",
+  "display_name": "Resume Builder",
+  "package_version": "1.0.0",
+  "archive": {
+    "format": "zip",
+    "profile": "braindrive-zip-v1",
+    "compression": "store",
+    "layout_version": 1,
+    "manifest_path": "manifest.json",
+    "undeclared_entries": "reject",
+    "links_and_device_nodes": "reject",
+    "max_file_count": 256,
+    "max_compressed_bytes": 67108864,
+    "max_uncompressed_bytes": 268435456
+  },
+  "files": [
+    { "path": "payload/server/dist/index.js", "kind": "file", "mode": "executable", "size_bytes": 1, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { "path": "provenance/intoto.jsonl", "kind": "file", "mode": "read_only", "size_bytes": 1, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    { "path": "sbom/cyclonedx.json", "kind": "file", "mode": "read_only", "size_bytes": 1, "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+  ],
+  "platform_artifacts": [
+    { "target": "docker_linux_x64", "os": "linux", "architecture": "x64", "runtime_kind": "packaged_node", "entrypoint": "payload/server/dist/index.js" },
+    { "target": "desktop_windows_x64", "os": "windows", "architecture": "x64", "runtime_kind": "packaged_node", "entrypoint": "payload/server/dist/index.js" }
+  ],
+  "compatibility": {
+    "app_contract": 1,
+    "host_min_version": "26.7.23",
+    "mcp_protocol": "2026-07-28",
+    "legacy_mcp_adapter": "2025-11-25",
+    "mcp_apps": { "extension_id": "io.modelcontextprotocol/ui", "version": "2026-01-26" },
+    "data_schema": { "read_min": 1, "read_max": 1, "write_version": 1 }
+  },
+  "requested_capabilities": ["career.facts.read"],
+  "provenance_path": "provenance/intoto.jsonl",
+  "sbom_path": "sbom/cyclonedx.json",
+  "retention_policy": "retain_owner_data_remove_runtime_authority",
+  "auto_execute": true
+}

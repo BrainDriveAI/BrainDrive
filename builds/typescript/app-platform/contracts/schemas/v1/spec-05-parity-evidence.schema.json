@@ -1,0 +1,68 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/spec-05-parity-evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "evidence_version": {
+      "type": "number",
+      "const": 1
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "docker_outcome": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked",
+        "not_run"
+      ]
+    },
+    "windows_outcome": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked",
+        "not_run"
+      ]
+    },
+    "normalized_semantics_equal": {
+      "type": "boolean"
+    },
+    "permitted_differences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "transport",
+          "process_isolation",
+          "package_root_ref",
+          "cache_root_ref",
+          "diagnostic_platform"
+        ]
+      }
+    },
+    "unexpected_differences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  },
+  "required": [
+    "evidence_version",
+    "scenario_id",
+    "docker_outcome",
+    "windows_outcome",
+    "normalized_semantics_equal",
+    "permitted_differences",
+    "unexpected_differences"
+  ],
+  "additionalProperties": false
+}

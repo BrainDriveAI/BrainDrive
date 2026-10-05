@@ -37,6 +37,11 @@ const PROJECT_INTROS: Record<string, ProjectIntro> = {
       "We'll spend about 5 minutes on what's happening and what you're aiming for. Then we'll build a strategy together.",
     cta: "Let's get started"
   },
+  "resume-builder": {
+    heading: "Welcome to Resume Builder",
+    description: "Tell me about the work you want your resume to represent. We’ll talk it through naturally, then create your resume when you’re ready.",
+    cta: "Let’s get started"
+  },
   relationships: {
     heading: "Let's invest in the people who matter",
     description:

@@ -9,6 +9,7 @@ const messageRequestSchema = z.object({
     .object({
       client: z.string().min(1).optional(),
       project: z.string().min(1).optional(),
+      resume_builder: z.literal(true).optional(),
     })
     .strict()
     .optional(),

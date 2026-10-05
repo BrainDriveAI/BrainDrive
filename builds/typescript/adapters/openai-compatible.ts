@@ -7,6 +7,8 @@ import type {
   ModelResponse,
   ModelStreamChunk,
   ProviderModel,
+  StructuredCompletionRequest,
+  StructuredCompletionResponse,
   TokenUsage
 } from "./base.js";
 
@@ -209,6 +211,58 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
     }
 
     return toModelResponse(payload);
+  }
+
+  async completeStructuredNoTools(
+    request: StructuredCompletionRequest
+  ): Promise<StructuredCompletionResponse> {
+    const apiKey = this.runtimeSecrets?.apiKey ?? process.env[this.config.api_key_env] ?? "";
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(new Error("provider_timeout")), request.timeoutMs);
+    const signal = request.signal
+      ? AbortSignal.any([request.signal, timeoutController.signal])
+      : timeoutController.signal;
+    try {
+      const response = await fetch(`${this.config.base_url}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: this.config.model,
+          stream: false,
+          messages: [
+            { role: "system", content: request.system },
+            { role: "user", content: request.user },
+          ],
+          tools: [],
+          max_tokens: request.maxOutputTokens,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: request.schemaName,
+              strict: true,
+              schema: request.schema,
+            },
+          },
+        }),
+        signal,
+      });
+      const payload = await parseProviderPayload(response);
+      if (!response.ok) {
+        throw new Error(formatProviderFailure(response.status, payload));
+      }
+      const normalized = toModelResponse(payload);
+      return {
+        text: normalized.assistantText,
+        finishReason: normalized.finishReason,
+        ...(normalized.usage ? { usage: normalized.usage } : {}),
+        cost: normalized.cost ?? { status: "unavailable" },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async *completeStream(

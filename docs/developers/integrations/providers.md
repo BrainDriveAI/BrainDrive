@@ -26,6 +26,12 @@ Release evidence for BrainDrive Models credit changes must show the provider bou
 
 The gateway resolves the effective profile and credential immediately before the chat model adapter is created. Provider network errors are classified for the stream. Endpoint reachability, model availability, account entitlement, and provider-specific behavior are not established by config parsing.
 
+## Structured no-tools completion
+
+The OpenAI-compatible adapter also exposes an optional structured completion path for app inference. It sends only system and user messages, an empty `tools` array, a strict JSON Schema response format, the selected model, and the bounded output-token limit. The active profile's resolved credential is sent only in the authorization header; it is not copied into the request body. A caller-supplied abort signal and timeout bound the request.
+
+Resume inference fails closed when the active adapter lacks this capability. Supporting the request shape is not, by itself, a compatibility claim: each provider/model combination still needs the separately authorized conformance evidence required by the app-inference registry. The path does not enable provider fallback, share credentials across profiles, or turn deterministic fixtures into live-provider evidence.
+
 ## Verification boundary
 
 Safe Tier A checks are the adapter/config/resolver/provider-activation tests and runtime build. They use unit, mock, or in-process evidence, not live provider compatibility evidence. Any live provider call is Tier C: it needs explicit owner authority, a selected independent profile, sanitized evidence, and bounded resource use. Do not use a BrainDrive Models credential to claim OpenRouter or Ollama evidence, or vice versa.

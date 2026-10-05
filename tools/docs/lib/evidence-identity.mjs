@@ -13,6 +13,7 @@ export const APPROVED_EVIDENCE_OUTPUT_PATTERNS = Object.freeze([
   'docs/developers/verification/platform-reports/windows-j05.json',
   'docs/developers/verification/platform-reports/macos-j05.json',
   'docs/developers/verification/human-reviews/rev-??.json',
+  'builds/typescript/app-platform/contracts/fixtures/spec-08/m8-requirement-evidence.json',
   'docs/developers/verification/milestones/07-release-gauntlet.md',
   'docs/developers/verification/m7-trace-matrix.md',
   'docs/developers/verification/v1-readiness.md',

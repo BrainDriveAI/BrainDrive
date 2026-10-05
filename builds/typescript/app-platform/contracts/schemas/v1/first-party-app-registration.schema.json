@@ -1,0 +1,398 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/first-party-app-registration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "registration_version": {
+      "type": "number",
+      "const": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "publisher_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+    },
+    "route_key": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "package_source_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "lifecycle_binding_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "runtime_profile_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "capability_registrations": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "registration_version": {
+            "type": "number",
+            "const": 1
+          },
+          "app_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+          },
+          "key": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "binding_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "input_schema_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "result_schema_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max_input_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1048576
+              },
+              "max_duration_ms": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 120000
+              },
+              "max_calls_per_minute": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 600
+              }
+            },
+            "required": [
+              "max_input_bytes",
+              "max_duration_ms",
+              "max_calls_per_minute"
+            ],
+            "additionalProperties": false
+          },
+          "confirmation": {
+            "type": "string",
+            "enum": [
+              "none",
+              "owner_confirmation",
+              "trusted_owner_confirmation"
+            ]
+          },
+          "audit_projection_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "retry_policy": {
+            "type": "string",
+            "enum": [
+              "never",
+              "idempotent_only"
+            ]
+          },
+          "idempotency_policy": {
+            "type": "string",
+            "enum": [
+              "not_applicable",
+              "optional",
+              "required"
+            ]
+          },
+          "owner_component_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        },
+        "required": [
+          "registration_version",
+          "app_id",
+          "key",
+          "binding_id",
+          "input_schema_id",
+          "result_schema_id",
+          "limits",
+          "confirmation",
+          "audit_projection_id",
+          "retry_policy",
+          "idempotency_policy",
+          "owner_component_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "inference_purpose_registrations": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "registration_version": {
+            "type": "number",
+            "const": 1
+          },
+          "app_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+          },
+          "key": {
+            "type": "object",
+            "properties": {
+              "purpose_id": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "purpose_id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "binding_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "input_schema_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "output_schema_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "prompt_policy_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "model_compatibility_class": {
+            "type": "string",
+            "const": "owner_active_compatible"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max_input_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1048576
+              },
+              "max_input_tokens": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 262144
+              },
+              "max_output_tokens": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 16384
+              },
+              "max_duration_ms": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 120000
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2
+              }
+            },
+            "required": [
+              "max_input_bytes",
+              "max_input_tokens",
+              "max_output_tokens",
+              "max_duration_ms",
+              "max_attempts"
+            ],
+            "additionalProperties": false
+          },
+          "validation_policy_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "retry_policy": {
+            "type": "string",
+            "const": "same_snapshot_only"
+          },
+          "cancellation_policy": {
+            "type": "string",
+            "const": "required"
+          },
+          "audit_projection_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          },
+          "owner_component_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+          }
+        },
+        "required": [
+          "registration_version",
+          "app_id",
+          "key",
+          "binding_id",
+          "input_schema_id",
+          "output_schema_id",
+          "prompt_policy_id",
+          "model_compatibility_class",
+          "limits",
+          "validation_policy_id",
+          "retry_policy",
+          "cancellation_policy",
+          "audit_projection_id",
+          "owner_component_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "data_adapter_registration": {
+      "type": "object",
+      "properties": {
+        "registration_version": {
+          "type": "number",
+          "const": 1
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "binding_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "adapter_contract_version": {
+          "type": "number",
+          "const": 1
+        },
+        "data_contract_version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65535
+        },
+        "namespace_policy": {
+          "type": "string",
+          "const": "host_derived_from_verified_app_id"
+        },
+        "retention_policy": {
+          "type": "string",
+          "const": "retain_owner_data_remove_runtime_authority"
+        },
+        "owner_component_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        }
+      },
+      "required": [
+        "registration_version",
+        "app_id",
+        "binding_id",
+        "adapter_contract_version",
+        "data_contract_version",
+        "namespace_policy",
+        "retention_policy",
+        "owner_component_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "registration_version",
+    "app_id",
+    "publisher_id",
+    "route_key",
+    "package_source_id",
+    "lifecycle_binding_id",
+    "runtime_profile_id",
+    "capability_registrations",
+    "inference_purpose_registrations",
+    "data_adapter_registration"
+  ],
+  "additionalProperties": false
+}

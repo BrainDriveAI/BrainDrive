@@ -1,66 +1,61 @@
 # AIH-04 scorecard
 
-## Historical evidence note
-
-The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
-
-## Current-candidate execution
-
-The retained fresh evaluator output ran in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-04 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
-
 - Scenario ID: AIH-04
-- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate revision: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- Candidate state proof: `candidate-content sha256 8fe40a01593323b8c35fe1bb11d41b8dce82ed3cb13e604b5084d17ae955e741; entries 0; head d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_TEST_REVISION: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 1b949797d2f8dedeb9b336e5e52ddb484705683df83923a58f78258c9492b9e7; entries 1042; revision d89ba6d5d9cb8a34f5afd801e887701de323dfed`
 - Task prompt: Read-only: prepare change-surface matrices for (1) changing web chat tool-call presentation through the gateway/engine/tool path and (2) changing a first-party MCP memory tool exposed through the MCP release package. Identify existing implementation files, callers, configuration, tests, canonical docs, paired impacts, and exact focused/broader checks. Do not invent paths or implement either change.
-- Starting path and allowed context: `docs/developers/catalog.json`; tracked/non-ignored files, catalog agent routes, live package scripts, and CI.
-- Prohibited inputs/actions confirmed: No ignored owner state or provider credentials were opened; no paths or commands were invented; no product change or Tier B/C execution occurred.
-- Evaluator role: Fresh isolated read-only AI evaluator using only the public checkout and scenario context.
+- Starting path and allowed context: `docs/developers/catalog.json`; tracked/non-ignored candidates, catalog agent routes, package scripts, and CI.
+- Prohibited inputs/actions confirmed: No owner runtime data, credentials, invented path/command, implementation edit, or Tier B/C command was used.
+- Evaluator role: Fresh-context, read-only AI evaluator; primary implementer independently cross-checked paths and commands.
 
 ## Trace summary
 
-- Authorities consulted: Catalog change routes, request/gateway/MCP canonical pages, implementation/caller/configuration paths, tests, package scripts, and CI.
-- Repository evidence inspected: Web presentation through engine/tool SSE plus first-party memory registration through standalone and main-runtime MCP discovery.
-- Required output: Two minimum change-surface matrices with focused/broader checks and paired documentation/configuration effects.
-- Exact checks or comparisons: Path existence, caller relationships, package script/CI equivalence, and Tier A focused runtime/web/MCP/docs checks.
-- Zero-change evidence, when required: Closing Git status was clean and no implementation occurred.
+- Authorities consulted: Root/scoped instructions, catalog, repository/request-flow/MCP pages, verification matrix, live source/tests/package scripts, and CI.
+- Repository evidence inspected: Web presentation/stream/adapter types, engine/gateway/tools, MCP registration/core/server/discovery/envelopes, configuration, tests, and mapped docs.
+- Required output: Two change-surface matrices, caller/config/test mapping, paired documentation impact, and proportional checks.
+- Exact checks or comparisons: Git path enumeration; imports/callers with targeted search; package/CI command comparison; missing MCP integration target check; candidate digest; closing Git checks.
+- Zero-change evidence, when required: The evaluator ran Tier A inspection only; final status/diffs were empty and the candidate proof remained stable.
 
 ## Required output evidence
 
-- Expected-versus-actual matrix: The controller-retained two-surface comparison follows.
+- Expected-versus-actual matrix: Both minimum change surfaces are retained below.
 
 ### Expected-versus-actual matrix
 
-| Change surface | Minimum actual path | Conditional expansion and paired impact |
+| Change | Current source/callers | Tests, config, docs, and paired impact |
 |---|---|---|
-| Web tool-call presentation | `client_web/src/components/chat/ChatPanel.tsx`, its test, and `useGatewayChat.ts` when status state changes | Wire changes add web event types/parser, gateway SSE, engine contracts/tests, and canonical gateway/request-flow docs. |
-| First-party MCP memory tool | `builds/mcp_release/src/first-party-tools.ts`, `memory-core.ts`, and focused unit/registration coverage | Rename, exposure, or side-effect changes add server factory, main-runtime discovery/client, native/Docker read-only lists, package README, and canonical MCP docs. |
+| Live web tool status | `ChatPanel.tsx` maps labels and passes state through `MessageList.tsx` to `TypingIndicator.tsx`; `useGatewayChat.ts` correlates tool events. | Focus `ChatPanel.test.tsx`, `MessageList.test.tsx` if rendering changes, and `useGatewayChat.test.tsx`; a visual-only change needs no runtime config. |
+| Tool-event transport/history | `types.ts`, `gateway-adapter.ts`, `engine/loop.ts`, `tool-executor.ts`, `gateway/server.ts`, conversation persistence | Test adapter normalization and engine sequence; add gateway/history coverage if the wire or durable presentation changes; update gateway/request-flow docs or record no impact. |
+| MCP memory registration | `builds/mcp_release/src/first-party-tools.ts`, `memory-core.ts`, `git.ts`, `server-factory.ts`, `index.ts` | Add registration/tool behavior coverage; existing `memory-core.test.ts` is insufficient for registration changes. |
+| Main-runtime MCP path | `config.json`, both full-MCP server configs, `tools.ts`, `mcp/config.ts`, `mcp/client.ts`, legacy adapter, result envelope, engine/gateway callers | Rename/side-effect changes must keep both server configurations and approval classification aligned; test adapter/envelope/engine paths. |
+| Documentation/template boundary | `docs/developers/integrations/mcp-and-tools.md`, `builds/mcp_release/README.md`, plus mapped gateway/request-flow pages | Starter-pack/migration pairing is conditional on changing default memory layout/content, not merely accessing memory. |
 
-- Path existence cross-check: Controller `git ls-files --error-unmatch` confirmed the presentation, hook, adapter, gateway, engine, discovery, MCP registration/core/server, fixture, and canonical documentation paths.
-- Command comparison: Focused runtime/web/MCP/docs commands match live package scripts; broader runtime, web, MCP, docs, projection, and current-scan routes match catalog and CI. The absent MCP integration entrypoint is explicitly excluded.
+- Path existence cross-check: The primary implementer confirmed all retained source, configuration, test, package, workflow, and canonical documentation paths are tracked; the declared MCP integration entrypoint is absent and excluded.
+- Command comparison: Existing commands and working directories were checked against live package scripts and catalog routes.
 
 ### Command comparison
 
-| Surface | Focused command and directory | Broader command contract |
+| Surface | Focused iteration | Broader handoff |
 |---|---|---|
-| Web tool presentation | Runtime loop tests and web adapter/hook/presentation tests from `builds/typescript` | Runtime and web lint/test/build plus docs verification. |
-| MCP memory tool | Unit tests from `builds/mcp_release` and affected runtime loop tests | MCP test/build, runtime lint/test/build, and docs verification. |
-| Documentation | Closest technical-boundary tests from repository root | `docs:verify`, projection check, and current secret scan from their cataloged directories. |
+| Web presentation | From `builds/typescript/client_web`: `npm test -- src/api/gateway-adapter.test.ts src/api/useGatewayChat.test.tsx src/components/chat/ChatPanel.test.tsx` | From `builds/typescript`: runtime lint/test/build, web lint/typecheck/test/build, and docs verification; root projection/current-scan checks. |
+| Engine/gateway | From `builds/typescript`: `npm test -- engine/loop.test.ts`; expand to gateway adapter/route tests if transport changes. | Runtime and web broad checks plus mapped documentation checks. |
+| MCP package/runtime | From `builds/mcp_release`: `npm test -- test/unit/memory-core.test.ts`; from `builds/typescript`: focused legacy-adapter/result-envelope/engine tests. | MCP test/build, runtime lint/test/build, docs verification, root projection/current-scan checks. |
 
-- Binary scorecard: All declared gates pass independently; no aggregate score was used.
+- Binary scorecard: Every declared must-pass dimension was adjudicated independently.
 
 | Gating dimension | Pass/fail | Evidence |
 |---|---|---|
-| Repository accuracy | pass | Every retained file and command exists and participates in the stated surface. |
-| Scope | pass | Pure labels stay in presentation; behavior/wire/config changes expand only to actual dependencies. |
-| Verification | pass | Focused checks and broader handoff suites were selected from live scripts and CI. |
-| Documentation impact | pass | Canonical gateway/request-flow and MCP pages plus same-change impact obligations are named. |
+| Repository accuracy | pass | Every retained path/command exists and participates as described; missing focused coverage and the absent integration entrypoint are explicit. |
+| Scope | pass | The report is a read-only minimum-surface plan with conditional effects separated from required ones. |
+| Verification | pass | Focused and broader checks come from live scripts, catalog routes, and CI without claiming execution. |
+| Documentation impact | pass | Current gateway/request-flow/MCP pages and conditional starter-pack obligations are identified. |
 
 ## Outcome
 
-- Required output present: Yes; both change surfaces, callers, tests, configs, docs, and checks are retained.
-- Interventions: `jq` was unavailable; read-only Node inspection replaced it. No maintainer coaching changed the answer.
-- Remaining risk: Registration/configuration coverage is absent and the declared MCP integration target is missing; new focused coverage is required before such a change.
+- Required output present: Yes; two substantive surfaces, path cross-check, command comparison, and paired impacts are retained.
+- Interventions: The primary implementer preserved coverage gaps as gaps and did not accept the nonexistent MCP integration target as evidence.
+- Remaining risk: Exact presentation design and exact MCP memory operation are unspecified, so conditional rows must be narrowed before implementation.
 - Disposition: `pass`
-- Sanitization performed: Repository-relative public paths, exact safe commands, and test totals only; no owner data, credentials, private endpoints, or raw logs retained.
+- Sanitization performed: Public repository-relative paths, commands, and summarized comparisons only; ignored data, credentials, local paths, and raw logs were excluded.

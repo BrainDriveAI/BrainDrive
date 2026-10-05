@@ -7,21 +7,29 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptRoot, "..");
 const bundleRoot = path.join(projectRoot, "src-tauri", "target", "release", "bundle");
 const latestRoot = path.join(bundleRoot, "latest");
+const packageManifest = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
+const expectedVersion = packageManifest.version;
 
 const aliasTargets = [
   {
+    platform: "windows",
     label: "Windows x64 NSIS installer",
     sourceDir: path.join(bundleRoot, "nsis"),
     extension: ".exe",
     aliasName: "BrainDrive-latest-windows-x64-setup.exe",
   },
   {
+    platform: "mac",
     label: "macOS DMG installer",
     sourceDir: path.join(bundleRoot, "dmg"),
     extension: ".dmg",
     aliasName: "BrainDrive-latest-macos.dmg",
   },
 ];
+
+function buildGatePath(platform) {
+  return path.join(bundleRoot, `.braindrive-${platform}-build-gate.json`);
+}
 
 async function directoryExists(directory) {
   try {
@@ -59,15 +67,41 @@ async function writeSha256File(filePath, aliasName) {
   return hash;
 }
 
-async function main() {
+async function prepare(platform) {
+  if (!aliasTargets.some((target) => target.platform === platform)) {
+    throw new Error(`Unsupported desktop build gate platform: ${platform}`);
+  }
+  await mkdir(bundleRoot, { recursive: true });
+  await writeFile(buildGatePath(platform), `${JSON.stringify({ version: expectedVersion, startedAtMs: Date.now() })}\n`, "utf8");
+  console.log(`Prepared ${platform} desktop artifact gate for ${expectedVersion}`);
+}
+
+async function main(requiredPlatform = null) {
   await mkdir(latestRoot, { recursive: true });
 
+  let gate = null;
+  if (requiredPlatform) {
+    gate = JSON.parse(await readFile(buildGatePath(requiredPlatform), "utf8"));
+    if (gate.version !== expectedVersion || !Number.isFinite(gate.startedAtMs)) {
+      throw new Error(`Desktop ${requiredPlatform} build gate is invalid for ${expectedVersion}`);
+    }
+  }
+
   let created = 0;
-  for (const target of aliasTargets) {
+  for (const target of aliasTargets.filter((candidate) => !requiredPlatform || candidate.platform === requiredPlatform)) {
     const artifact = await newestArtifact(target);
     if (!artifact) {
+      if (requiredPlatform) throw new Error(`No ${target.label} was produced by this build`);
       console.log(`No ${target.label} found in ${target.sourceDir}; skipping ${target.aliasName}.`);
       continue;
+    }
+    if (!artifact.name.includes(expectedVersion)) {
+      if (requiredPlatform) throw new Error(`${target.label} is stale: expected version ${expectedVersion}, found ${artifact.name}`);
+      console.log(`No current-version ${target.label} found in ${target.sourceDir}; skipping ${target.aliasName}.`);
+      continue;
+    }
+    if (gate && artifact.mtimeMs <= gate.startedAtMs) {
+      throw new Error(`${target.label} was not produced by this build invocation`);
     }
 
     const aliasPath = path.join(latestRoot, target.aliasName);
@@ -85,7 +119,9 @@ async function main() {
   console.log(`Stable installer aliases are in ${latestRoot}`);
 }
 
-main().catch((error) => {
+const [mode, platform] = process.argv.slice(2);
+const operation = mode === "--prepare" ? prepare(platform) : main(mode === "--require" ? platform : null);
+operation.catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

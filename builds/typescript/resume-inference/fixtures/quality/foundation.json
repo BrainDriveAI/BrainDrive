@@ -1,0 +1,15 @@
+{
+  "fixture_schema_version": 1,
+  "fixture_id": "f1-foundation-synthetic",
+  "synthetic": true,
+  "persona": "early_career",
+  "canary_literals": ["RB6_SYNTHETIC_CANARY_7D91"],
+  "approved_definition": {
+    "sections": ["Summary", "Experience", "Education"],
+    "logical_lines": ["Synthetic Candidate", "Summary", "Supported synthetic summary", "Experience", "Synthetic Role — Synthetic Employer", "Education", "Synthetic School"]
+  },
+  "expected_recovery": {
+    "section_count": 3,
+    "line_count": 7
+  }
+}

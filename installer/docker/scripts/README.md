@@ -339,7 +339,9 @@ What it does:
 - Captures runtime metadata (mode, compose file, versions, compose state).
 - Attempts optional health endpoint snapshots.
 - Copies persisted audit JSONL files from `braindrive_memory:/diagnostics/audit` when present.
-- Redacts common secret patterns before packaging.
+- Does not retain the fully rendered Compose configuration, which may contain resolved environment values.
+- Redacts common secret patterns and normalizes memory, app-state, secrets, and host-user paths to placeholders before packaging.
+- Produces sanitized diagnostic evidence, not a proof that arbitrary application log text is non-sensitive; review the archive before sharing it.
 
 Usage:
 - Shell: `./installer/docker/scripts/support-bundle.sh [local|prod|dev] [since-window] [output-dir]`

@@ -1,0 +1,102 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/mcp-apps-resource-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "resource_version": {
+      "type": "number",
+      "const": 1
+    },
+    "uri": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^ui:\\/\\/[A-Za-z0-9._~!$&'()*+,;=:@/-]+$"
+    },
+    "mime_type": {
+      "type": "string",
+      "const": "text/html;profile=mcp-app"
+    },
+    "package_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 2097152
+    },
+    "cache_policy": {
+      "type": "string",
+      "enum": [
+        "immutable_package_digest",
+        "no_store"
+      ]
+    },
+    "csp": {
+      "type": "object",
+      "properties": {
+        "connect_domains": {
+          "default": [],
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          }
+        },
+        "resource_domains": {
+          "default": [],
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          }
+        },
+        "frame_domains": {
+          "default": [],
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          }
+        },
+        "base_uri_domains": {
+          "default": [],
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "sandbox": {
+      "type": "string",
+      "const": "double_iframe_opaque_origin_proxy"
+    }
+  },
+  "required": [
+    "resource_version",
+    "uri",
+    "mime_type",
+    "package_digest",
+    "content_digest",
+    "size_bytes",
+    "cache_policy",
+    "csp",
+    "sandbox"
+  ],
+  "additionalProperties": false
+}

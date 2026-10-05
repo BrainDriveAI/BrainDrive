@@ -418,6 +418,7 @@ describe("SettingsModal", () => {
     await user.click(ollamaCard);
 
     expect(ollamaCard).toHaveAttribute("aria-expanded", "true");
+    expect(ollamaCard).toHaveFocus();
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledWith({
         active_provider_profile: "ollama",

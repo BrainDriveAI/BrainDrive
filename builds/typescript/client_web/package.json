@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run test:e2e:mobile && node scripts/run-isolated-e2e.mjs --project=desktop-chrome",
     "test:e2e:mobile": "node scripts/run-isolated-e2e.mjs --project=mobile-chrome --project=mobile-safari",
+    "test:e2e:browser-access": "npm run build && node scripts/run-isolated-e2e.mjs --browser-access --project=desktop-chrome e2e/browser-access.spec.ts",
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {

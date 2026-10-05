@@ -34,10 +34,22 @@ const baseProps = {
   onReturnToChat: () => {},
   onFileClick: () => {},
   onOpenSettings: () => {},
+  onOpenApps: () => {},
+  isAppsActive: false,
   onLogout: () => {}
 };
 
 describe("Sidebar", () => {
+  it("opens one top-level Apps entry and exposes its active state without color alone", async () => {
+    const user = userEvent.setup();
+    const onOpenApps = vi.fn();
+    render(<Sidebar {...baseProps} onOpenApps={onOpenApps} isAppsActive />);
+    const apps = screen.getByRole("button", { name: "Apps" });
+    expect(apps).toHaveAttribute("aria-current", "page");
+    await user.click(apps);
+    expect(onOpenApps).toHaveBeenCalledTimes(1);
+  });
+
   it("calls onClose when a project is selected", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -131,7 +143,7 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "2026 05 Capital One" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
-    expect(screen.queryByText("Apps")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
     expect(screen.queryByText("Generated")).not.toBeInTheDocument();
     expect(screen.queryByText("Source")).not.toBeInTheDocument();
 
@@ -172,7 +184,7 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Garden" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "LatestGenerated" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Seed List" })).toBeInTheDocument();
-    expect(screen.queryByText("Apps")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reports" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sources" })).not.toBeInTheDocument();
 

@@ -1,0 +1,9 @@
+{
+  "workspace_root": "apps/resume-builder",
+  "resources": [
+    "AGENT.md",
+    "run-interview.md",
+    "resume-profile.md",
+    "resume.md"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "inference_schema_version": 1,
+  "request_id": "40000000-0000-4000-8000-000000000001",
+  "purpose": "write_cover_letter",
+  "output_schema_id": "arbitrary.schema"
+}

@@ -1,0 +1,45 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/mixed-version-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "missing_lifecycle_state": {
+      "type": "string",
+      "const": "read_as_not_installed"
+    },
+    "known_same_version": {
+      "type": "string",
+      "const": "read_and_validate"
+    },
+    "unknown_or_newer_contract": {
+      "type": "string",
+      "const": "fail_closed_without_execution"
+    },
+    "incompatible_owner_data": {
+      "type": "string",
+      "const": "preserve_and_require_compatible_version_or_export"
+    },
+    "fixed_mcp_services": {
+      "type": "string",
+      "const": "remain_available"
+    },
+    "destructive_downgrade": {
+      "type": "string",
+      "const": "prohibited"
+    }
+  },
+  "required": [
+    "policy_version",
+    "missing_lifecycle_state",
+    "known_same_version",
+    "unknown_or_newer_contract",
+    "incompatible_owner_data",
+    "fixed_mcp_services",
+    "destructive_downgrade"
+  ],
+  "additionalProperties": false
+}

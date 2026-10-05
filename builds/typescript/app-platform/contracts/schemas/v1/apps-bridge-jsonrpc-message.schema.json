@@ -1,0 +1,197 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/apps-bridge-jsonrpc-message.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "ui/initialize",
+            "ui/notifications/initialized",
+            "ui/notifications/sandbox-proxy-ready",
+            "ui/notifications/sandbox-resource-ready",
+            "ui/notifications/size-changed",
+            "ui/notifications/tool-input",
+            "ui/notifications/tool-input-partial",
+            "ui/notifications/tool-result",
+            "ui/notifications/tool-cancelled",
+            "ui/notifications/host-context-changed",
+            "ui/notifications/request-teardown",
+            "ui/resource-teardown",
+            "ui/request-display-mode",
+            "ui/open-link",
+            "ui/download-file",
+            "ui/message",
+            "ui/update-model-context",
+            "tools/list",
+            "tools/call",
+            "resources/list",
+            "resources/templates/list",
+            "resources/read"
+          ]
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "ui/initialize",
+            "ui/notifications/initialized",
+            "ui/notifications/sandbox-proxy-ready",
+            "ui/notifications/sandbox-resource-ready",
+            "ui/notifications/size-changed",
+            "ui/notifications/tool-input",
+            "ui/notifications/tool-input-partial",
+            "ui/notifications/tool-result",
+            "ui/notifications/tool-cancelled",
+            "ui/notifications/host-context-changed",
+            "ui/notifications/request-teardown",
+            "ui/resource-teardown",
+            "ui/request-display-mode",
+            "ui/open-link",
+            "ui/download-file",
+            "ui/message",
+            "ui/update-model-context",
+            "tools/list",
+            "tools/call",
+            "resources/list",
+            "resources/templates/list",
+            "resources/read"
+          ]
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "result": {}
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "data": {}
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

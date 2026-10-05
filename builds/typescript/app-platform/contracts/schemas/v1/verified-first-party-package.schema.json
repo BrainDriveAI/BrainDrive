@@ -1,0 +1,521 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/verified-first-party-package.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "verified_package_version": {
+      "type": "number",
+      "const": 1
+    },
+    "source_entry": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+        },
+        "publisher_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 96,
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+        },
+        "package_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "descriptor_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "archive_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "source_id",
+        "app_id",
+        "publisher_id",
+        "package_version",
+        "descriptor_digest",
+        "archive_digest"
+      ],
+      "additionalProperties": false
+    },
+    "descriptor": {
+      "type": "object",
+      "properties": {
+        "descriptor_version": {
+          "type": "number",
+          "const": 2
+        },
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "manifest_version": {
+              "type": "number",
+              "const": 2
+            },
+            "app_id": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+            },
+            "publisher_id": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 96,
+              "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+            },
+            "package_version": {
+              "type": "string",
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+            },
+            "catalog": {
+              "type": "object",
+              "properties": {
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "icon": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "package_path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512
+                        },
+                        "media_type": {
+                          "type": "string",
+                          "enum": [
+                            "image/png",
+                            "image/webp"
+                          ]
+                        },
+                        "content_digest": {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        }
+                      },
+                      "required": [
+                        "package_path",
+                        "media_type",
+                        "content_digest"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "retention_summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "display_name",
+                "summary",
+                "icon",
+                "retention_summary"
+              ],
+              "additionalProperties": false
+            },
+            "archive": {
+              "type": "object",
+              "properties": {
+                "format": {
+                  "type": "string",
+                  "const": "zip"
+                },
+                "profile": {
+                  "type": "string",
+                  "const": "braindrive-zip-v1"
+                },
+                "compression": {
+                  "type": "string",
+                  "const": "store"
+                },
+                "layout_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "manifest_path": {
+                  "type": "string",
+                  "const": "manifest.json"
+                },
+                "undeclared_entries": {
+                  "type": "string",
+                  "const": "reject"
+                },
+                "links_and_device_nodes": {
+                  "type": "string",
+                  "const": "reject"
+                },
+                "max_file_count": {
+                  "type": "number",
+                  "const": 256
+                },
+                "max_compressed_bytes": {
+                  "type": "number",
+                  "const": 67108864
+                },
+                "max_uncompressed_bytes": {
+                  "type": "number",
+                  "const": 268435456
+                }
+              },
+              "required": [
+                "format",
+                "profile",
+                "compression",
+                "layout_version",
+                "manifest_path",
+                "undeclared_entries",
+                "links_and_device_nodes",
+                "max_file_count",
+                "max_compressed_bytes",
+                "max_uncompressed_bytes"
+              ],
+              "additionalProperties": false
+            },
+            "files": {
+              "minItems": 3,
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "file"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "read_only",
+                      "executable"
+                    ]
+                  },
+                  "size_bytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 268435456
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "path",
+                  "kind",
+                  "mode",
+                  "size_bytes",
+                  "digest"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "platform_artifacts": {
+              "minItems": 2,
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "enum": [
+                      "docker_linux_x64",
+                      "desktop_windows_x64"
+                    ]
+                  },
+                  "os": {
+                    "type": "string",
+                    "enum": [
+                      "linux",
+                      "windows"
+                    ]
+                  },
+                  "architecture": {
+                    "type": "string",
+                    "const": "x64"
+                  },
+                  "runtime_kind": {
+                    "type": "string",
+                    "const": "packaged_node"
+                  },
+                  "entrypoint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  }
+                },
+                "required": [
+                  "target",
+                  "os",
+                  "architecture",
+                  "runtime_kind",
+                  "entrypoint"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "compatibility": {
+              "type": "object",
+              "properties": {
+                "app_contract": {
+                  "type": "number",
+                  "const": 1
+                },
+                "host_min_version": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+                },
+                "mcp_protocol": {
+                  "type": "string",
+                  "const": "2026-07-28"
+                },
+                "mcp_apps": {
+                  "type": "object",
+                  "properties": {
+                    "extension_id": {
+                      "type": "string",
+                      "const": "io.modelcontextprotocol/ui"
+                    },
+                    "version": {
+                      "type": "string",
+                      "const": "2026-01-26"
+                    }
+                  },
+                  "required": [
+                    "extension_id",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                },
+                "data_contract_version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "app_contract",
+                "host_min_version",
+                "mcp_protocol",
+                "mcp_apps",
+                "data_contract_version"
+              ],
+              "additionalProperties": false
+            },
+            "primary_resource": {
+              "type": "object",
+              "properties": {
+                "resource_version": {
+                  "type": "number",
+                  "const": 1
+                },
+                "uri": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "pattern": "^ui:\\/\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/[a-z0-9][a-z0-9._/-]*$"
+                },
+                "package_path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "mime_type": {
+                  "type": "string",
+                  "const": "text/html;profile=mcp-app"
+                },
+                "content_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "resource_version",
+                "uri",
+                "package_path",
+                "mime_type",
+                "content_digest"
+              ],
+              "additionalProperties": false
+            },
+            "requested_capabilities": {
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 128,
+                    "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "requested_inference_purposes": {
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "purpose_id": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 128,
+                    "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "purpose_id",
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "provenance_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "sbom_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retention_policy": {
+              "type": "string",
+              "const": "retain_owner_data_remove_runtime_authority"
+            }
+          },
+          "required": [
+            "manifest_version",
+            "app_id",
+            "publisher_id",
+            "package_version",
+            "catalog",
+            "archive",
+            "files",
+            "platform_artifacts",
+            "compatibility",
+            "primary_resource",
+            "requested_capabilities",
+            "requested_inference_purposes",
+            "provenance_path",
+            "sbom_path",
+            "retention_policy"
+          ],
+          "additionalProperties": false
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "archive_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "descriptor_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "descriptor_version",
+        "manifest",
+        "manifest_digest",
+        "archive_digest",
+        "descriptor_digest"
+      ],
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "verified"
+        },
+        "source_signature_valid": {
+          "type": "boolean",
+          "const": true
+        },
+        "descriptor_signature_valid": {
+          "type": "boolean",
+          "const": true
+        },
+        "archive_digest_valid": {
+          "type": "boolean",
+          "const": true
+        },
+        "manifest_digest_valid": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "status",
+        "source_signature_valid",
+        "descriptor_signature_valid",
+        "archive_digest_valid",
+        "manifest_digest_valid"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "verified_package_version",
+    "source_entry",
+    "descriptor",
+    "verification"
+  ],
+  "additionalProperties": false
+}

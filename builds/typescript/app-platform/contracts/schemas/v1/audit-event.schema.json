@@ -1,0 +1,1248 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/audit-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "event_version": {
+      "type": "number",
+      "const": 1
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "event_name": {
+      "type": "string",
+      "enum": [
+        "app.package.source_checked",
+        "app.package.verified",
+        "app.revocation.refreshed",
+        "app.revocation.enforced",
+        "app.lifecycle.transition_requested",
+        "app.lifecycle.transition_completed",
+        "app.lifecycle.reconciled",
+        "app.grant.changed",
+        "app.token.revoked",
+        "app.runtime.started",
+        "app.runtime.readiness_completed",
+        "app.runtime.health_changed",
+        "app.runtime.stopped",
+        "app.runtime.reconciled",
+        "app.mcp.negotiation_completed",
+        "app.mcp.resource_loaded",
+        "app.mcp.session_opened",
+        "app.mcp.bridge_decision",
+        "app.update.checkpoint_completed",
+        "app.cleanup.completed",
+        "app.capability.completed",
+        "app.resume_recovery.save",
+        "app.resume_recovery.restore",
+        "app.resume_recovery.discard",
+        "app.resume_recovery.conflict",
+        "app.resume_interview.question_selected",
+        "app.resume_interview.question_outcome",
+        "app.resume_remembered.match",
+        "app.resume_remembered.successor",
+        "app.resume_impact.analyzed",
+        "app.resume_comparison.completed",
+        "app.resume_revision.submitted",
+        "app.resume_revision.classified",
+        "app.resume_revision.proposed",
+        "app.resume_revision.outcome",
+        "app.inference.completed",
+        "app.export.completed",
+        "app.validation.completed",
+        "app.migration.completed",
+        "app.resume_coverage.transitioned",
+        "app.resume_opportunity.updated",
+        "app.resume_confirmation.grouped",
+        "app.resume_strategy.completed",
+        "app.resume_target_fit.completed",
+        "app.resume_craft.evaluated",
+        "app.resume_craft.repaired",
+        "app.resume_parity.checked"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "actor_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "owner_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "publisher_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "package_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "installation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "connection_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "view_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "career.context.read",
+            "career.facts.read",
+            "career.facts.propose",
+            "career.facts.confirm",
+            "resume.definitions.read",
+            "resume.definitions.write",
+            "resume.jobs.read",
+            "resume.jobs.write",
+            "resume.artifacts.register",
+            "resume.export.request",
+            "resume.operations.read",
+            "app.inference.request"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability_version": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "grant_revision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revocation_generation": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "idempotency_decision": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "created",
+            "resumed",
+            "reused",
+            "conflict"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_category": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "input_revision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "denied",
+        "committed",
+        "cancelled",
+        "conflict",
+        "failed",
+        "quarantined"
+      ]
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "duration_ms": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "item_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_dimension": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "responsibilities",
+            "tools",
+            "accomplishments",
+            "outcomes",
+            "scope",
+            "progression"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selection_method": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "deterministic_gap",
+            "broker_ranked",
+            "deterministic_value"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "question_outcome": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "answered",
+            "skipped",
+            "unknown",
+            "not_applicable",
+            "complete_for_now"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "match_method": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "explicit_revision",
+            "exact_label",
+            "none"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "matched",
+            "ambiguous",
+            "none"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fact_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "change_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "variant_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "left_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "right_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "left_definition_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "right_definition_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comparison_relation": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "identical",
+            "related",
+            "unrelated"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comparison_result": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "added_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "removed_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changed_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "moved_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_change_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_classification": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "presentation",
+            "factual",
+            "mixed",
+            "ambiguous"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "clarification_needed",
+            "awaiting_confirmation",
+            "generating",
+            "proposed",
+            "accepted",
+            "edited",
+            "rejected",
+            "regenerate",
+            "failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_scope": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "statement",
+            "section",
+            "resume"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "unanswered",
+            "answered",
+            "unknown",
+            "not_applicable",
+            "skipped",
+            "deferred",
+            "conflicting"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "opportunity_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "opportunity_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "available",
+            "suppressed",
+            "resolved",
+            "reopened"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "suppression_reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "owner_declined",
+            "already_known",
+            "duplicate",
+            "low_value"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "strategy_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "strategy_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parity_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parity_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fit_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "meaningfully_supported",
+            "partially_supported_transferable",
+            "lacking_supported_core_fit"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "used_evidence_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "omitted_evidence_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "omission_reason_categories": {
+      "maxItems": 7,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "redundant",
+          "low_relevance",
+          "space",
+          "older_context",
+          "owner_direction",
+          "structural_mismatch",
+          "conflict"
+        ]
+      }
+    },
+    "unresolved_gap_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "history_shape": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "chronological_standard",
+            "early_career",
+            "senior_selective",
+            "career_change",
+            "return_to_work",
+            "concurrent_roles"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "finding_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "criterion": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C6",
+            "C7",
+            "T1",
+            "T2",
+            "T3"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "correction_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "specificity",
+            "duty_only",
+            "generic_language",
+            "redundancy",
+            "density",
+            "organization",
+            "target_relevance"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "correction_action": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "repair_statement",
+            "add_evidence",
+            "manual_revision",
+            "keep_prior_or_exit"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "correction_transition": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "needs_correction_to_product_craft_passed",
+            "needs_correction_preserved"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recovery_reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "validation_rejected",
+            "full_gate_regression",
+            "provider_failure",
+            "schema_failure",
+            "persistence_failure",
+            "cancelled"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "repair_result": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "completed",
+            "rejected",
+            "failed",
+            "cancelled"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_context": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "standard",
+            "evidence_limited"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_report_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "successor_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "successor_report_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "input_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "output_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confirmation_group_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confirmation_unit_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "redundant_confirmation_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_fact_dialog_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "final_approval_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "interaction_budget_status": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "semantic_pass_numeric_gate_blocked",
+            "semantic_failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timing_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "automation",
+            "human"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "event_version",
+    "event_id",
+    "event_name",
+    "occurred_at",
+    "correlation_id",
+    "actor_id",
+    "owner_id",
+    "app_id",
+    "publisher_id",
+    "package_digest",
+    "installation_id",
+    "operation_id",
+    "capability",
+    "target_category",
+    "target_id",
+    "input_revision",
+    "outcome",
+    "error_code",
+    "schema_version",
+    "duration_ms",
+    "item_count"
+  ],
+  "additionalProperties": false
+}

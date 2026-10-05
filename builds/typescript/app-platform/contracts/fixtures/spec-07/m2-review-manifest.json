@@ -1,0 +1,42 @@
+{
+  "manifest_version": 1,
+  "authority_status": "review_only_pending_accepted_spec_and_test_plan",
+  "scope": "Spec 07 Milestone 2 evidence coverage, opportunity ranking, and confirmation semantics",
+  "governing_documents": [
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-implementation-plan.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-prompt-pack.md",
+    "AGENTS.md",
+    "docs/developers/catalog.json",
+    "docs/developers/verification.md"
+  ],
+  "requirements": [
+    "RB7-REQ-001-009",
+    "RB7-REQ-027-029",
+    "RB7-REQ-043-044",
+    "RB7-UX-001-006",
+    "RB7-OBS-001-002",
+    "RB7-SEC-001",
+    "RB7-INV-002",
+    "RB7-INV-004-006"
+  ],
+  "implementation": [
+    "builds/resume_builder/src/opportunities.ts",
+    "builds/resume_builder/resources/main.html",
+    "builds/typescript/resume-domain/service.ts",
+    "builds/typescript/resume-domain/capabilities.ts",
+    "builds/typescript/resume-inference/snapshot.ts",
+    "builds/typescript/resume-inference/results.ts",
+    "builds/typescript/client_web/src/components/apps/SandboxedAppFrame.tsx"
+  ],
+  "verification": [
+    "builds/resume_builder/test/opportunities.test.ts",
+    "builds/resume_builder/test/ui-resource.test.ts",
+    "builds/typescript/resume-domain/evidence-coverage.test.ts",
+    "builds/typescript/resume-domain/capabilities.test.ts",
+    "builds/typescript/app-platform/mcp-host/data-capability-bridge.test.ts",
+    "builds/typescript/resume-inference/validators.test.ts",
+    "builds/typescript/client_web/e2e/resume-builder.spec.ts"
+  ],
+  "excluded_milestones": ["M3", "M4", "M5", "M6", "M7", "M8"]
+}

@@ -1,0 +1,23 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-inference-purpose-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "purpose_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 65535
+    }
+  },
+  "required": [
+    "purpose_id",
+    "version"
+  ],
+  "additionalProperties": false
+}

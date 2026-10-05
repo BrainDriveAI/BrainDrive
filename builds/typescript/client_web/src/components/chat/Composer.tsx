@@ -13,6 +13,7 @@ type ComposerProps = {
   isStreaming?: boolean;
   layout?: "inline" | "mobile-fixed";
   onHeightChange?: (height: number) => void;
+  placeholder?: string;
 };
 
 const MAX_TEXTAREA_HEIGHT = 120;
@@ -27,7 +28,8 @@ export default function Composer({
   onStop,
   isStreaming = false,
   layout = "inline",
-  onHeightChange
+  onHeightChange,
+  placeholder = "Message your BrainDrive..."
 }: ComposerProps) {
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -121,7 +123,7 @@ export default function Composer({
             rows={1}
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message your BrainDrive..."
+            placeholder={placeholder}
             className="max-h-[120px] min-h-[36px] flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-2 text-base text-bd-text-primary outline-none placeholder:text-bd-text-muted md:text-[15px]"
           />
 

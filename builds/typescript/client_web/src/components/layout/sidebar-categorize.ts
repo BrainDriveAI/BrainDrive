@@ -65,6 +65,10 @@ function toFileItem(file: ProjectFile, projectId: string): SidebarFileItem {
 }
 
 function withFileBadge(item: SidebarFileItem): SidebarFileItem {
+  if (item.file.sourceType === "app_published") {
+    return { ...item, badge: "Published" };
+  }
+
   if (/(^|\/)reports\//i.test(item.canonicalPath)) {
     return { ...item, badge: canonicalFileName(item.file) === "latest.md" ? "Generated" : "Report" };
   }

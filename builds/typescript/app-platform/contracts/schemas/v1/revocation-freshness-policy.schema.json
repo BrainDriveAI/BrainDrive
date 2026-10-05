@@ -1,0 +1,40 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/revocation-freshness-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "refresh_interval_seconds": {
+      "type": "number",
+      "const": 3600
+    },
+    "stale_after_seconds": {
+      "type": "number",
+      "const": 86400
+    },
+    "stale_without_explicit_match": {
+      "type": "string",
+      "const": "allow_verified_local_with_diagnostic"
+    },
+    "explicit_match": {
+      "type": "string",
+      "const": "fail_closed_and_quarantine"
+    },
+    "cache_update": {
+      "type": "string",
+      "const": "verified_monotonic_only"
+    }
+  },
+  "required": [
+    "policy_version",
+    "refresh_interval_seconds",
+    "stale_after_seconds",
+    "stale_without_explicit_match",
+    "explicit_match",
+    "cache_update"
+  ],
+  "additionalProperties": false
+}

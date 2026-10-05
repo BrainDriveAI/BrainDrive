@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { Preferences } from "../contracts.js";
 import { commitMemoryChange, ensureGitReady } from "../git.js";
+import { validateResumeDataTransfer } from "../resume-domain/lifecycle.js";
 import {
   checkoutBackupCommit,
   cloneBackupBranch,
@@ -45,12 +46,14 @@ export async function restoreMemoryBackup(
 
     await stageMemorySnapshot(cloneRoot, stageRoot);
     await validateStagedMemoryLayout(stageRoot);
+    await validateResumeDataTransfer(stageRoot);
 
     await mkdir(memoryRoot, { recursive: true });
     await cp(memoryRoot, rollbackRoot, { recursive: true, force: true });
 
     try {
       await replaceMemoryContents(memoryRoot, stageRoot);
+      await validateResumeDataTransfer(memoryRoot);
       await ensureGitReady(memoryRoot);
       await commitMemoryChange(memoryRoot, `Restore memory backup snapshot ${restoredCommit}`);
     } catch (error) {

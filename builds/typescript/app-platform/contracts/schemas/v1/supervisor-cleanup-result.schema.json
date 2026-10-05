@@ -1,0 +1,87 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/supervisor-cleanup-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "supervisor_protocol_version": {
+      "type": "number",
+      "const": 1
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "installation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "no_orphans",
+        "cleaned",
+        "ambiguous",
+        "failed"
+      ]
+    },
+    "cleaned_runtime_ids": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "remaining_runtime_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "registration_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "tokens_revoked": {
+      "type": "boolean"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "descriptor_invalid",
+            "runtime_conflict",
+            "start_failed",
+            "readiness_failed",
+            "health_failed",
+            "registration_failed",
+            "stop_timeout",
+            "ambiguous_runtime_state",
+            "restart_exhausted",
+            "token_revocation_failed",
+            "orphan_cleanup_failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "supervisor_protocol_version",
+    "operation_id",
+    "installation_id",
+    "outcome",
+    "cleaned_runtime_ids",
+    "remaining_runtime_count",
+    "registration_count",
+    "tokens_revoked",
+    "error_code"
+  ],
+  "additionalProperties": false
+}

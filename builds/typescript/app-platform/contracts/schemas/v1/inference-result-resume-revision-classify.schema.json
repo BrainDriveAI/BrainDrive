@@ -1,0 +1,105 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/inference-result-resume-revision-classify.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "classification": {
+      "type": "string",
+      "enum": [
+        "presentation",
+        "factual",
+        "mixed",
+        "ambiguous"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "statement",
+            "section",
+            "resume"
+          ]
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "scope",
+        "target_id"
+      ],
+      "additionalProperties": false
+    },
+    "clarification": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proposed_fact_changes": {
+      "maxItems": 25,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fact_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "change_kind": {
+            "type": "string",
+            "enum": [
+              "add",
+              "correct",
+              "remove"
+            ]
+          },
+          "owner_visible_summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "fact_revision_id",
+          "change_kind",
+          "owner_visible_summary"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "classification",
+    "target",
+    "clarification",
+    "proposed_fact_changes"
+  ],
+  "additionalProperties": false
+}

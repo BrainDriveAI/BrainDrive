@@ -1,0 +1,18 @@
+{
+  "decision_manifest_version": 1,
+  "accepted_by": "DJJones",
+  "accepted_at": "2026-08-07",
+  "decisions": [
+    { "id": "OQ-1", "owner": "mcp-owner", "decision": "Pin split MCP v2 client/core/server/node 2.0.0, legacy SDK 1.30.0, ext-apps 1.7.5, and conformance 0.2.0-alpha.11.", "rationale": "A loopback spike proved exact modern stateless and bounded legacy negotiation; normative dates remain protocol authority." },
+    { "id": "OQ-2", "owner": "web-security-owner", "decision": "Use a dedicated web-client double-iframe sandbox proxy with no direct Tauri authority.", "rationale": "This gives app content an opaque origin and keeps privileged operations behind authenticated host brokers." },
+    { "id": "OQ-3", "owner": "inference-owner", "decision": "Use version-1 typed messages/context/schema/stream/cancel/intent/budget contracts with host-selected provider and no tools or fallback.", "rationale": "Apps need stable structured inference without credentials or internal provider objects." },
+    { "id": "OQ-4", "owner": "runtime-owner", "decision": "Limit each active installation to 1 CPU, 512 MiB, 1 MiB output, 120 second requests, 30 second startup, and 3 restarts at 1/2/4 seconds.", "rationale": "These bounded ceilings match accepted Spec 04 supervision policy and require owner retry after exhaustion." },
+    { "id": "OQ-5", "owner": "desktop-release-owner", "decision": "Ship verified compiled JavaScript on BrainDrive's packaged Node runtime behind a runtime-neutral supervisor.", "rationale": "This reuses the existing packaged runtime while keeping the control contract portable." },
+    { "id": "OQ-6", "owner": "project-owner", "decision": "Close the MVP feature matrix; reject Sampling and defer prompts/completions, OAuth, stdio, subscriptions, Tasks, and elicitation.", "rationale": "No accepted Resume Builder story needs those facilities." },
+    { "id": "OQ-7", "owner": "desktop-release-owner", "decision": "Require Docker dev and claim native Windows first; keep macOS and Linux configured but unclaimed.", "rationale": "Only selected targets with ground-truth release evidence may be claimed." }
+  ],
+  "repository_discrepancies": [
+    { "id": "RD-1", "decision": "Treat MCP 2026-07-28 as stateless: no initialize/initialized exchange or Mcp-Session-Id; logical host connection IDs remain local authorization/cache identities.", "owner": "mcp-owner" },
+    { "id": "RD-2", "decision": "Do not invent the missing builds/mcp_release test:integration entrypoint; use its existing test and build commands and record live conformance separately.", "owner": "verification-owner" }
+  ]
+}

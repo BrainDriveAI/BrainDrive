@@ -70,7 +70,6 @@ capture_command "${BUNDLE_DIR}/metadata/docker-version.txt" docker version
 capture_command "${BUNDLE_DIR}/metadata/docker-compose-version.txt" docker compose version
 capture_command "${BUNDLE_DIR}/metadata/compose-ps.txt" docker compose -f "${COMPOSE_FILE}" ps
 capture_command "${BUNDLE_DIR}/metadata/compose-config-services.txt" docker compose -f "${COMPOSE_FILE}" config --services
-capture_command "${BUNDLE_DIR}/metadata/compose-config-rendered.txt" docker compose -f "${COMPOSE_FILE}" config
 
 SERVICES=()
 while IFS= read -r service_name; do
@@ -137,6 +136,11 @@ redact_file() {
       s/\bsk-[A-Za-z0-9_-]{8,}\b/[REDACTED]/g;
       s/((?:api[_-]?key|token|password|secret|authorization)\s*[:=]\s*)(\"[^\"]*\"|[^,\s}]+)/$1[REDACTED]/gi;
       s/-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/[REDACTED]/g;
+      s{/data/memory(?:/[^\s\"",\]]*)?}{[MEMORY_ROOT]}g;
+      s{/data/app-platform(?:/[^\s\"",\]]*)?}{[APP_STATE_ROOT]}g;
+      s{/run/paa-secrets(?:/[^\s\"",\]]*)?}{[SECRETS_ROOT]}g;
+      s{/(?:home|Users)/[^/\s\"",]+(?:/[^\s\"",\]]*)?}{[HOST_PATH]}g;
+      s{\b[A-Za-z]:\\Users\\[^\\\s\"",]+(?:\\[^\s\"",\]]*)?}{[HOST_PATH]}g;
     ' "${file_path}" > "${tmp_file}"
   else
     sed -E \
@@ -146,6 +150,10 @@ redact_file() {
       -e 's/(token[[:space:]]*[:=][[:space:]]*)[^",[:space:]}]+/\1[REDACTED]/g' \
       -e 's/(password[[:space:]]*[:=][[:space:]]*)[^",[:space:]}]+/\1[REDACTED]/g' \
       -e 's/(secret[[:space:]]*[:=][[:space:]]*)[^",[:space:]}]+/\1[REDACTED]/g' \
+      -e 's#/data/memory[^",[:space:]}]*#[MEMORY_ROOT]#g' \
+      -e 's#/data/app-platform[^",[:space:]}]*#[APP_STATE_ROOT]#g' \
+      -e 's#/run/paa-secrets[^",[:space:]}]*#[SECRETS_ROOT]#g' \
+      -e 's#/(home|Users)/[^/[:space:]]+[^",[:space:]}]*#[HOST_PATH]#g' \
       "${file_path}" > "${tmp_file}"
   fi
 
