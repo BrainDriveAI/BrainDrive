@@ -13,8 +13,8 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 | Phase | Name | What It Delivers | Status |
 |-------|------|-----------------|--------|
 | **1** | **Own** | An AI system you own and run | **Complete** |
-| **2** | **Benefit** | An AI that helps you define and reach your goals | **In Progress** |
-| **3** | **Connect** | An AI that acts in the world on your behalf | Vision |
+| **2** | **Benefit** | An AI that helps you define and reach your goals | **Complete** |
+| **3** | **Connect** | An AI that acts in the world on your behalf | **In Progress** |
 | **4** | **Earn** | An AI that creates with you and captures value for you | Vision |
 | **5** | **Decentralize** | An ecosystem that doesn't depend on any single company | Vision |
 
@@ -33,7 +33,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 ---
 
-## Phase 2: Benefit (In Progress)
+## Phase 2: Benefit (Complete)
 
 > Make your AI system so useful for managing your life that you can't imagine going back.
 
@@ -49,7 +49,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 **And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
 
-**Where we are right now.** BrainDrive can already get to know you and help you make a plan. We're now building the parts that help you execute on the plan and let changes in one area ripple into the related ones.
+**What shipped.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Helping you carry out the plan — to-dos, tasks, and other actions — is Phase 3.
 
 **Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
 
@@ -57,11 +57,13 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 ---
 
-## Phase 3: Connect (Vision)
+## Phase 3: Connect (In Progress)
 
 > Give your BrainDrive the ability to act in the world on your behalf.
 
 Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
+
+**Where we are right now.** Phase 3 starts with apps: focused tools that run inside your BrainDrive and work from what it already knows about you. The first is Resume Builder.
 
 - **General computer agency** — your BrainDrive uses browsers, apps, and interfaces the way you do
 - **Systems come to you** — your BrainDrive already knows you, so the systems come to it
