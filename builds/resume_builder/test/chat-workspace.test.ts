@@ -292,7 +292,7 @@ describe("Resume Builder chat workspace contract", () => {
       null,
       "career.facts.propose",
       "career.facts.confirm",
-      "resume.definitions.write",
+      null,
       "resume.definitions.write",
       "resume.export.request",
       "resume.operations.read",

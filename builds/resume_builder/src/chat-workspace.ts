@@ -130,7 +130,7 @@ export const RESUME_CHAT_ACTIONS = [
   {
     actionId: "resume.profile.update",
     kind: "write",
-    capability: "resume.definitions.write",
+    capability: null,
     inputSchemaId: "resume.profile.update.input.v1",
     resultSchemaId: "resume.profile.update.result.v1",
     idempotencyPolicy: "required",

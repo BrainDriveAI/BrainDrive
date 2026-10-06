@@ -17,6 +17,7 @@ import { AppInferenceDispatcher } from "../../app-inference/dispatcher.js";
 import { AppInferencePurposeRegistry } from "../../app-inference/registry.js";
 import { createBriefInferencePurposeRegistration } from "../../app-inference/brief-registration.js";
 import { InstalledAppInferenceExecutor } from "../../app-inference/installed-program.js";
+import { validateJsonValueAgainstActionSchema } from "./app-chat-model.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import type { StructuredCompletionRequest } from "../../adapters/base.js";
 import { createInstalledResumeE2eFixtureProvider } from "../../resume-inference/e2e-fixture.js";
@@ -365,6 +366,15 @@ describe("live signed modern MCP Apps fixture", () => {
         "resume.export.pdf.request",
         "resume.state.read",
       ]);
+      // FR-HIDDEN-1: Profile Update is document-only, so the packaged descriptor declares no domain capability
+      // and its result must be a document mutation result, not {} or a Resume-domain capability result.
+      const profileUpdate = (launch.workspace.actions as Array<{ action_id: string; required_capabilities: unknown[]; result_schema: { schema: Record<string, unknown> } }>)
+        .find((action) => action.action_id === "resume.profile.update")!;
+      expect(profileUpdate.required_capabilities).toEqual([]);
+      expect(profileUpdate.result_schema.schema.required).toEqual(["result_version", "record", "audit"]);
+      expect(validateJsonValueAgainstActionSchema({}, profileUpdate.result_schema.schema)).not.toEqual([]);
+      expect(validateJsonValueAgainstActionSchema({ progress: { record_type: "interview_progress" }, status: "ok" }, profileUpdate.result_schema.schema)).not.toEqual([]);
+      expect(validateJsonValueAgainstActionSchema({ result_version: 1, record: {}, audit: {} }, profileUpdate.result_schema.schema)).toEqual([]);
       expect(actions.find((action) => action.action_id === "resume.export.pdf.request")).toMatchObject({
         title: "Export PDF",
         model_exposure: "hidden",
