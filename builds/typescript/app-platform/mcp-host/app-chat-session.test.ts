@@ -107,6 +107,19 @@ function capabilityResultSchema(): Record<string, unknown> {
   };
 }
 
+function documentMutationResultSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      record: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      audit: { type: "object", additionalProperties: true, properties: {}, required: [] },
+    },
+    required: ["result_version", "record", "audit"],
+  };
+}
+
 function resumeCreateResultSchema(): Record<string, unknown> {
   const base = capabilityResultSchema();
   return {
@@ -2164,11 +2177,11 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Update Resume Profile",
           description: "Update profile.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), documentMutationResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
-          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
+          required_capabilities: [],
           required_inference_purposes: [],
         },
         {
@@ -2219,22 +2232,11 @@ describe("app-chat workspace session authority", () => {
       idempotency_key: `rbjc-dispatch-${createOperationId}`,
     }, "owner");
 
+    // FR-HIDDEN-1: the Profile update is a document write only; the first domain write is Create Resume.
+    expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(router.execute).mock.calls.some(([, input]) => (input as { kind?: string }).kind === "interview_progress")).toBe(false);
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
       1,
-      "resume.definitions.write",
-      expect.objectContaining({
-        kind: "interview_progress",
-        progress: expect.objectContaining({
-          current_topic: null,
-          completed_topics: [],
-          skipped_topics: [],
-          audit_turn: expect.objectContaining({ answer: "# Resume Profile\n\nMaya Torres profile" }),
-        }),
-      }),
-      expect.objectContaining({ viewId: launch.session.view_id }),
-    );
-    expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
-      2,
       "resume.definitions.write",
       expect.objectContaining({
         definition_kind: "general",
@@ -2246,6 +2248,44 @@ describe("app-chat workspace session authority", () => {
       }),
       expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
     );
+  });
+
+  it("runs Profile Update with no Resume-domain capability grant and never touches the domain (FR-HIDDEN-1)", async () => {
+    const router = fakeRouter({ definition: { metadata: { revision_id: randomUUID() } }, reused: false });
+    const { host } = await setup({
+      router,
+      clientFactory: resumePlannerClientFactory,
+      requestedCapabilities: ["career.context.read"],
+      documents: resumePlannerDocuments(),
+      actions: [
+        {
+          action_version: 1,
+          action_id: "resume.profile.update",
+          kind: "write",
+          title: "Update Resume Profile",
+          description: "Update profile.",
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), documentMutationResultSchema()),
+          confirmation: "none",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [],
+          required_inference_purposes: [],
+        },
+      ],
+    });
+    const launch = await host.launchChatWorkspace();
+    const operationId = randomUUID();
+    const result = await host.executeAppChatAction(launch.session.session_id, "resume.profile.update", {
+      action_input: { profile_markdown: "# Resume Profile\n\nMaya Torres profile" },
+      owner_confirmed: false,
+      operation_id: operationId,
+      idempotency_key: `profile-no-domain-grant-${operationId}`,
+    }, "owner");
+    expect(result.result).toMatchObject({ result_version: 1, record: { document_id: "resume.profile" }, audit: expect.any(Object) });
+    expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
+    await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
+      record: { content: expect.stringContaining("Maya Torres profile") },
+    });
   });
 
   it("returns a missing-essentials action result for sparse Resume Builder chat create actions", async () => {
@@ -2262,11 +2302,11 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Update Resume Profile",
           description: "Update profile.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), documentMutationResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
-          required_capabilities: [{ name: "resume.definitions.write", version: 1 }],
+          required_capabilities: [],
           required_inference_purposes: [],
         },
         {

@@ -653,6 +653,20 @@ function capabilityResultSchema(): Record<string, unknown> {
   };
 }
 
+function documentMutationResultSchema(): Record<string, unknown> {
+  // Mirrors AppDocumentStorageMutationResultSchema: a document write result and nothing else.
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      result_version: { type: "number", enum: [1] },
+      record: { type: "object", additionalProperties: true, properties: {}, required: [] },
+      audit: { type: "object", additionalProperties: true, properties: {}, required: [] },
+    },
+    required: ["result_version", "record", "audit"],
+  };
+}
+
 function resumeCreateResultSchema(): Record<string, unknown> {
   const base = capabilityResultSchema();
   return {
@@ -734,7 +748,7 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           document_id: "resume.profile",
           role: "source_document",
           title: "Your Resume Profile",
-          description: "Reviewed resume source profile built from Resume-domain records.",
+          description: "Reviewed resume source profile, stored as an app-owned document.",
           editable: true,
           default_visibility: "primary",
           model_access: "read_write_draft",
@@ -916,12 +930,14 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_id: "resume.profile.update",
           kind: "write",
           title: "Update Resume Profile",
-          description: "Write app-owned Resume Profile progress through Resume-domain records.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          description: "Write the owner-reviewed Resume Profile to the app-owned resume.profile document.",
+          // The Profile update is a single resume.profile document write (FR-HIDDEN-1), so its result is the app document write result.
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), documentMutationResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
-          required_capabilities: [cap("resume.definitions.write")],
+          // Document-only action (FR-HIDDEN-1): no Resume-domain capability or grant is required.
+          required_capabilities: [],
           required_inference_purposes: [],
         },
         {

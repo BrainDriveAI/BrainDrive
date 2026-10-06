@@ -268,13 +268,16 @@ describe("Resume Builder-owned General draft inference program", () => {
       action_plan_version: 1,
       action_id: "resume.profile.update",
       steps: [
-        { type: "capability.call", capability: "resume.definitions.write", owner_confirmation: "none" },
-        { type: "document.write", document_id: "resume.profile", media_type: "text/markdown" },
+        { step_id: "write-profile-document", type: "document.write", document_id: "resume.profile", media_type: "text/markdown" },
       ],
+      final_result: { kind: "step_result", step_id: "write-profile-document" },
     });
+    // FR-HIDDEN-1 (forum t/356/95): the Profile is only the document. No capability step, no
+    // resume.definitions.write, and no interview_progress/interview_turn duplicate record.
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps.filter((step: { type: string }) => step.type === "capability.call")).toEqual([]);
+    expect(JSON.stringify(plan)).not.toMatch(/resume\.definitions\.write|interview_progress|interview_turn|audit_turn|resume_profile"/);
     expect(JSON.stringify(plan)).not.toMatch(/Bearer|authorization|credential|secret|\/home\//i);
-    // FR-HIDDEN-1: no default or derived interview topic state is written from the chat path.
-    expect(plan.steps[0].input.progress).toMatchObject({ current_topic: null, completed_topics: [], skipped_topics: [] });
   });
 
   it("plans document reads and Career memory actions without host-specific action semantics", () => {

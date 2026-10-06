@@ -18,7 +18,6 @@ import {
   RESUME_STRUCTURED_RESOURCE_URI,
   buildResumeCreateCapabilityInput,
   buildResumeProfileReadCapabilityInput,
-  buildResumeProfileUpdateCapabilityInput,
   describeResumeChatStateConvergence,
   describeResumeExportMediation,
   planResumeAction,
@@ -293,7 +292,7 @@ describe("Resume Builder chat workspace contract", () => {
       null,
       "career.facts.propose",
       "career.facts.confirm",
-      "resume.definitions.write",
+      null,
       "resume.definitions.write",
       "resume.export.request",
       "resume.operations.read",
@@ -315,6 +314,37 @@ describe("Resume Builder chat workspace contract", () => {
     });
     expect((schema.properties as Record<string, unknown>)).not.toHaveProperty("resume_markdown");
     expect((schema.properties as Record<string, unknown>)).not.toHaveProperty("sections");
+  });
+
+  it("plans the Profile update as a single resume.profile document write in source and shipped planners (FR-HIDDEN-1)", async () => {
+    const shipped = await import("../resources/inference-program.js");
+    const request = {
+      action_planning_contract_version: 1,
+      action_id: "resume.profile.update",
+      action_input: { profile_markdown: "# Maya Torres\r\n\r\nProduct operations leader." },
+      operation_id: crypto.randomUUID(),
+      idempotency_key: "profile-update-single-document-write",
+      owner_confirmed: false,
+      occurred_at: "2026-10-01T12:00:00Z",
+      session: {
+        session_id: crypto.randomUUID(), view_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder", installation_id: crypto.randomUUID(),
+      },
+      documents: [],
+    };
+    const plans = [planResumeAction(request), shipped.planResumeAction(request)];
+    for (const plan of plans) {
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0]).toMatchObject({ step_id: "write-profile-document", type: "document.write", document_id: "resume.profile", media_type: "text/markdown" });
+      expect(plan.final_result).toEqual({ kind: "step_result", step_id: "write-profile-document" });
+      expect(JSON.stringify(plan)).not.toMatch(/resume\.definitions\.write|interview_progress|interview_turn|audit_turn|capability\.call/);
+    }
+    expect(plans[0]).toEqual(plans[1]);
+    // Read and Create still resolve the Profile from the document, never from a Resume-domain record.
+    const profileRequest = { ...request, action_id: "resume.profile.read", action_input: {} };
+    for (const planner of [planResumeAction, shipped.planResumeAction]) {
+      expect(planner(profileRequest).steps).toEqual([{ step_id: "read-profile-document", type: "document.read", document_id: "resume.profile" }]);
+    }
   });
 
   it("keeps source and shipped state-read planners limited to empty input", async () => {
@@ -340,26 +370,6 @@ describe("Resume Builder chat workspace contract", () => {
     const occurredAt = "2026-08-27T12:00:00.000Z";
 
     expect(buildResumeProfileReadCapabilityInput()).toEqual({});
-    expect(buildResumeProfileUpdateCapabilityInput({
-      profile_markdown: "Maya Torres profile",
-    }, { sessionId, turnId, occurredAt })).toMatchObject({
-      kind: "interview_progress",
-      progress: {
-        status: "review_needed",
-        current_topic: null,
-        completed_topics: [],
-        skipped_topics: [],
-        draft_state: "owner_reviewed",
-        session_id: sessionId,
-        audit_turn: {
-          turn_id: turnId,
-          session_id: sessionId,
-          answer: "Maya Torres profile",
-          occurred_at: occurredAt,
-        },
-      },
-    });
-
     expect(buildResumeCreateCapabilityInput({
       title: "Maya Torres - Director of Product Operations",
       resume_markdown: [

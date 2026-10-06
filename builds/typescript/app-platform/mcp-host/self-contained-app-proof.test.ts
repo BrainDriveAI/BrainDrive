@@ -338,28 +338,8 @@ describe("SCAF-007 self-contained installed app proof", () => {
       expect(await host.readAppDocument(launch.session.session_id, "resume.profile")).toEqual(profileBeforeRender);
       expect(await host.readAppDocument(launch.session.session_id, "resume.document")).toMatchObject({ record: { revision: 2 } });
       const calls = vi.mocked(router.execute).mock.calls;
-      expect(calls.at(-2)).toEqual([
-        "resume.definitions.write",
-        expect.objectContaining({
-          kind: "interview_progress",
-          progress: expect.objectContaining({
-            expected_revision: null,
-            status: "review_needed",
-            current_topic: null,
-            completed_topics: [],
-            skipped_topics: [],
-            draft_state: "owner_reviewed",
-            session_id: launch.session.session_id,
-            audit_turn: expect.objectContaining({
-              transcript_version: 1,
-              turn_id: profileOperationId,
-              session_id: launch.session.session_id,
-              answer: profileActionInput.profile_markdown,
-            }),
-          }),
-        }),
-        expect.objectContaining({ viewId: launch.session.view_id }),
-      ]);
+      // FR-HIDDEN-1: the Profile update writes only the document; it never writes an interview_progress record.
+      expect(calls.some(([, input]) => (input as { kind?: string }).kind === "interview_progress")).toBe(false);
       expect(calls.at(-1)).toEqual([
         "resume.definitions.write",
         expect.objectContaining({
