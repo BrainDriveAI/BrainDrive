@@ -916,8 +916,9 @@ function buildModernResumePresentations(files: Map<string, Buffer>): GenericPack
           action_id: "resume.profile.update",
           kind: "write",
           title: "Update Resume Profile",
-          description: "Write app-owned Resume Profile progress through Resume-domain records.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          description: "Write the owner-reviewed Resume Profile to the app-owned resume.profile document.",
+          // The Profile update is a single resume.profile document write (FR-HIDDEN-1), so its result is the app document write result.
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), resumeCreateResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",

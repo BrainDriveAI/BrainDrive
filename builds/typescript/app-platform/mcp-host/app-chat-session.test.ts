@@ -2164,7 +2164,7 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Update Resume Profile",
           description: "Update profile.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), resumeCreateResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",
@@ -2219,22 +2219,11 @@ describe("app-chat workspace session authority", () => {
       idempotency_key: `rbjc-dispatch-${createOperationId}`,
     }, "owner");
 
+    // FR-HIDDEN-1: the Profile update is a document write only; the first domain write is Create Resume.
+    expect(vi.mocked(router.execute)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(router.execute).mock.calls.some(([, input]) => (input as { kind?: string }).kind === "interview_progress")).toBe(false);
     expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
       1,
-      "resume.definitions.write",
-      expect.objectContaining({
-        kind: "interview_progress",
-        progress: expect.objectContaining({
-          current_topic: null,
-          completed_topics: [],
-          skipped_topics: [],
-          audit_turn: expect.objectContaining({ answer: "# Resume Profile\n\nMaya Torres profile" }),
-        }),
-      }),
-      expect.objectContaining({ viewId: launch.session.view_id }),
-    );
-    expect(vi.mocked(router.execute)).toHaveBeenNthCalledWith(
-      2,
       "resume.definitions.write",
       expect.objectContaining({
         definition_kind: "general",
@@ -2262,7 +2251,7 @@ describe("app-chat workspace session authority", () => {
           kind: "write",
           title: "Update Resume Profile",
           description: "Update profile.",
-          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema()),
+          ...actionSchemas("resume.profile.update.input.v1", "resume.profile.update.result.v1", profileUpdateInputSchema(), resumeCreateResultSchema()),
           confirmation: "none",
           idempotency_policy: "required",
           model_exposure: "available",

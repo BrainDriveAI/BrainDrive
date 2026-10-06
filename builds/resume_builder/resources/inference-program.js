@@ -337,10 +337,11 @@ export function planResumeAction(request, options = {}) {
     const input = request.action_input;
     if (!input || typeof input.profile_markdown !== "string" || !input.profile_markdown.trim()) throw new Error("resume_profile_markdown_required");
     const profileMarkdown = normalizeResumeMarkdown(input.profile_markdown);
+    // FR-HIDDEN-1: the Profile lives only in the resume.profile document. No Resume-domain
+    // interview_progress record (hidden interview state) is written for it.
     return actionPlan(request.action_id, [
-      capabilityStep("write-profile-capability", "resume.definitions.write", buildResumeProfileUpdateCapabilityInput({ ...input, profile_markdown: profileMarkdown }, context), "none"),
       documentWriteStep("write-profile-document", "resume.profile", profileMarkdown, "text/markdown", "durable_owner_data"),
-    ], "write-profile-capability");
+    ], "write-profile-document");
   }
   if (request.action_id === "resume.create") {
     const rawInput = isRecord(request.action_input) ? request.action_input : {};
@@ -428,35 +429,6 @@ export function planResumeAction(request, options = {}) {
     ]);
   }
   throw new Error("resume_action_unknown");
-}
-
-function buildResumeProfileUpdateCapabilityInput(input, context) {
-  return {
-    kind: "interview_progress",
-    progress: {
-      expected_revision: null,
-      status: "review_needed",
-      // FR-HIDDEN-1: the app keeps no interview topic state. The record schema still
-      // requires these fields, so they are written empty and never derived or defaulted.
-      current_topic: null,
-      completed_topics: [],
-      skipped_topics: [],
-      draft_state: "owner_reviewed",
-      session_id: context.sessionId,
-      audit_turn: {
-        transcript_version: 1,
-        turn_id: context.turnId,
-        session_id: context.sessionId,
-        prompt_version: "resume-builder-chat-profile-v1",
-        topic: "resume_profile",
-        question: "Capture the owner-reviewed Resume Profile from the app chat.",
-        answer: input.profile_markdown,
-        follow_up: null,
-        action: "answered",
-        occurred_at: context.occurredAt,
-      },
-    },
-  };
 }
 
 function buildResumeCreateCapabilityInput(input, context) {
