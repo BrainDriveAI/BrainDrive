@@ -261,6 +261,70 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("marks exactly one row current when a managed file's overlay is open", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="home"
+        selectedProject={{ id: "home", name: "Home", icon: "home", conversationId: null }}
+        projectFiles={[
+          { name: "garden/compare.md", path: "documents/home/garden/compare.md" },
+          { name: "garden/compare-user.md", path: "documents/home/garden/compare-user.md" }
+        ]}
+        activeFilePath="documents/home/garden/compare-user.md"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    const current = document.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("title", expect.stringContaining("compare-user"));
+  });
+
+  it("marks the managed row current when its unseeded overlay is open", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="home"
+        selectedProject={{ id: "home", name: "Home", icon: "home", conversationId: null }}
+        projectFiles={[{ name: "garden/compare.md", path: "documents/home/garden/compare.md" }]}
+        activeFilePath="documents/home/garden/compare-user.md"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    const current = document.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("title", expect.stringContaining("compare"));
+    expect(current[0]).not.toHaveAttribute("title", expect.stringContaining("compare-user"));
+  });
+
+  it("gives the open file item the active row treatment and no other file", () => {
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[
+          { name: "plan.md", path: "documents/finance/plan.md" },
+          { name: "notes.md", path: "documents/finance/notes.md" },
+        ]}
+        activeFilePath="documents/finance/notes.md"
+      />
+    );
+
+    const open = screen.getByRole("button", { name: /notes/i });
+    expect(open).toHaveAttribute("aria-current", "page");
+    expect(open).toHaveClass("border-l-2", "border-bd-amber", "bg-bd-bg-tertiary", "pl-[10px]");
+
+    const other = screen.getByRole("button", { name: /plan/i });
+    expect(other).not.toHaveAttribute("aria-current");
+    expect(other).not.toHaveClass("border-l-2");
+    expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
+  });
+
   it("does not show the document upload control in the project sidebar", () => {
     const { container } = render(
       <Sidebar
