@@ -228,6 +228,61 @@ describe("useGatewayChat", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("preserves the completed draft transcript when the parent adopts its conversation id", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "text-delta", delta: "Hello" },
+        { type: "done", finish_reason: "stop", conversation_id: "conv-promoted" },
+      ])
+    );
+
+    const rendered = renderHook(
+      ({ conversationId }: { conversationId: string | null }) =>
+        useGatewayChat({ conversationId, draftKey: "your-agent" }),
+      { initialProps: { conversationId: null as string | null } }
+    );
+
+    act(() => {
+      rendered.result.current.append("Hi");
+    });
+    await waitFor(() => expect(rendered.result.current.isLoading).toBe(false));
+
+    rendered.rerender({ conversationId: "conv-promoted" });
+
+    expect(rendered.result.current.messages).toEqual([
+      { id: "message-1", role: "user", content: "Hi" },
+      { id: "message-2", role: "assistant", content: "Hello" },
+    ]);
+    expect(rendered.result.current.conversationId).toBe("conv-promoted");
+  });
+
+  it("preserves a provider outage while the parent adopts the created conversation id", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "error", code: "provider_error", message: "Provider unavailable", conversation_id: "conv-error" },
+      ])
+    );
+
+    const rendered = renderHook(
+      ({ conversationId }: { conversationId: string | null }) =>
+        useGatewayChat({ conversationId, draftKey: "your-agent-error" }),
+      { initialProps: { conversationId: null as string | null } }
+    );
+
+    act(() => {
+      rendered.result.current.append("Hi");
+    });
+    await waitFor(() => expect(rendered.result.current.errorCode).toBe("provider_error"));
+
+    rendered.rerender({ conversationId: "conv-error" });
+
+    expect(rendered.result.current.error?.message).toBe("Provider unavailable");
+    expect(rendered.result.current.messages[0]).toMatchObject({
+      role: "user",
+      content: "Hi",
+    });
+  });
+
   it("marks text as incomplete when the stream closes without done", async () => {
     sendMessageMock.mockImplementation(() =>
       (async function* incompleteStream() {

@@ -125,6 +125,21 @@ describe("useProjects", () => {
     });
   });
 
+  it("adopts a server-created conversation immediately after the first turn", async () => {
+    const { result } = renderHook(() => useProjects());
+
+    await waitFor(() => {
+      expect(result.current.selectedProjectId).toBe("your-agent");
+      expect(result.current.activeConversationId).toBe("conv-plus-one");
+    });
+
+    act(() => {
+      result.current.setProjectConversation("your-agent", "conv-created");
+    });
+
+    expect(result.current.activeConversationId).toBe("conv-created");
+  });
+
   it("normalizes a legacy root agent project payload", async () => {
     listProjectsMock.mockResolvedValue([
       {

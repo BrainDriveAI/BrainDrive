@@ -8,6 +8,7 @@ import type { Project, ProjectFile } from "@/types/ui";
 const refreshProjectsMock = vi.fn();
 const refreshSelectedProjectFilesMock = vi.fn<() => Promise<ProjectFile[]>>();
 const selectProjectMock = vi.fn();
+const setProjectConversationMock = vi.fn();
 
 const projects: Project[] = [
   {
@@ -57,6 +58,7 @@ vi.mock("@/hooks/useProjects", () => ({
     deselectProject: vi.fn(),
     refreshProjects: refreshProjectsMock,
     refreshSelectedProjectFiles: refreshSelectedProjectFilesMock,
+    setProjectConversation: setProjectConversationMock,
     addProject: vi.fn(),
     removeProject: vi.fn(),
     renameProject: vi.fn(),
@@ -135,6 +137,7 @@ describe("AppShell project file refresh", () => {
     refreshSelectedProjectFilesMock.mockReset();
     refreshSelectedProjectFilesMock.mockResolvedValue([]);
     selectProjectMock.mockReset();
+    setProjectConversationMock.mockReset();
 
     vi.stubGlobal(
       "ResizeObserver",
@@ -157,6 +160,7 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Complete conversation" }));
 
     expect(refreshProjectsMock).toHaveBeenCalled();
+    expect(setProjectConversationMock).toHaveBeenCalledWith("finance", "conv-finance");
     await waitFor(() => {
       expect(refreshSelectedProjectFilesMock).toHaveBeenCalled();
     });

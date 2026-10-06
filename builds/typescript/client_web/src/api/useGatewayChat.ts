@@ -225,6 +225,20 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
     cacheKeyRef.current = cacheKey;
 
+    // A new conversation id can be the server-assigned id for the draft that
+    // just completed, rather than a user switching to another conversation.
+    // The native host adopts that id after the first turn. Preserve the live
+    // transcript and any terminal error while the parent changes its pointer;
+    // otherwise the promotion looks like a fresh conversation and clears the
+    // very state the owner needs to see.
+    const isDraftPromotion =
+      externalConversationId !== null &&
+      externalConversationId === conversationIdRef.current;
+    if (isDraftPromotion) {
+      backgroundStates.delete(prevKey);
+      return;
+    }
+
     // Restore from cache if available, otherwise use external props
     const restored = backgroundStates.get(cacheKey);
     if (restored) {

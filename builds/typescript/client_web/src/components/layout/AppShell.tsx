@@ -50,6 +50,7 @@ export default function AppShell({
     activeConversationId,
     selectProject,
     deselectProject,
+    setProjectConversation,
     refreshProjects,
     refreshSelectedProjectFiles,
     addProject,
@@ -203,7 +204,10 @@ export default function AppShell({
     setIsAppsOpen(true);
   }, []);
 
-  function handleConversationComplete() {
+  function handleConversationComplete(conversationId: string) {
+    if (selectedProjectId) {
+      setProjectConversation(selectedProjectId, conversationId);
+    }
     refreshProjects();
 
     if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) {

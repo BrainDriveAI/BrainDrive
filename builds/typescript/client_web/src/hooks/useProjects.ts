@@ -35,6 +35,7 @@ export function useProjects(): {
   filesError: Error | null;
   selectProject: (id: string) => void;
   deselectProject: () => void;
+  setProjectConversation: (projectId: string, conversationId: string) => void;
   refreshProjects: () => void;
   refreshSelectedProjectFiles: () => Promise<ProjectFile[]>;
   addProject: (name: string) => Promise<void>;
@@ -193,6 +194,15 @@ export function useProjects(): {
     selectProject(ROOT_AGENT_PROJECT_ID);
   }
 
+  function setProjectConversation(projectId: string, conversationId: string) {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === effectiveProjectId ? { ...project, conversationId } : project
+      )
+    );
+  }
+
   async function addProject(name: string) {
     const created = await apiCreateProject(name);
     refreshProjects();
@@ -237,6 +247,7 @@ export function useProjects(): {
     filesError,
     selectProject,
     deselectProject,
+    setProjectConversation,
     refreshProjects,
     refreshSelectedProjectFiles,
     addProject,
