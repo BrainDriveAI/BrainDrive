@@ -207,8 +207,18 @@ export default function AppShell({
   function handleConversationComplete(conversationId: string) {
     if (selectedProjectId) {
       setProjectConversation(selectedProjectId, conversationId);
+      const completedProjectId = selectedProjectId;
+      void Promise.resolve(refreshProjects())
+        .catch(() => undefined)
+        .then(() => {
+          // A project refresh can race the gateway's persisted conversation
+          // attachment. Re-apply the completed turn after the refresh so a
+          // stale project record cannot send the native chat back to draft.
+          setProjectConversation(completedProjectId, conversationId);
+        });
+    } else {
+      void refreshProjects();
     }
-    refreshProjects();
 
     if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) {
       return;

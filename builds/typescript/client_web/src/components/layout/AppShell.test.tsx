@@ -162,6 +162,9 @@ describe("AppShell project file refresh", () => {
     expect(refreshProjectsMock).toHaveBeenCalled();
     expect(setProjectConversationMock).toHaveBeenCalledWith("finance", "conv-finance");
     await waitFor(() => {
+      expect(setProjectConversationMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => {
       expect(refreshSelectedProjectFilesMock).toHaveBeenCalled();
     });
     expect(screen.getByTestId("selected-project")).toHaveTextContent("finance");

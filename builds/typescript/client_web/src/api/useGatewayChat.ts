@@ -156,6 +156,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const conversationIdRef = useRef<string | null>(cached?.conversationId ?? externalConversationId);
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
+  const pendingDraftPromotionRef = useRef<{ from: string; to: string } | null>(null);
   const streamEventHandlerRef = useRef(options.onStreamEvent);
   const recoveryQueueRef = useRef<RecoveryQueueEntry[]>([]);
   const recoveryTimerRef = useRef<number | null>(null);
@@ -203,6 +204,18 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   useEffect(() => {
     const prevKey = cacheKeyRef.current;
 
+    // The native host can adopt the server-assigned conversation while its
+    // first response is still streaming. Keep the draft key active until the
+    // stream finishes; otherwise subsequent deltas are routed to a deleted
+    // background entry and the live assistant reply disappears.
+    const isDraftPromotion =
+      externalConversationId !== null &&
+      externalConversationId === conversationIdRef.current;
+    if (isDraftPromotion && isLoading) {
+      pendingDraftPromotionRef.current = { from: prevKey, to: cacheKey };
+      return;
+    }
+
     // Save current state to background cache (stream keeps running)
     if (prevKey !== cacheKey) {
       backgroundStates.set(prevKey, {
@@ -231,9 +244,6 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     // transcript and any terminal error while the parent changes its pointer;
     // otherwise the promotion looks like a fresh conversation and clears the
     // very state the owner needs to see.
-    const isDraftPromotion =
-      externalConversationId !== null &&
-      externalConversationId === conversationIdRef.current;
     if (isDraftPromotion) {
       backgroundStates.delete(prevKey);
       return;
@@ -279,6 +289,19 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       conversationIdRef.current = externalConversationId;
     }
   }, [cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const pending = pendingDraftPromotionRef.current;
+    if (isLoading || !pending || externalConversationId !== pending.to || conversationIdRef.current !== pending.to) {
+      return;
+    }
+
+    // The stream is complete now, so future turns should use the promoted
+    // conversation key while the completed transcript remains in live state.
+    cacheKeyRef.current = pending.to;
+    backgroundStates.delete(pending.from);
+    pendingDraftPromotionRef.current = null;
+  }, [externalConversationId, isLoading]);
 
   useEffect(() => {
     if (

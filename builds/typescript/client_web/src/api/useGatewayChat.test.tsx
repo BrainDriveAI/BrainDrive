@@ -256,6 +256,39 @@ describe("useGatewayChat", () => {
     expect(rendered.result.current.conversationId).toBe("conv-promoted");
   });
 
+  it("keeps streaming deltas when the parent promotes the draft before completion", async () => {
+    let releaseStream!: () => void;
+    const streamReleased = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    sendMessageMock.mockImplementation(async function* () {
+      yield { type: "text-delta", delta: "Hello", conversation_id: "conv-promoted" };
+      await streamReleased;
+      yield { type: "text-delta", delta: " world" };
+      yield { type: "done", finish_reason: "stop", conversation_id: "conv-promoted" };
+    });
+
+    const rendered = renderHook(
+      ({ conversationId }: { conversationId: string | null }) =>
+        useGatewayChat({ conversationId, draftKey: "your-agent" }),
+      { initialProps: { conversationId: null as string | null } }
+    );
+
+    act(() => {
+      rendered.result.current.append("Hi");
+    });
+    await waitFor(() => expect(rendered.result.current.messages.at(-1)?.content).toBe("Hello"));
+
+    rendered.rerender({ conversationId: "conv-promoted" });
+    releaseStream();
+
+    await waitFor(() => expect(rendered.result.current.isLoading).toBe(false));
+    expect(rendered.result.current.messages).toEqual([
+      { id: "message-1", role: "user", content: "Hi" },
+      { id: "message-2", role: "assistant", content: "Hello world" },
+    ]);
+  });
+
   it("preserves a provider outage while the parent adopts the created conversation id", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([
