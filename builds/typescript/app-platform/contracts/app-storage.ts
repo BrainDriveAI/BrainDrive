@@ -163,6 +163,7 @@ export const AppDocumentAuditProjectionSchema = z
   .object({
     audit_projection_version: z.literal(1),
     event: z.enum(["app.storage.document.write", "app.storage.document.delete"]),
+    event_type: z.enum(["created", "revised", "deleted"]),
     owner_id: OpaqueIdSchema,
     actor_id: OpaqueIdSchema,
     app_id: AppDocumentStorageAuthoritySchema.shape.app_id,
@@ -182,11 +183,13 @@ export const AppDocumentAuditProjectionSchema = z
     revision_id: OpaqueIdSchema,
     prior_revision_id: OpaqueIdSchema.nullable(),
     operation_id: OpaqueIdSchema,
+    authorizing_turn_id: OpaqueIdSchema,
     idempotency_key_digest: Sha256DigestSchema,
     content_digest: Sha256DigestSchema,
     content_size_bytes: z.number().int().nonnegative().max(1_048_576),
     delete_mode: AppDocumentDeleteModeSchema.nullable(),
     deleted_at: TimestampSchema.nullable(),
+    occurred_at_utc: TimestampSchema,
     updated_at: TimestampSchema,
   })
   .strict();

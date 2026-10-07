@@ -582,6 +582,7 @@ export function projectAppDocumentAudit(record: AppDocumentRecord): AppDocumentA
   return AppDocumentAuditProjectionSchema.parse({
     audit_projection_version: 1,
     event: "app.storage.document.write",
+    event_type: record.revision === 1 ? "created" : "revised",
     owner_id: record.owner_id,
     actor_id: record.actor_id,
     app_id: record.app_id,
@@ -601,11 +602,13 @@ export function projectAppDocumentAudit(record: AppDocumentRecord): AppDocumentA
     revision_id: record.revision_id,
     prior_revision_id: record.prior_revision_id,
     operation_id: record.operation_id,
+    authorizing_turn_id: record.operation_id,
     idempotency_key_digest: canonicalInputDigest(record.idempotency_key),
     content_digest: record.content_digest,
     content_size_bytes: record.content_size_bytes,
     delete_mode: null,
     deleted_at: null,
+    occurred_at_utc: record.updated_at,
     updated_at: record.updated_at,
   });
 }
@@ -614,6 +617,7 @@ export function projectAppDocumentDeleteAudit(tombstone: AppDocumentTombstoneRec
   return AppDocumentAuditProjectionSchema.parse({
     audit_projection_version: 1,
     event: "app.storage.document.delete",
+    event_type: "deleted",
     owner_id: tombstone.owner_id,
     actor_id: tombstone.actor_id,
     app_id: tombstone.app_id,
@@ -633,11 +637,13 @@ export function projectAppDocumentDeleteAudit(tombstone: AppDocumentTombstoneRec
     revision_id: tombstone.revision_id,
     prior_revision_id: tombstone.prior_revision_id,
     operation_id: tombstone.operation_id,
+    authorizing_turn_id: tombstone.operation_id,
     idempotency_key_digest: canonicalInputDigest(tombstone.idempotency_key),
     content_digest: tombstone.prior_content_digest,
     content_size_bytes: tombstone.prior_content_size_bytes,
     delete_mode: tombstone.delete_mode,
     deleted_at: tombstone.deleted_at,
+    occurred_at_utc: tombstone.deleted_at,
     updated_at: tombstone.deleted_at,
   });
 }

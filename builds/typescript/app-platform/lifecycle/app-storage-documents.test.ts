@@ -117,12 +117,15 @@ describe("SCAF-002 app-owned durable document storage", () => {
     });
     expect(created.audit).toMatchObject({
       event: "app.storage.document.write",
+      event_type: "created",
       owner_id: authority().owner_id,
       app_id: authority().app_id,
       operation_id: created.record.operation_id,
+      authorizing_turn_id: created.record.operation_id,
       revision: 1,
       content_digest: created.record.content_digest,
     });
+    expect(created.audit.occurred_at_utc).toBe(created.record.updated_at);
 
     await expect(store.readDocument(authority(), "resume.profile")).resolves.toMatchObject({
       revision: 1,
@@ -135,6 +138,11 @@ describe("SCAF-002 app-owned durable document storage", () => {
       idempotencyKey: "resume-profile-update-0001",
     }));
     expect(updated.record).toMatchObject({ revision: 2, prior_revision_id: created.record.revision_id, content: "# Updated profile" });
+    expect(updated.audit).toMatchObject({
+      event_type: "revised",
+      authorizing_turn_id: updated.record.operation_id,
+      occurred_at_utc: updated.record.updated_at,
+    });
   });
 
   it("fails closed when stored document content no longer matches its digest", async () => {

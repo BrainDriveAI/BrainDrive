@@ -285,6 +285,8 @@ export type ResolvedProviderCredential = {
 
 export type AuditLogEvent = {
   timestamp: string;
+  occurred_at_utc: string;
+  product_event_sequence: number;
   event: string;
   details: Record<string, unknown>;
 };

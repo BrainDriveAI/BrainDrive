@@ -48,6 +48,9 @@ export class GatewayConversationService {
         action: "conversation.create",
         conversation_id: createdId,
         message_id: message.id,
+        event_type: "owner_turn",
+        occurred_at_utc: message.timestamp,
+        authorizing_turn_id: message.id,
       });
       return { conversationId: createdId, message };
     }
@@ -61,6 +64,9 @@ export class GatewayConversationService {
       action: "conversation.append.user",
       conversation_id: conversationId,
       message_id: message.id,
+      event_type: "owner_turn",
+      occurred_at_utc: message.timestamp,
+      authorizing_turn_id: message.id,
     });
     return { conversationId, message };
   }
@@ -77,7 +83,7 @@ export class GatewayConversationService {
     return { conversationId, message };
   }
 
-  appendAssistantMessage(conversationId: string, messageId: string, content: string): void {
+  appendAssistantMessage(conversationId: string, messageId: string, content: string, authorizingTurnId?: string): void {
     const message: ConversationMessage = {
       id: messageId,
       role: "assistant",
@@ -89,6 +95,9 @@ export class GatewayConversationService {
       action: "conversation.append.assistant",
       conversation_id: conversationId,
       message_id: messageId,
+      event_type: "model_turn",
+      occurred_at_utc: message.timestamp,
+      authorizing_turn_id: authorizingTurnId ?? messageId,
     });
   }
 

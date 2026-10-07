@@ -2281,7 +2281,18 @@ describe("app-chat workspace session authority", () => {
       operation_id: operationId,
       idempotency_key: `profile-no-domain-grant-${operationId}`,
     }, "owner");
-    expect(result.result).toMatchObject({ result_version: 1, record: { document_id: "resume.profile" }, audit: expect.any(Object) });
+    expect(result.result).toMatchObject({
+      result_version: 1,
+      record: { document_id: "resume.profile" },
+      audit: {
+        event: "app.storage.document.write",
+        event_type: "created",
+        document_id: "resume.profile",
+        revision: 1,
+        authorizing_turn_id: operationId,
+        occurred_at_utc: expect.any(String),
+      },
+    });
     expect(vi.mocked(router.execute)).not.toHaveBeenCalled();
     await expect(host.readAppDocument(launch.session.session_id, "resume.profile")).resolves.toMatchObject({
       record: { content: expect.stringContaining("Maya Torres profile") },

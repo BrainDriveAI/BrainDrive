@@ -58,6 +58,10 @@ describe("logger audit file sink", () => {
     expect(stored).not.toContain("sk-abc1234567890");
     expect(stored).not.toContain("sk-camelcasekey123456");
     expect(stored).not.toContain("sk-rawkeyvalue123456");
+
+    const event = JSON.parse(stored.trim()) as { occurred_at_utc: string; product_event_sequence: number };
+    expect(event.occurred_at_utc).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(event.product_event_sequence).toEqual(expect.any(Number));
   });
 
   it("rotates jsonl files when the size cap is reached", async () => {

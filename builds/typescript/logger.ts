@@ -22,6 +22,7 @@ type AuditFileSinkState = {
 };
 
 let auditFileSinkState: AuditFileSinkState | null = null;
+let auditEventSequence = 0;
 
 export function configureAuditFileSink(memoryRoot: string, options: AuditFileSinkOptions = {}): void {
   const maxFileBytes = normalizePositiveInt(options.maxFileBytes, DEFAULT_AUDIT_MAX_FILE_BYTES);
@@ -53,8 +54,11 @@ export function disableAuditFileSink(): void {
 
 export function auditLog(event: string, details: Record<string, unknown>): void {
   const sanitizedDetails = sanitizeForAudit(details);
+  const occurredAtUtc = new Date().toISOString();
   const payload: AuditLogEvent = {
-    timestamp: new Date().toISOString(),
+    timestamp: occurredAtUtc,
+    occurred_at_utc: occurredAtUtc,
+    product_event_sequence: ++auditEventSequence,
     event,
     details: sanitizedDetails,
   };

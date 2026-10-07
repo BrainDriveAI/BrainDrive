@@ -1183,7 +1183,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
           pendingToolCalls.delete(event.id);
 
           if (assistantBuffer.trim().length > 0) {
-            conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
+            conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer, correlationId);
             lastPersistedAssistantMessageId = currentAssistantMessageId;
             assistantBuffer = "";
             currentAssistantMessageId = crypto.randomUUID();
@@ -1213,7 +1213,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       }
 
       if (assistantBuffer.trim().length > 0) {
-        conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
+        conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer, correlationId);
         lastPersistedAssistantMessageId = currentAssistantMessageId;
       }
     } catch (error) {
