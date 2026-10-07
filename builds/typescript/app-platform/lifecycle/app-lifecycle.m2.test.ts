@@ -621,7 +621,7 @@ describe("Spec 08 M2 legacy Resume control-state migration", () => {
       manifest_version: 2,
       app_id: APP_ID,
       publisher_id: "ai.braindrive",
-      package_version: "4.2.21",
+      package_version: "4.3.1",
       catalog: {
         display_name: "Resume Builder",
         summary: "Build and manage resume materials.",
