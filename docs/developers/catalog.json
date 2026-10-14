@@ -16,7 +16,8 @@
       { "pattern": "builds/typescript/memory/starter-pack/**/AGENT.md", "classification": "product-agent-artifact", "codingAuthority": false, "rule": "Tracked product instructions for BrainDrive owner agents; never repository coding authority" },
       { "pattern": "builds/typescript/memory/starter-pack/**", "classification": "product-memory-artifact", "codingAuthority": false, "rule": "Tracked product defaults; pair changes with migration and existing-owner preservation" },
       { "pattern": "tools/docs/test/fixtures/**", "classification": "synthetic-test-fixture", "codingAuthority": false, "rule": "Synthetic negative or positive test material; never current product behavior authority" },
-      { "pattern": "docs/developers/verification/**", "classification": "verification-procedure-or-evidence", "codingAuthority": false, "rule": "Current procedures may govern evidence execution; scorecards and milestone records remain non-authoritative traces" }
+      { "pattern": "docs/developers/verification/**", "classification": "verification-procedure-or-evidence", "codingAuthority": false, "rule": "Current procedures may govern evidence execution; scorecards and milestone records remain non-authoritative traces" },
+      { "pattern": "builds/typescript/experts/business-idea/**", "classification": "experimental-product-artifact", "codingAuthority": false, "rule": "Optional text-only Business Idea preview content; not coding instructions or automatically installed Memory defaults" }
     ],
     "taskRoutes": [
       { "id": "orient", "taskPattern": "repository purpose, components, modes, or starting point", "startPaths": ["AGENTS.md", "docs/developers/README.md", "docs/developers/repository-map.md"] },
@@ -691,6 +692,19 @@
     { "path": "builds/typescript/memory/starter-pack/projects/templates/relationships/run-interview.md", "classification": "product-memory-artifact", "status": "current", "ownerRole": "product-memory-maintainers" },
     { "path": "builds/typescript/memory/starter-pack/projects/templates/relationships/run-journal.md", "classification": "product-memory-artifact", "status": "current", "ownerRole": "product-memory-maintainers" },
     { "path": "builds/typescript/memory/starter-pack/projects/templates/relationships/run-planning.md", "classification": "product-memory-artifact", "status": "current", "ownerRole": "product-memory-maintainers" },
-    { "path": "builds/typescript/memory/starter-pack/projects/templates/relationships/spec.md", "classification": "product-memory-artifact", "status": "current", "ownerRole": "product-memory-maintainers" }
+    { "path": "builds/typescript/memory/starter-pack/projects/templates/relationships/spec.md", "classification": "product-memory-artifact", "status": "current", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/README.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/AGENT.md", "classification": "product-agent-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/AGENT-user.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/run-interview.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/run-interview-user.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/run-planning.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/run-journal.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/business-idea-interview.md", "classification": "product-skill-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/business-idea-brief-template.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/business-idea-brief.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/spec.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/plan.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" },
+    { "path": "builds/typescript/experts/business-idea/page/journal.md", "classification": "product-memory-artifact", "status": "experimental", "ownerRole": "product-memory-maintainers" }
   ]
 }

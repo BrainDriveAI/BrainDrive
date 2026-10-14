@@ -11,7 +11,8 @@ export const tokens = {
       primary: "#C5DAED",
       secondary: "#7CA7D1",
       muted: "#4A6A8A",
-      heading: "#FFFFFF"
+      heading: "#FFFFFF",
+      nav: "#B0B7C2"
     },
     accent: {
       amber: "#F5A623",

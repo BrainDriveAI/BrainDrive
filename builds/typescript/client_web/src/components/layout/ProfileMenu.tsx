@@ -6,15 +6,17 @@ type ProfileMenuProps = {
   onClose: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
+  side?: "top" | "right";
 };
 
 export default function ProfileMenu({
   onClose,
   onOpenSettings,
-  onLogout
+  onLogout,
+  side = "top"
 }: ProfileMenuProps) {
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 rounded-[12px] border border-bd-border bg-bd-bg-tertiary p-1 shadow-[0_-12px_32px_rgba(0,0,0,0.35)]">
+    <div className={`absolute z-50 rounded-[12px] border border-bd-border bg-bd-bg-tertiary p-1 shadow-[0_-12px_32px_rgba(0,0,0,0.35)] ${side === "right" ? "bottom-2 left-full ml-2 w-[240px]" : "bottom-full left-0 right-0 mb-2"}`}>
       <button
         type="button"
         onClick={onOpenSettings}

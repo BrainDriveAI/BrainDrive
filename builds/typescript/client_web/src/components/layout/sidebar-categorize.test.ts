@@ -120,3 +120,48 @@ describe("sidebar categorization", () => {
     ]);
   });
 });
+
+
+describe("owner-centered setup groups", () => {
+  it("separates reusable setup from produced work without changing paths or file metadata", () => {
+    const names = ["spec.md", "plan.md", "journal.md", "business-idea-brief.md",
+      "business-idea-brief-template.md", "business-idea-interview.md", "AGENT.md",
+      "AGENT-user.md", "run-interview.md", "run-interview-user.md", "run-planning.md", "run-journal.md"];
+    const files = names.map((name) => ({ name, path: `documents/start-a-business/${name}` }));
+    const model = buildProjectSidebarModel("start-a-business", files);
+    expect(model.files.map((item) => item.canonicalPath)).toEqual(["business-idea-brief.md"]);
+    expect(model.expert.skills.map((item) => item.canonicalPath)).toEqual(["business-idea-interview.md"]);
+    expect(model.expert.templates.map((item) => item.canonicalPath)).toEqual(["business-idea-brief-template.md"]);
+    expect(model.expert.instructions).toHaveLength(6);
+    const displayed = [model.goals!, model.plan!, model.journal!, ...model.files, ...model.advanced];
+    expect(displayed).toHaveLength(files.length);
+    expect(new Set(displayed.map((item) => item.file.path)).size).toBe(files.length);
+    displayed.forEach((item) => expect(files).toContain(item.file));
+    expect(model.expert.instructions.find((item) => item.canonicalPath === "run-interview.md")?.overlayPath)
+      .toBe("documents/start-a-business/run-interview-user.md");
+  });
+
+  it("supports explicit skill/template directories and leaves published artifacts and unknown files visible", () => {
+    const files: ProjectFile[] = [
+      { name: "skills/repair.md", path: "documents/custom/skills/repair.md" },
+      { name: "templates/checklist.md", path: "documents/custom/templates/checklist.md" },
+      { name: "interview-notes.md", path: "documents/custom/interview-notes.md" },
+      { name: "published/brief-template.md", path: "documents/custom/published/brief-template.md", sourceType: "app_published", readOnly: true, displayName: "Published Brief" },
+    ];
+    const model = buildProjectSidebarModel("custom", files);
+    expect(model.expert.skills.map((item) => item.file)).toEqual([files[0]]);
+    expect(model.expert.templates.map((item) => item.file)).toEqual([files[1]]);
+    expect(model.files.map((item) => item.file)).toEqual([files[2], files[3]]);
+    expect(model.files[1]).toMatchObject({ label: "Published Brief", badge: "Published" });
+  });
+});
+
+
+it("routes an existing page todo file separately from Work without using the global list", () => {
+  const model = buildProjectSidebarModel("custom", [
+    { name: "todo.md", path: "documents/custom/todo.md" },
+    { name: "brief.md", path: "documents/custom/brief.md" },
+  ]);
+  expect(model.todo?.file.path).toBe("documents/custom/todo.md");
+  expect(model.files.map((item) => item.file.name)).toEqual(["brief.md"]);
+});

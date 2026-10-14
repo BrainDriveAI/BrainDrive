@@ -18,27 +18,47 @@ export type SidebarFileItem = {
 export type ProjectSidebarModel = {
   goals: SidebarFileItem | null;
   plan: SidebarFileItem | null;
+  todo: SidebarFileItem | null;
   journal: SidebarFileItem | null;
   files: SidebarFileItem[];
   advanced: SidebarFileItem[];
+  expert: {
+    instructions: SidebarFileItem[];
+    skills: SidebarFileItem[];
+    templates: SidebarFileItem[];
+  };
 };
 
 export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]): ProjectSidebarModel {
   const items = files.map((file) => toFileItem(file, projectId));
   const goals = items.find((item) => item.canonicalPath === "spec.md") ?? null;
   const plan = items.find((item) => item.canonicalPath === "plan.md") ?? null;
+  const todo = items.find((item) => item.canonicalPath === "todo.md") ?? null;
   const journal = items.find((item) => item.canonicalPath === "journal.md") ?? null;
-  const advanced: SidebarFileItem[] = [];
+  const instructions: SidebarFileItem[] = [];
+  const skills: SidebarFileItem[] = [];
+  const templates: SidebarFileItem[] = [];
   const visibleFiles: SidebarFileItem[] = [];
 
   for (const item of items) {
-    if (item === goals || item === plan || item === journal) {
+    if (item === goals || item === plan || item === todo || item === journal) {
       continue;
     }
 
-    if (isProjectAdvancedFile(item.canonicalPath)) {
-      advanced.push(item);
-      continue;
+    // Published outputs stay artifacts even when their names resemble setup files.
+    if (item.file.sourceType !== "app_published") {
+      if (/(^|\/)templates\//i.test(item.canonicalPath) || /-template\.md$/i.test(item.canonicalPath)) {
+        templates.push(item);
+        continue;
+      }
+      if (/(^|\/)skills\//i.test(item.canonicalPath) || item.canonicalPath === "business-idea-interview.md") {
+        skills.push(item);
+        continue;
+      }
+      if (isProjectAdvancedFile(item.canonicalPath)) {
+        instructions.push(item);
+        continue;
+      }
     }
 
     visibleFiles.push(withFileBadge(item));
@@ -47,9 +67,15 @@ export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]
   return {
     goals,
     plan,
+    todo,
     journal,
     files: sortItems(visibleFiles),
-    advanced: sortItems(advanced),
+    advanced: sortItems([...instructions, ...skills, ...templates]),
+    expert: {
+      instructions: sortItems(instructions),
+      skills: sortItems(skills),
+      templates: sortItems(templates),
+    },
   };
 }
 

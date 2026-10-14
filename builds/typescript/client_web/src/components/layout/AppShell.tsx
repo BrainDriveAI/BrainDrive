@@ -12,6 +12,7 @@ import type { ProjectFile } from "@/types/ui";
 
 import { MobileSidebarDrawer, MobileSidebarHeader } from "./MobileSidebarShell";
 import Sidebar from "./Sidebar";
+import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
 
 type AppShellProps = {
   children?: ReactNode;
@@ -36,6 +37,7 @@ export default function AppShell({
   const [isAppsOpen, setIsAppsOpen] = useState(false);
   const [hasOpenedApps, setHasOpenedApps] = useState(false);
   const [isAppWorkspaceActive, setIsAppWorkspaceActive] = useState(false);
+  const [activeView, setActiveView] = useState<ProjectView | null>(null);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -47,6 +49,7 @@ export default function AppShell({
     projectFiles,
     isLoadingProjects,
     isLoadingFiles,
+    filesError,
     activeConversationId,
     selectProject,
     deselectProject,
@@ -106,6 +109,7 @@ export default function AppShell({
 
   useEffect(() => {
     setActiveFile(null);
+    setActiveView(null);
   }, [selectedProjectId]);
 
   useEffect(() => {
@@ -186,6 +190,7 @@ export default function AppShell({
   function handleFileClick(file: ProjectFile) {
     setIsAppsOpen(false);
     setActiveFile(file);
+    setActiveView((current) => current ?? "files");
   }
 
   function handleSelectProject(projectId: string) {
@@ -195,10 +200,18 @@ export default function AppShell({
 
   function handleReturnToChat() {
     setActiveFile(null);
+    setActiveView(null);
+  }
+
+  function handleOpenProjectView(view: ProjectView) {
+    setIsAppsOpen(false);
+    setActiveFile(null);
+    setActiveView(view);
   }
 
   const handleOpenApps = useCallback(() => {
     setActiveFile(null);
+    setActiveView(null);
     setHasOpenedApps(true);
     setIsAppsOpen(true);
   }, []);
@@ -233,12 +246,29 @@ export default function AppShell({
     }).catch(() => undefined);
   }
 
-  const documentContent = activeFile && selectedProject ? (
+  const displayedFile = activeFile;
+  const isCollectionFile = activeFile && (activeView === "files" || activeView === "expert");
+  const documentContent = displayedFile && selectedProject ? (
     <DocumentView
+      key={`${selectedProject.id}:${displayedFile.path}`}
       projectId={selectedProject.id}
       projectName={selectedProject.name}
-      file={activeFile}
+      showProjectName={isRootAgentProjectId(selectedProject.id)}
+      file={displayedFile}
+      onBack={isCollectionFile ? () => setActiveFile(null) : handleReturnToChat}
+      backLabel={isCollectionFile ? `Back to ${PROJECT_VIEW_LABELS[activeView!]}` : undefined}
+    />
+  ) : activeView && selectedProject ? (
+    <ProjectContentView
+      key={`${selectedProject.id}:${activeView}`}
+      view={activeView}
+      project={selectedProject}
+      files={projectFiles}
+      isLoading={isLoadingFiles}
+      hasFilesError={Boolean(filesError)}
+      onOpenFile={handleFileClick}
       onBack={handleReturnToChat}
+      onOpenApps={handleOpenApps}
     />
   ) : undefined;
 
@@ -287,7 +317,9 @@ export default function AppShell({
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
           projectFiles={projectFiles}
-          activeFilePath={activeFile?.path ?? null}
+          activeFilePath={displayedFile?.path ?? null}
+          activeView={activeView}
+          onOpenProjectView={handleOpenProjectView}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
           onSelectProject={handleSelectProject}
@@ -319,7 +351,9 @@ export default function AppShell({
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
           projectFiles={projectFiles}
-          activeFilePath={activeFile?.path ?? null}
+          activeFilePath={displayedFile?.path ?? null}
+          activeView={activeView}
+          onOpenProjectView={handleOpenProjectView}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
           onSelectProject={handleSelectProject}
@@ -361,6 +395,11 @@ export default function AppShell({
                 onLogout={() => onLogout?.()}
                 tier={deploymentMode === "managed" ? "concierge" : "local"}
               />
+            </div>
+          ) : null}
+          {!isAppsOpen && selectedProject && !isRootAgentProjectId(selectedProject.id) ? (
+            <div className="shrink-0 px-4 pb-2 pt-3 sm:px-8 md:px-4 md:pb-3 md:pt-5">
+              <p aria-label="Expert title" className="font-heading text-sm font-semibold text-bd-text-heading">{selectedProject.id === "start-a-business" ? "Start a Business" : selectedProject.name}</p>
             </div>
           ) : null}
           {!isAppsOpen ? children ?? (

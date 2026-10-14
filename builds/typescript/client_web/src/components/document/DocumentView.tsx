@@ -9,8 +9,10 @@ import type { ProjectFile } from "@/types/ui";
 type DocumentViewProps = {
   projectId: string;
   projectName: string;
+  showProjectName?: boolean;
   file: ProjectFile;
   onBack: () => void;
+  backLabel?: string;
 };
 
 const DOCUMENT_DRAFT_PREFIX = "braindrive:document-draft:";
@@ -57,8 +59,10 @@ function getErrorMessage(error: unknown): string {
 export default function DocumentView({
   projectId,
   projectName,
+  showProjectName = true,
   file,
-  onBack
+  onBack,
+  backLabel = "Back to chat"
 }: DocumentViewProps) {
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
@@ -150,9 +154,9 @@ export default function DocumentView({
       <header className="border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6">
         <div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
+            {showProjectName ? <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
               {projectName}
-            </div>
+            </div> : null}
             <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.displayName ?? file.name}</h1>
             {file.sourceType === "app_published" && file.sourceLabel ? (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-bd-text-secondary">
@@ -180,7 +184,7 @@ export default function DocumentView({
               className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
             >
               <ArrowLeft size={16} />
-              Back to chat
+              {backLabel}
             </Button>
 
             {isEditing ? (
