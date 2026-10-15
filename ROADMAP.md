@@ -13,7 +13,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 | # | Goal | What It Delivers | Focus |
 |---|------|-----------------|-------|
 | **1** | **Own** | An AI system you own and run | **Done** |
-| **2** | **Benefit** | An AI that helps you define and reach your goals | **Done** (V1) |
+| **2** | **Benefit** | An AI that helps you define and reach your goals | **Now** — planning loop shipped; creating and sharing in progress |
 | **3** | **Connect** | An AI that acts in the world on your behalf | **Next** |
 | **4** | **Earn** | An AI that creates with you and captures value for you | **Starting now** with Experts |
 | **5** | **Decentralize** | An ecosystem that doesn't depend on any single company | Later; groundwork in place |
@@ -24,7 +24,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 Keeping what has already shipped secure and reliable always comes first. After that, our main focus moves through four steps, in this order:
 
-1. **Experts.** An Expert is a page set up with readable instructions, skills, and templates for a particular kind of help. Build your own, use it on real work, and improve it; then share it; and later sell it. We build our own Experts the same way you do. Business Idea is the first, free example.
+1. **Experts.** This is where Benefit and Earn move forward together. An Expert is a page set up with readable instructions, skills, and templates for a particular kind of help. Build your own, use it on real work, and improve it; then share it; and later sell it. We build our own Experts the same way you do. Business Idea is the first, free example.
 2. **Connectors.** Your BrainDrive uses services you already have, through your own accounts, and can search the web and read pages, with your approval and a record of what it did.
 3. **Agents.** Agents carry out jobs for you, such as making a logo or a website. They run on your own machine first and keep a record of their actions.
 4. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you. Resume Builder is the first.
@@ -46,7 +46,7 @@ Each step goes **build, then share, then sell**, and useful free value comes bef
 
 ---
 
-## Goal 2: Benefit (Done for V1)
+## Goal 2: Benefit (In Progress)
 
 > Make your AI system so useful for managing your life that you can't imagine going back.
 
@@ -60,9 +60,9 @@ Each step goes **build, then share, then sell**, and useful free value comes bef
 - **Finances.** Take control of your money — define your goals, create a plan, and keep it current through your Finance journal. Budgeting and statement reconciliation come later as apps.
 - **Your Agent.** Talk through anything on your mind, work on any area from one place, and have updates land on the right page.
 
-**And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
+**And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create new ones. Sharing what you make, and using what others build, is our current focus through Experts.
 
-**What shipped.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Helping you carry out the plan — to-dos, tasks, and other actions — comes through Connect.
+**What shipped so far.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Helping you carry out the plan — to-dos, tasks, and other actions — comes through Connect.
 
 **Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
 
