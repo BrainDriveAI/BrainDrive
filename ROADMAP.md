@@ -2,13 +2,7 @@
 
 > Where we've been, where we are, and where we're going.
 
-BrainDrive has five goals. We work toward all of them from day one, and our main focus moves through them roughly in order. They overlap: open source and a no-lock-in architecture were groundwork for Decentralize laid while we were focused on Own. So instead of marking goals done, each one ends with a short progress report. Each goal makes your AI system more capable. At scale, something bigger emerges — when millions of owner-controlled AI systems connect, the sum becomes greater than the parts.
-
-Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — an open, MIT-licensed foundation for building personal AI systems with zero lock-in.
-
----
-
-## The Five Goals
+BrainDrive has five goals. We work toward all of them from day one, and our main focus moves through them roughly in order. Each goal below ends with a short progress report.
 
 | # | Goal | What It Delivers |
 |---|------|-----------------|
@@ -18,18 +12,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 | **4** | **Earn** | An AI that creates with you and captures value for you |
 | **5** | **Decentralize** | An ecosystem that doesn't depend on any single company |
 
----
-
-## Where Our Focus Is Now
-
-Keeping what has already shipped secure and reliable always comes first. After that, our main focus moves through four steps, in this order:
-
-1. **Experts.** This is where Benefit and Earn move forward together. An Expert is a page set up with readable instructions, skills, and templates for a particular kind of help. Build your own, use it on real work, and improve it; then share it; and later sell it. We build our own Experts the same way you do. Business Idea is the first, free example.
-2. **Connectors.** Your BrainDrive uses services you already have, through your own accounts, and can search the web and read pages, with your approval and a record of what it did.
-3. **Agents.** Agents carry out jobs for you, such as making a logo or a website. They run on your own machine first and keep a record of their actions.
-4. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you. Resume Builder is the first.
-
-Each step goes **build, then share, then sell**, and useful free value comes before anything paid.
+Right now our main focus is Experts, then connectors, agents, and apps. Keeping what has already shipped secure and reliable always comes first.
 
 ---
 
@@ -66,7 +49,7 @@ Each step goes **build, then share, then sell**, and useful free value comes bef
 
 **And it has to be easy.** All of this has to be easy — easy to install, easy to set up, easy to use across the surfaces above, easy to recover when things go wrong. Benefit isn't done if every surface delivers value but you still need docs to get there. Easy is a scope item, not a polish pass.
 
-**Progress.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Creating and sharing what you make is in progress now through Experts. Helping you carry out the plan — to-dos, tasks, and other actions — comes through Connect.
+**Progress.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Creating and sharing is our current focus, through **Experts**. An Expert is a page set up with readable instructions, skills, and templates for a particular kind of help. Build your own, use it on real work, and improve it; then share it; and later sell it. We build our own Experts the same way you do, and Business Idea is the first, free example. Helping you carry out the plan — to-dos, tasks, and other actions — comes through Connect.
 
 ---
 
@@ -83,7 +66,13 @@ Benefit builds the partnership. Connect gets you off the keyboard.
 - **Device agency** — your BrainDrive acts through your devices, not just receiving input
 - **The Network** — when personal AI systems interact, they form an emergent collective intelligence
 
-**Progress.** Connect comes after Experts: connectors first, then agents, then apps. None of these is in a released build yet.
+**Progress.** Connect comes after Experts, in this order:
+
+1. **Connectors.** Your BrainDrive uses services you already have, through your own accounts, and can search the web and read pages, with your approval and a record of what it did.
+2. **Agents.** Agents carry out jobs for you, such as making a logo or a website. They run on your own machine first and keep a record of their actions.
+3. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you. Resume Builder is the first.
+
+None of these is in a released build yet.
 
 ---
 
@@ -96,7 +85,7 @@ Benefit builds the partnership. Connect gets you off the keyboard.
 - **Agent-to-agent commerce** — your BrainDrive negotiates and transacts on your behalf
 - **Revenue for creators** — earn directly from what you build, no middleman
 
-**Progress.** Earning starts with Experts: build one, share it, and later sell it. Agents and apps follow the same path.
+**Progress.** Earning starts with Experts: build one, share it, and later sell it. Agents and apps follow the same path. Useful free value always comes before anything paid.
 
 ---
 
