@@ -2,25 +2,38 @@
 
 > Where we've been, where we are, and where we're going.
 
-BrainDrive is built in five phases. Each phase makes your AI system more capable. At scale, something bigger emerges — when millions of owner-controlled AI systems connect, the sum becomes greater than the parts.
+BrainDrive has five goals. We work toward all of them from day one, and our main focus moves through them roughly in order. They overlap: open source and a no-lock-in architecture were groundwork for Decentralize laid while we were focused on Own. Each goal makes your AI system more capable. At scale, something bigger emerges — when millions of owner-controlled AI systems connect, the sum becomes greater than the parts.
 
 Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — an open, MIT-licensed foundation for building personal AI systems with zero lock-in.
 
 ---
 
-## The Five Phases
+## The Five Goals
 
-| Phase | Name | What It Delivers | Status |
-|-------|------|-----------------|--------|
-| **1** | **Own** | An AI system you own and run | **Complete** |
-| **2** | **Benefit** | An AI that helps you define and reach your goals | **Complete** |
-| **3** | **Connect** | An AI that acts in the world on your behalf | **In Progress** |
-| **4** | **Earn** | An AI that creates with you and captures value for you | Vision |
-| **5** | **Decentralize** | An ecosystem that doesn't depend on any single company | Vision |
+| # | Goal | What It Delivers | Focus |
+|---|------|-----------------|-------|
+| **1** | **Own** | An AI system you own and run | **Done** |
+| **2** | **Benefit** | An AI that helps you define and reach your goals | **Done** (V1) |
+| **3** | **Connect** | An AI that acts in the world on your behalf | **Next** |
+| **4** | **Earn** | An AI that creates with you and captures value for you | **Starting now** with Experts |
+| **5** | **Decentralize** | An ecosystem that doesn't depend on any single company | Later; groundwork in place |
 
 ---
 
-## Phase 1: Own (Complete)
+## Where Our Focus Is Now
+
+Keeping what has already shipped secure and reliable always comes first. After that, our main focus moves through four steps, in this order:
+
+1. **Experts.** An Expert is a page set up with readable instructions, skills, and templates for a particular kind of help. Build your own, use it on real work, and improve it; then share it; and later sell it. We build our own Experts the same way you do. Business Idea is the first, free example.
+2. **Connectors.** Your BrainDrive uses services you already have, through your own accounts, and can search the web and read pages, with your approval and a record of what it did.
+3. **Agents.** Agents carry out jobs for you, such as making a logo or a website. They run on your own machine first and keep a record of their actions.
+4. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you. Resume Builder is the first.
+
+Each step goes **build, then share, then sell**, and useful free value comes before anything paid.
+
+---
+
+## Goal 1: Own (Done)
 
 > Make it easy for anyone to own and run their own AI system.
 
@@ -33,7 +46,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 ---
 
-## Phase 2: Benefit (Complete)
+## Goal 2: Benefit (Done for V1)
 
 > Make your AI system so useful for managing your life that you can't imagine going back.
 
@@ -42,28 +55,28 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 **Where this is showing up:**
 
 - **Career.** Define what you want, plan how to get there, and stay accountable to the moves that matter.
-- **Relationships.** Remember what matters about the people in your life — what you've discussed, what you want for them, what you want to do next.
+- **Relationships.** Clarify what you're trying to do relationally, remember the context you've shared, and plan careful next steps.
 - **Fitness.** Build the body and habits you want — define a plan, log progress, adjust as life happens.
-- **Finances.** Take control of your money — define your goals, create a plan, set a budget when it helps, and reconcile uploaded statements against it.
-- **Your Agent.** Talk through anything else that's on your mind — to-dos, hard conversations, meal planning, the everyday decisions that don't have their own page.
+- **Finances.** Take control of your money — define your goals, create a plan, and keep it current through your Finance journal. Budgeting and statement reconciliation come later as apps.
+- **Your Agent.** Talk through anything on your mind, work on any area from one place, and have updates land on the right page.
 
 **And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
 
-**What shipped.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Helping you carry out the plan — to-dos, tasks, and other actions — is Phase 3.
+**What shipped.** BrainDrive can get to know you, help you make a plan, and use journaling to keep that context current as life changes. Helping you carry out the plan — to-dos, tasks, and other actions — comes through Connect.
 
 **Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
 
-**And it has to be easy.** All of this has to be easy — easy to install, easy to set up, easy to use across the surfaces above, easy to recover when things go wrong. Phase 2 isn't done if every surface delivers value but you still need docs to get there. Easy is a scope item, not a polish pass.
+**And it has to be easy.** All of this has to be easy — easy to install, easy to set up, easy to use across the surfaces above, easy to recover when things go wrong. Benefit isn't done if every surface delivers value but you still need docs to get there. Easy is a scope item, not a polish pass.
 
 ---
 
-## Phase 3: Connect (In Progress)
+## Goal 3: Connect (Next)
 
 > Give your BrainDrive the ability to act in the world on your behalf.
 
-Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
+Benefit builds the partnership. Connect gets you off the keyboard.
 
-**Where we are right now.** Phase 3 starts with apps: focused tools that run inside your BrainDrive and work from what it already knows about you. The first is Resume Builder.
+**Where we are right now.** Connect follows Experts: connectors first, then agents, then apps.
 
 - **General computer agency** — your BrainDrive uses browsers, apps, and interfaces the way you do
 - **Systems come to you** — your BrainDrive already knows you, so the systems come to it
@@ -74,9 +87,11 @@ Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
 
 ---
 
-## Phase 4: Earn (Vision)
+## Goal 4: Earn (Starting Now)
 
 > Enable owners to share what they've built and earn from it.
+
+**Where we are right now.** Earn starts with Experts: build one, share it, and later sell it. Agents and apps follow the same path.
 
 - **Portable expertise** — knowledge and methodology you've built becomes value others can benefit from
 - **Tools become products** — share, sell, or contribute what you've built
@@ -85,9 +100,11 @@ Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
 
 ---
 
-## Phase 5: Decentralize (Vision)
+## Goal 5: Decentralize (Later)
 
 > Ensure the ecosystem sustains itself without depending on any single company — including us.
+
+**Groundwork already in place.** BrainDrive and the Personal AI Architecture are open source under the MIT license, nothing locks you in, Your Memory depends on nothing outside it, and you run your own system.
 
 - **Community governance** — contributors propose and vote on direction
 - **Open protocols** — communication runs on open standards anyone can implement
