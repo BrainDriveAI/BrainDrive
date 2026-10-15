@@ -25,7 +25,7 @@ Right now our main focus is Experts, then connectors, agents, and apps. Keeping 
 **Progress.** Both foundations have shipped, and every later capability keeps the guarantee above:
 
 - **Personal AI Architecture** — open, MIT-licensed foundation. Every component swappable, zero lock-in. Published as npm package with 212 tests and 13 CI checks.
-- **BrainDrive** — first implementation of the architecture. Docker install, web interface, auth, model integration. MIT-licensed and fully functional.
+- **BrainDrive** — first implementation of the architecture. Mac and Windows desktop apps and a Docker install, with a web interface, sign-in, and model integration. MIT-licensed and fully functional.
 
 ---
 
