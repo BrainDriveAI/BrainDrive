@@ -40,7 +40,7 @@ Right now our main focus is Experts, then connectors, agents, and apps. Keeping 
 - **Career.** Define what you want, plan how to get there, and stay accountable to the moves that matter.
 - **Relationships.** Clarify what you're trying to do relationally, remember the context you've shared, and plan careful next steps.
 - **Fitness.** Build the body and habits you want — define a plan, log progress, adjust as life happens.
-- **Finances.** Take control of your money — define your goals, create a plan, and keep it current through your Finance journal. Budgeting and statement reconciliation come later as apps.
+- **Finances.** Take control of your money — define your goals, create a plan, and keep it current through your Finance journal.
 - **Your Agent.** Talk through anything on your mind, work on any area from one place, and have updates land on the right page.
 
 **And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create new ones. Sharing what you make, and using what others build, is our current focus through Experts.
