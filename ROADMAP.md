@@ -24,7 +24,10 @@ Work overlaps, but we are working through each area in rough order.
 
 And we have developed and released BrainDrive, the first implementation of the architecture: an MIT-licensed personal AI system designed to help you define and reach your goals. It is available as Mac and Windows desktop apps and as a Docker install, and you can easily switch between cloud and local AI models.
 
-**Still to do:** Ensure that agentic and other capabilities can be added without giving up ownership and control over your AI system.
+**Still to do:**
+
+- Make owning your AI system as easy as using a Big Tech one: installing, updating, backing up, and recovering it should just work.
+- Ensure that agentic and other capabilities can be added without giving up ownership and control over your AI system.
 
 ---
 
