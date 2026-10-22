@@ -1170,12 +1170,13 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
           assistantBuffer += event.delta;
         }
 
-        if (event.type === "error") {
-          traceStatus = "error";
-        }
-
-        if (event.type === "done") {
-          traceStatus = "completed";
+        if (event.type === "error" || event.type === "done") {
+          if (assistantBuffer.trim().length > 0) {
+            conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
+            lastPersistedAssistantMessageId = currentAssistantMessageId;
+            assistantBuffer = "";
+          }
+          traceStatus = event.type === "done" ? "completed" : "error";
         }
 
         if (event.type === "tool-result") {

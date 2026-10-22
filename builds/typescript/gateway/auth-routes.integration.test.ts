@@ -2,9 +2,12 @@ import path from "node:path";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 
-import type { AdapterConfig, Preferences, RuntimeConfig } from "../contracts.js";
+import type { AdapterConfig, ConversationMessage, Preferences, RuntimeConfig } from "../contracts.js";
 import type { MemoryBackupRunResult } from "../memory/backup.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
+import * as streamFormatter from "../engine/stream.js";
+import * as engineLoop from "../engine/loop.js";
 
 let mockRuntimeConfig: RuntimeConfig;
 let mockPreferences: Preferences;
@@ -491,6 +494,7 @@ describe.sequential("gateway auth route integration", () => {
     vi.mocked(resolveProviderCredentialForStartup).mockReset();
     vi.mocked(resolveProviderCredentialForStartup).mockResolvedValue(undefined);
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("rejects unauthenticated logout requests", async () => {
@@ -1413,6 +1417,133 @@ describe.sequential("gateway auth route integration", () => {
       content: expect.stringContaining("Today's date is 2026-07-03."),
     });
     expect(capturedProviderRequestBody.messages?.[0]?.content).not.toContain("2026-06-30");
+  });
+
+  it("saves the final assistant reply before formatting done", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: {
+        base_url: "https://provider.example/v1",
+        model: "test-model",
+        api_key_env: "TEST_API_KEY",
+        provider_id: "test-provider",
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      'data: {"choices":[{"delta":{"content":"Final reply."}}]}\n\n' +
+      'data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n' +
+      'data: [DONE]\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    )));
+
+    const originalFormat = streamFormatter.formatSseEvent;
+    let savedAtDone = false;
+    vi.spyOn(streamFormatter, "formatSseEvent").mockImplementation((event) => {
+      if (event.type === "done") {
+        const detail = new MarkdownConversationStore(path.join(context!.tempRoot, "memory"))
+          .getConversation(event.conversation_id);
+        savedAtDone = detail?.messages.some((message) =>
+          message.role === "assistant" &&
+          message.id === event.message_id &&
+          message.content === "Final reply."
+        ) ?? false;
+      }
+      return originalFormat(event);
+    });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: { content: "Give me a final reply" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("event: done");
+    expect(savedAtDone).toBe(true);
+  });
+
+  it("does not emit done when saving the final assistant reply fails", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: {
+        base_url: "https://provider.example/v1",
+        model: "test-model",
+        api_key_env: "TEST_API_KEY",
+        provider_id: "test-provider",
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      'data: {"choices":[{"delta":{"content":"Unsaved reply."}}]}\n\n' +
+      'data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n' +
+      'data: [DONE]\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    )));
+
+    const originalAppend = MarkdownConversationStore.prototype.appendMessage;
+    vi.spyOn(MarkdownConversationStore.prototype, "appendMessage").mockImplementation(function (
+      this: MarkdownConversationStore,
+      conversationId: string,
+      message: ConversationMessage
+    ) {
+      if (message.role === "assistant") {
+        throw new Error("simulated conversation write failure");
+      }
+      return originalAppend.call(this, conversationId, message);
+    });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: { content: "Give me a final reply" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("event: text-delta");
+    expect(response.body).toContain("event: error");
+    expect(response.body).not.toContain("event: done");
+    const conversationId = response.headers["x-conversation-id"];
+    expect(typeof conversationId).toBe("string");
+    const detail = new MarkdownConversationStore(path.join(context.tempRoot, "memory"))
+      .getConversation(String(conversationId));
+    expect(detail?.messages.map((message) => message.role)).toEqual(["user"]);
+  });
+
+  it("saves an interrupted assistant reply before reporting the stream error", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    vi.spyOn(engineLoop, "runAgentLoop").mockImplementation(async function* () {
+      yield { type: "text-delta", delta: "Partial reply." };
+      yield { type: "error", code: "provider_error", message: "provider interrupted" };
+    });
+
+    const originalFormat = streamFormatter.formatSseEvent;
+    let savedAtError = false;
+    vi.spyOn(streamFormatter, "formatSseEvent").mockImplementation((event) => {
+      if (event.type === "error") {
+        const store = new MarkdownConversationStore(path.join(context!.tempRoot, "memory"));
+        const conversationId = store.listConversations(1).conversations[0]?.id;
+        if (conversationId) {
+          const detail = store.getConversation(conversationId);
+          savedAtError = detail?.messages.some((message) =>
+            message.role === "assistant" && message.content === "Partial reply."
+          ) ?? false;
+        }
+      }
+      return originalFormat(event);
+    });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: { content: "Give me a reply" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("event: error");
+    expect(response.body).not.toContain("event: done");
+    expect(savedAtError).toBe(true);
   });
 
   it("requires onboarding when active provider credential is unset", async () => {
