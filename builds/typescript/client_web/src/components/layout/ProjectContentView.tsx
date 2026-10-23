@@ -31,15 +31,12 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
     [model.todo, "To-do", "Your saved task list"],
     [model.journal, "Journal", "Notes and progress over time"],
   ] as const).flatMap(([item, label, description]) => item ? [{ ...item, label, description }] : []);
-  const preferences = model.expert.instructions.find((item) => item.canonicalPath === "AGENT-user.md")
-    ?? model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
+  const instructions = model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
   const interviewGuide = model.expert.skills.find((item) => item.canonicalPath === "business-idea-interview.md");
-  const interviewPreferences = model.expert.instructions.find((item) => item.canonicalPath === "run-interview-user.md");
   const interview: DisplayFile[] = [
     ...(interviewGuide ? [{ ...interviewGuide, label: "Interview guide", description: "The questions and process used for this Expert" }] : []),
-    ...(interviewPreferences ? [{ ...interviewPreferences, label: "Interview preferences", description: "Your guidance for the interview" }] : []),
   ];
-  const remaining = model.advanced.filter((item) => item !== preferences && item !== interviewGuide && item !== interviewPreferences && !model.expert.templates.includes(item));
+  const remaining = model.advanced.filter((item) => item !== instructions && item !== interviewGuide && !model.expert.templates.includes(item));
   const title = PROJECT_VIEW_LABELS[view];
 
   return (
@@ -59,10 +56,10 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
             <ContentSection title="Your work"><FileList items={model.files} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this Expert will appear here." /></ContentSection>
             <StorageDetails projectId={project.id} />
           </> : <>
-            <p className="text-sm text-bd-text-secondary">See and change how your Expert helps you</p>
+            <p className="text-sm text-bd-text-secondary">See how your Expert helps you</p>
             <ContentSection title="What this Expert is for"><p className="text-sm leading-relaxed text-bd-text-primary">{expertPurpose(project)}</p></ContentSection>
             <ContentSection title="How it works with you">
-              <FileList items={preferences ? [{ ...preferences, label: "Your instructions", description: "Preferences and guidance for this Expert" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
+              <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             </ContentSection>
             <ContentSection title="Interview guidance"><FileList items={interview} onOpenFile={onOpenFile} empty="No interview guidance is saved for this Expert yet." /></ContentSection>
             <ContentSection title="Reusable templates"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No reusable templates saved yet." /><p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p></ContentSection>
@@ -71,8 +68,8 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
               <summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>Technical details</summary>
               <div className="mt-4 space-y-4">
                 <p className="text-sm text-bd-text-secondary">Base instructions and supporting files. These are editable documents; opening them does not run an interview or register a skill.</p>
-                <FileList items={remaining} onOpenFile={onOpenFile} showPaths allFiles={files} empty="No additional setup files." />
-                <details><summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>File paths for the settings above</summary><ul className="mt-3 space-y-2 text-xs text-bd-text-secondary">{[preferences, interviewGuide, interviewPreferences, ...model.expert.templates].filter((item): item is SidebarFileItem => Boolean(item)).map((item) => <li key={item.file.path}><code className="break-all">{item.file.path}</code></li>)}</ul></details>
+                <FileList items={remaining} onOpenFile={onOpenFile} showPaths empty="No additional setup files." />
+                <details><summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>File paths for the settings above</summary><ul className="mt-3 space-y-2 text-xs text-bd-text-secondary">{[instructions, interviewGuide, ...model.expert.templates].filter((item): item is SidebarFileItem => Boolean(item)).map((item) => <li key={item.file.path}><code className="break-all">{item.file.path}</code></li>)}</ul></details>
               </div>
             </details>
           </>}
@@ -86,7 +83,7 @@ function ContentSection({ title, children }: { title: string; children: ReactNod
   return <section aria-label={title}><h2 className="mb-3 font-heading text-base text-bd-text-heading">{title}</h2>{children}</section>;
 }
 
-function FileList({ items, onOpenFile, empty, showPaths = false, allFiles = [] }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean; allFiles?: ProjectFile[] }) {
+function FileList({ items, onOpenFile, empty, showPaths = false }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean }) {
   if (items.length === 0) return empty ? <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">{empty}</p> : null;
   return <div className="divide-y divide-bd-border rounded-lg border border-bd-border">{items.map((item) => <div key={item.file.path} className="flex items-center gap-2 rounded-lg px-3 hover:bg-bd-bg-secondary">
     <button type="button" aria-label={item.label} title={item.canonicalPath} onClick={() => onOpenFile(item.file)} className={`flex min-w-0 flex-1 items-center gap-3 rounded-md py-4 text-left ${focusStyle}`}>
@@ -94,7 +91,6 @@ function FileList({ items, onOpenFile, empty, showPaths = false, allFiles = [] }
       <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{item.label}</span>{item.description || showPaths ? <span className="mt-1 block break-words text-xs text-bd-text-secondary">{showPaths ? item.canonicalPath : item.description}</span> : null}</span>
       {item.badge ? <span className="text-xs text-bd-text-secondary">{item.badge}</span> : null}<ArrowUpRight size={16} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
     </button>
-    {showPaths && item.overlayPath && !allFiles.some((file) => file.path === item.overlayPath) ? <button type="button" aria-label={`Customize ${item.label}`} onClick={() => onOpenFile({ name: item.overlayPath!.split("/").pop()!, path: item.overlayPath! })} className={`rounded px-2 py-1 text-xs text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}>Customize</button> : null}
   </div>)}</div>;
 }
 
@@ -132,15 +128,15 @@ function ProjectTools({ projectId }: { projectId: string }) {
     void Promise.all([getProjectSkills(projectId), listSkills()]).then(([ids, catalog]) => {
       if (!cancelled) setSkills(ids.map((id) => {
         const skill = catalog.find((candidate) => candidate.id === id);
-        return { id, name: skill?.name ?? id, description: skill?.description ?? "Assigned skill details are unavailable." };
+        return { id, name: skill?.name ?? id, description: skill?.description ?? "No description available." };
       }));
     }).catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
   }, [projectId]);
   return <>
-    <p className="text-sm text-bd-text-secondary">Tools for this page. Availability here does not grant access to other pages or accounts.</p>
-    <ContentSection title="Skills">{error ? <p role="status" className="text-sm text-bd-text-secondary">Skill assignments could not be loaded.</p> : skills === null ? <p className="text-sm text-bd-text-secondary">Loading assigned skills…</p> : skills.length === 0 ? <p className="text-sm text-bd-text-secondary">No registered skills assigned to this page. Manual interview guidance is in Behavior.</p> : <ul className="space-y-3">{skills.map((skill) => <li key={skill.id}><p className="text-sm">{skill.name}</p><p className="text-sm text-bd-text-secondary">{skill.description}</p></li>)}</ul>}</ContentSection>
-    <ContentSection title="Connections"><p className="text-sm leading-relaxed text-bd-text-secondary">Page connection permissions are not available in this prototype. Planned: connect an account once globally, then grant access separately to each page. No credentials are copied or permissions granted here.</p></ContentSection>
-    <ContentSection title="Agents"><p className="text-sm text-bd-text-secondary">Page agent assignments are not available in this prototype.</p></ContentSection>
+    <p className="text-sm text-bd-text-secondary">Tools this Expert can use.</p>
+    <ContentSection title="Skills">{error ? <p role="status" className="text-sm text-bd-text-secondary">Skills could not be loaded.</p> : skills === null ? <p className="text-sm text-bd-text-secondary">Loading skills…</p> : skills.length === 0 ? <p className="text-sm text-bd-text-secondary">No skills added yet. Interview guidance is in Behavior.</p> : <ul className="space-y-3">{skills.map((skill) => <li key={skill.id}><p className="text-sm">{skill.name}</p><p className="text-sm text-bd-text-secondary">{skill.description}</p></li>)}</ul>}</ContentSection>
+    <ContentSection title="Connections"><p className="text-sm leading-relaxed text-bd-text-secondary">Coming later. You will connect an account once, then choose which Experts can use it.</p></ContentSection>
+    <ContentSection title="Agents"><p className="text-sm text-bd-text-secondary">Coming later.</p></ContentSection>
   </>;
 }

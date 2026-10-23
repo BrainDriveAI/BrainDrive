@@ -57,8 +57,7 @@ it("shows only assigned skills and makes unavailable page capabilities explicit"
   expect(await screen.findByText("assigned description")).toBeVisible();
   expect(getProjectSkills).toHaveBeenCalledWith("start-a-business");
   expect(screen.queryByText("other description")).not.toBeInTheDocument();
-  expect(screen.getByText(/No credentials are copied or permissions granted here/)).toBeVisible();
-  expect(screen.getByText(/Page agent assignments are not available/)).toBeVisible();
+  expect(screen.getAllByText(/Coming later/)).toHaveLength(2);
 });
 
 it("reports an unavailable skill lookup without claiming no assignments exist", async () => {
@@ -71,23 +70,22 @@ it("reports an unavailable skill lookup without claiming no assignments exist", 
 
 it("keeps owner-facing settings simple and technical files reachable without changing file metadata", async () => {
   const user = userEvent.setup();
-  const files = ["AGENT.md", "AGENT-user.md", "business-idea-interview.md", "business-idea-brief-template.md", "business-idea-brief.md", "run-planning.md"].map(file);
+  const files = ["AGENT.md", "business-idea-interview.md", "business-idea-brief-template.md", "business-idea-brief.md", "run-planning.md"].map(file);
   const onOpenFile = vi.fn();
   render(<ProjectContentView {...props} view="expert" files={files} onOpenFile={onOpenFile} />);
   expect(screen.getByRole("heading", { name: "Behavior" })).toBeVisible();
-  expect(screen.getByText("See and change how your Expert helps you")).toBeVisible();
+  expect(screen.getByText("See how your Expert helps you")).toBeVisible();
   expect(screen.getByRole("heading", { name: "What this Expert is for" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Your instructions" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Agent Instructions" }).closest("details")).not.toHaveAttribute("open");
-  await user.click(screen.getByRole("button", { name: "Your instructions" }));
-  expect(onOpenFile).toHaveBeenLastCalledWith(files[1]);
+  expect(screen.getByRole("button", { name: "Instructions" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Instructions" }));
+  expect(onOpenFile).toHaveBeenLastCalledWith(files[0]);
   await user.click(screen.getByRole("button", { name: "Business Idea Brief Template" }));
-  expect(onOpenFile).toHaveBeenLastCalledWith(files[3]);
+  expect(onOpenFile).toHaveBeenLastCalledWith(files[2]);
   expect(screen.queryByTitle("business-idea-brief.md")).not.toBeInTheDocument();
   await user.click(screen.getByText("Technical details", { selector: "summary" }));
-  await user.click(screen.getByRole("button", { name: "Agent Instructions" }));
-  expect(onOpenFile).toHaveBeenLastCalledWith(files[0]);
-  expect(screen.queryByRole("button", { name: "Customize Agent Instructions" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Planning" }));
+  expect(onOpenFile).toHaveBeenLastCalledWith(files[files.length - 1]);
+  expect(screen.queryByText(/Customize/)).not.toBeInTheDocument();
 });
 
 const previewPath = "/tmp/sidebar-fixture/documents/start-a-business";

@@ -78,9 +78,6 @@ describe("sidebar categorization", () => {
       "garden/garden-rules-user.md",
       "garden/garden-rules.md",
     ]);
-    expect(model.advanced.find((item) => item.canonicalPath === "garden/compare.md")?.overlayPath).toBe(
-      "documents/home/garden/compare-user.md"
-    );
   });
 
   it("groups flat journal state with plan files and keeps journal procedures advanced", () => {
@@ -122,8 +119,6 @@ describe("owner-centered setup groups", () => {
     expect(displayed).toHaveLength(files.length);
     expect(new Set(displayed.map((item) => item.file.path)).size).toBe(files.length);
     displayed.forEach((item) => expect(files).toContain(item.file));
-    expect(model.expert.instructions.find((item) => item.canonicalPath === "run-interview.md")?.overlayPath)
-      .toBe("documents/start-a-business/run-interview-user.md");
   });
 
   it("supports explicit skill/template directories and leaves unknown files visible", () => {

@@ -12,7 +12,6 @@ export type SidebarFileItem = {
   label: string;
   canonicalPath: string;
   badge?: string;
-  overlayPath?: string;
 };
 
 export type ProjectSidebarModel = {
@@ -81,12 +80,10 @@ export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]
 
 function toFileItem(file: ProjectFile, projectId: string): SidebarFileItem {
   const canonicalPath = projectRelativePath(file.path, projectId);
-  const overlayPath = overlayPathForManagedFile(file.path);
   return {
     file,
     label: sidebarFileLabel(file, projectId),
     canonicalPath,
-    ...(overlayPath ? { overlayPath } : {}),
   };
 }
 
@@ -130,17 +127,3 @@ function isManagedInstructionFile(fileName: string): boolean {
   return /^(create|compare|run-interview|run-planning|run-journal|generate-report)\.md$/i.test(fileName);
 }
 
-function overlayPathForManagedFile(pathValue: string): string | undefined {
-  const normalized = normalizePath(pathValue);
-  const fileName = normalized.split("/").pop() ?? "";
-
-  if (!normalized.toLowerCase().endsWith(".md") || /-user\.md$/i.test(fileName)) {
-    return undefined;
-  }
-
-  if (!isManagedInstructionFile(fileName)) {
-    return undefined;
-  }
-
-  return normalized.replace(/\.md$/i, "-user.md");
-}
