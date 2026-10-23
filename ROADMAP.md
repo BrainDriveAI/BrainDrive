@@ -26,6 +26,7 @@ And we have developed and released BrainDrive, the first implementation of the a
 
 **Still to do:**
 
+- **Finish the foundation.** Bring the Personal AI Architecture to version 1.0, then verify BrainDrive against it, with every place BrainDrive departs from it documented and tested.
 - Make owning your AI system as easy as using a Big Tech one: installing, updating, backing up, and recovering it should just work.
 - Ensure that agentic and other capabilities can be added without giving up ownership and control over your AI system.
 
@@ -39,7 +40,7 @@ And we have developed and released BrainDrive, the first implementation of the a
 
 **Still to do:**
 
-- **Experts.** Make it easy to create, use, and improve an Expert: a page set up with readable instructions, skills, and templates for a particular kind of help. Then make it easy to share Experts, and use ones others have built. We build our own Experts the same way you do; Business Idea is the first, free example.
+- **Experts.** Make it easy to create, use, and improve an Expert: a page set up with readable instructions, skills, and templates for a particular kind of help. Then make it easy to share Experts and skills, together or on their own, and use ones others have built. We build our own Experts the same way you do; Business Idea is the first, free example.
 - **Easy everywhere.** Keep BrainDrive easy to install, set up, use, and recover without reading documentation.
 - **Wherever you are.** Desktop today; mobile, voice, and messaging as we get there.
 
@@ -55,7 +56,7 @@ And we have developed and released BrainDrive, the first implementation of the a
 
 1. **Connectors.** Your BrainDrive uses services you already have, through your own accounts, and can search the web and read pages, with your approval and a record of what it did.
 2. **Agents.** Agents carry out jobs for you, such as making a logo or a website. They run on your own machine first and keep a record of their actions.
-3. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you. Resume Builder is the first.
+3. **Apps.** Focused tools that run inside your BrainDrive and work from what it already knows about you.
 
 Longer term: your BrainDrive uses browsers and apps the way you do, specialized agents work together on complex tasks, it meets you on the channels and devices you use, and it connects with other personal AI systems on terms you set.
 
