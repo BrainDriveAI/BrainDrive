@@ -20,6 +20,10 @@ Work overlaps, but we are working through each area in rough order.
 
 **The key guarantee:** Your Memory is the platform. It depends on nothing; everything else depends on it. You can swap models, tools, interfaces, and hosting, but Your Memory stays yours.
 
+<p align="center">
+  <img src="docs/images/your-memory.svg" alt="Your Memory (conversations, settings, skills, agent instructions and tool preferences, in files you own) stays under your control, while models, interfaces and tools can be swapped freely." width="680" />
+</p>
+
 **Progress:** We have developed and released the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture), an open, MIT-licensed blueprint for building personal AI systems without lock-in.
 
 And we have developed and released BrainDrive, the first implementation of the architecture: an MIT-licensed personal AI system designed to help you define and reach your goals. It is available as Mac and Windows desktop apps and as a Docker install, and you can easily switch between cloud and local AI models.
