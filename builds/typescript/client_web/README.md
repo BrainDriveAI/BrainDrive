@@ -214,3 +214,7 @@ Use focused Vitest runs while iterating, then run the complete web suite before 
 ## License
 
 BrainDrive is licensed under the [MIT License](../../../LICENSE).
+
+## Experimental Add Expert preview
+
+The Vite development flag `VITE_EXPERT_PREVIEW_ENABLED=true`, paired with the gateway's `BRAINDRIVE_EXPERT_PREVIEW_ENABLED=true`, exposes Add Expert on Home. Create your own immediately opens a normal conversational setup page. Install Expert offers direct Start a Business ZIP review and external ZIP import; both require explicit confirmation after exact content/source/access review. Installed conflicts can open the existing Expert without overwriting it. Start a Business opens with its specific interview question, with no generic start gate or automatic model request. Behavior offers reviewed removal that keeps owner work. Conversation, Your Files, Tools and Behavior retain the inherited layout. The flag is disabled in production web builds. See the [prototype package profile](../experts/README.md) for unsupported capabilities and Memory boundaries.

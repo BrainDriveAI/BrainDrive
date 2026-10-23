@@ -14,7 +14,7 @@ export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, onRemoveExpert }: {
   view: ProjectView;
   project: Project;
   files: ProjectFile[];
@@ -22,6 +22,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   hasFilesError?: boolean;
   onOpenFile: (file: ProjectFile) => void;
   onBack: () => void;
+  onRemoveExpert?: () => void;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
   const direction = ([
@@ -65,6 +66,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
             </ContentSection>
             <ContentSection title="Interview guidance"><FileList items={interview} onOpenFile={onOpenFile} empty="No interview guidance is saved for this Expert yet." /></ContentSection>
             <ContentSection title="Reusable templates"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No reusable templates saved yet." /><p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p></ContentSection>
+            {onRemoveExpert ? <section className="border-t border-bd-border pt-4"><button type="button" onClick={onRemoveExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Review removal</button></section> : null}
             <details className="border-t border-bd-border pt-4">
               <summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>Technical details</summary>
               <div className="mt-4 space-y-4">

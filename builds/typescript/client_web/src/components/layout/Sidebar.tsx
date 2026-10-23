@@ -40,6 +40,7 @@ type SidebarProps = {
   onOpenSettings: () => void;
   onLogout: () => void;
   onAddProject?: (name: string) => Promise<void>;
+  onAddExpert?: () => void;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
   tier?: "local" | "concierge";
@@ -62,6 +63,7 @@ export default function Sidebar({
   onOpenSettings,
   onLogout,
   onAddProject,
+  onAddExpert,
   onRemoveProject,
   onRenameProject,
   tier = "local",
@@ -487,7 +489,7 @@ export default function Sidebar({
                 );
               })}
 
-              {isAddingProject ? (
+              {onAddExpert ? <button type="button" onClick={onAddExpert} className="flex min-h-11 w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Plus size={17} strokeWidth={1.5} /><span className="text-[14px]">Add Expert</span></button> : isAddingProject ? (
                 <div className="flex items-center gap-2 rounded-xl py-2 pl-4 pr-3">
                   <Plus size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
                   <input

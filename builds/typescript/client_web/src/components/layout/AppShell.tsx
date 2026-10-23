@@ -11,6 +11,9 @@ import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { ProjectFile } from "@/types/ui";
 
 import Sidebar from "./Sidebar";
+import AddExpert, { expertButton } from "./AddExpert";
+import RemoveExpert from "./RemoveExpert";
+import { expertPreviewEnabled } from "@/api/experts";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
 
 type AppShellProps = {
@@ -30,6 +33,8 @@ export default function AppShell({
   appVersion = "unknown",
   onLogout,
 }: AppShellProps) {
+  const [isAddingExpert, setIsAddingExpert] = useState(false);
+  const [removingExpert, setRemovingExpert] = useState<{ id: string; name: string } | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -243,6 +248,7 @@ export default function AppShell({
       hasFilesError={Boolean(filesError)}
       onOpenFile={handleFileClick}
       onBack={handleReturnToChat}
+      onRemoveExpert={expertPreviewEnabled ? () => setRemovingExpert(selectedProject) : undefined}
     />
   ) : undefined;
 
@@ -314,7 +320,8 @@ export default function AppShell({
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
-          onRemoveProject={removeProject}
+          onAddExpert={expertPreviewEnabled ? () => { setIsMobileSidebarOpen(false); setIsAddingExpert(true); } : undefined}
+          onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setRemovingExpert(project); } : removeProject}
           onRenameProject={renameProject}
         />
       </div>
@@ -353,7 +360,8 @@ export default function AppShell({
               onLogout={() => onLogout?.()}
               tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
-              onRemoveProject={removeProject}
+              onAddExpert={expertPreviewEnabled ? () => { setIsMobileSidebarOpen(false); setIsAddingExpert(true); } : undefined}
+              onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setRemovingExpert(project); } : removeProject}
               onRenameProject={renameProject}
               onClose={() => {
                 setIsMobileSidebarOpen(false);
@@ -372,6 +380,7 @@ export default function AppShell({
               <p aria-label="Expert title" className="font-heading text-sm font-semibold text-bd-text-heading">{selectedProject.id === "start-a-business" ? "Start a Business" : selectedProject.name}</p>
             </div>
           ) : null}
+          {expertPreviewEnabled && selectedProject && isRootAgentProjectId(selectedProject.id) ? <div className="flex shrink-0 justify-end px-4 pt-3"><button className={expertButton} onClick={() => setIsAddingExpert(true)}>Add Expert</button></div> : null}
           {children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
@@ -397,6 +406,8 @@ export default function AppShell({
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
+      {expertPreviewEnabled && isAddingExpert ? <AddExpert onClose={() => setIsAddingExpert(false)} onOpenExpert={(id) => { refreshProjects(); selectProject(id); setIsAddingExpert(false); }} /> : null}
+      {expertPreviewEnabled && removingExpert ? <RemoveExpert project={removingExpert} onClose={() => setRemovingExpert(null)} onRemovePage={removeProject} onRemoved={() => { refreshProjects(); void refreshSelectedProjectFiles(); setRemovingExpert(null); }} /> : null}
       {mobileHeader}
     </div>
   );
