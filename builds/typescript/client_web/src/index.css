@@ -53,6 +53,7 @@
   --color-bd-text-secondary: var(--bd-text-secondary);
   --color-bd-text-muted: var(--bd-text-muted);
   --color-bd-text-heading: var(--bd-text-heading);
+  --color-bd-text-nav: var(--bd-text-nav);
   --color-bd-amber: var(--bd-amber);
   --color-bd-amber-hover: var(--bd-amber-hover);
   --color-bd-amber-light: var(--bd-amber-light);
@@ -88,6 +89,7 @@
   --bd-text-secondary: #7CA7D1;
   --bd-text-muted: #4A6A8A;
   --bd-text-heading: #FFFFFF;
+  --bd-text-nav: #B0B7C2;
   --bd-amber: #F5A623;
   --bd-amber-hover: #D4891C;
   --bd-amber-light: #FDF0D5;
@@ -142,6 +144,7 @@
   --bd-text-secondary: #7CA7D1;
   --bd-text-muted: #4A6A8A;
   --bd-text-heading: #FFFFFF;
+  --bd-text-nav: #B0B7C2;
   --bd-amber: #F5A623;
   --bd-amber-hover: #D4891C;
   --bd-amber-light: #FDF0D5;

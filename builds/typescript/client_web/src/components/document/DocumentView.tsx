@@ -8,8 +8,10 @@ import MarkdownContent from "@/components/markdown/MarkdownContent";
 type DocumentViewProps = {
   projectId: string;
   projectName: string;
+  showProjectName?: boolean;
   file: { name: string; path: string };
   onBack: () => void;
+  backLabel?: string;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -23,8 +25,10 @@ function getErrorMessage(error: unknown): string {
 export default function DocumentView({
   projectId,
   projectName,
+  showProjectName = true,
   file,
-  onBack
+  onBack,
+  backLabel = "Back to chat"
 }: DocumentViewProps) {
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
@@ -82,9 +86,9 @@ export default function DocumentView({
       <header className="border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6">
         <div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
+            {showProjectName ? <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
               {projectName}
-            </div>
+            </div> : null}
             <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.name}</h1>
           </div>
 
@@ -98,7 +102,7 @@ export default function DocumentView({
               className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
             >
               <ArrowLeft size={16} />
-              Back to chat
+              {backLabel}
             </Button>
 
             {isEditing ? (
