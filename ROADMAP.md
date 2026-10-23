@@ -100,7 +100,7 @@ Longer term: your BrainDrive uses browsers and apps the way you do, specialized 
 
 BrainDrive is MIT-licensed and open source. We welcome contributions at every level:
 
-- **Use it** — install BrainDrive, try the interview flow, report what works and what doesn't
+- **Use it** — [install BrainDrive](https://braindrive.ai/install), try the interview flow, report what works and what doesn't
 - **Build on it** — the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) is designed for anyone to build on
 - **Contribute code** — check [open issues](https://github.com/BrainDriveAI/braindrive/issues) or pick something from the roadmap above
 - **Join the community** — [community.braindrive.ai](https://community.braindrive.ai)
