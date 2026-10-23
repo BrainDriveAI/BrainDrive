@@ -2,7 +2,6 @@ import type { ProjectFile } from "@/types/ui";
 
 import {
   canonicalFileName,
-  normalizePath,
   projectRelativePath,
   sidebarFileLabel,
 } from "./sidebar-labels";
