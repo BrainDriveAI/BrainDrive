@@ -2,7 +2,7 @@
 
 Our mission is to build a superior user-owned alternative to Big Tech AI systems.
 
-There are five major areas we believe we need to execute to do so:
+There are five major areas we need to execute to do so:
 
 1. **Own** — Build an AI system that is owned and controlled by the user, instead of a Big Tech company.
 2. **Benefit** — The more you use your AI system, the better it should get to know you and the more powerful it should become.
