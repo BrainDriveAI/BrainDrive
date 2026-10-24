@@ -114,7 +114,7 @@ function PluginsList({ project, setup, onAddPlugin, onStartExpert, behaviorFiles
   return <>
     <p className="text-sm text-bd-text-secondary">What shapes and adds to this page.</p>
     {expert ? <ContentSection title={`Behavior · ${expert.name}`}>
-      {expert.backend ? behaviorFiles : <div className="space-y-3">{Object.entries(expert.files).map(([file, text]) => <MockFileEditor key={`${project.id}:${file}`} projectId={project.id} file={file} text={text} />)}</div>}
+      {expert.backend ? behaviorFiles : <MockBehavior projectId={project.id} files={expert.files} />}
     </ContentSection> : <ContentSection title="Behavior"><p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">This page has no Expert yet. To start one, go to the conversation and choose Build your own or Install one.{onStartExpert ? <button type="button" onClick={onStartExpert} className={`mt-3 block min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Start an Expert</button> : null}</p></ContentSection>}
     <ContentSection title="Plugins">
       {others.length === 0 ? <p className="text-sm text-bd-text-secondary">No other plugins on this page yet.</p> : <ul className="divide-y divide-bd-border rounded-lg border border-bd-border">{others.map((plugin) => <li key={plugin.id} className="px-4 py-4">
@@ -128,13 +128,39 @@ function PluginsList({ project, setup, onAddPlugin, onStartExpert, behaviorFiles
 
 // Files of a page set up in this prototype live in the browser only, so they open in a small
 // editor here instead of the page file editor. Real pages (Finance and so on) use the file editor.
-function MockFileEditor({ projectId, file, text }: { projectId: string; file: string; text: string }) {
+// The cards look the same as the ones real pages show.
+function MockBehavior({ projectId, files }: { projectId: string; files: Record<string, string> }) {
+  const names = Object.keys(files);
+  const instructionsFile = names.find((file) => /(^|\/)(instructions|SKILL)\.md$/.test(file) && !file.startsWith("templates/"));
+  const templateFiles = names.filter((file) => file.startsWith("templates/"));
+  return <>
+    {instructionsFile ? <MockCard projectId={projectId} rows={[{ file: instructionsFile, text: files[instructionsFile], label: "Instructions", description: "How this Expert works with you" }]} />
+      : <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">No instruction file is available for this Expert yet.</p>}
+    <div className="mt-3">{templateFiles.length ? <MockCard projectId={projectId} rows={templateFiles.map((file) => ({ file, text: files[file], label: file.split("/").pop() ?? file, description: "Template" }))} />
+      : <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">No templates saved yet.</p>}</div>
+    <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
+  </>;
+}
+
+function MockCard({ projectId, rows }: { projectId: string; rows: { file: string; text: string; label: string; description: string }[] }) {
+  return <div className="divide-y divide-bd-border rounded-lg border border-bd-border">{rows.map((row) => <MockRow key={`${projectId}:${row.file}`} projectId={projectId} {...row} />)}</div>;
+}
+
+function MockRow({ projectId, file, text, label, description }: { projectId: string; file: string; text: string; label: string; description: string }) {
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(text);
   const [saved, setSaved] = useState(false);
-  return <details className="rounded-lg border border-bd-border px-3">
-    <summary className={`min-h-11 cursor-pointer break-all py-3 text-sm ${focusStyle}`}>{file}</summary>
-    <label className="block pb-1 text-xs text-bd-text-secondary" htmlFor={`edit-${file}`}>Edit {file}</label>
-    <textarea id={`edit-${file}`} value={draft} rows={8} onChange={(event) => { setDraft(event.target.value); setSaved(false); }} className={`w-full rounded-md border border-bd-border bg-bd-bg-primary p-3 text-sm text-bd-text-primary ${focusStyle}`} />
-    <div className="flex items-center gap-3 py-3"><button type="button" onClick={() => { saveExpertFile(projectId, file, draft); setSaved(true); }} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Save</button>{saved ? <span role="status" className="text-xs text-bd-text-secondary">Saved</span> : null}</div>
-  </details>;
+  const id = `edit-${projectId}-${file}`;
+  return <div className="rounded-lg px-3 hover:bg-bd-bg-secondary">
+    <button type="button" aria-label={label} aria-expanded={open} title={file} onClick={() => setOpen(!open)} className={`flex w-full min-w-0 items-center gap-3 rounded-md py-4 text-left ${focusStyle}`}>
+      <FileText size={18} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
+      <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{label}</span><span className="mt-1 block break-words text-xs text-bd-text-secondary">{description}</span></span>
+      <ArrowUpRight size={16} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
+    </button>
+    {open ? <div>
+      <label className="block pb-1 text-xs text-bd-text-secondary" htmlFor={id}>Edit {file}</label>
+      <textarea id={id} value={draft} rows={8} onChange={(event) => { setDraft(event.target.value); setSaved(false); }} className={`w-full rounded-md border border-bd-border bg-bd-bg-primary p-3 text-sm text-bd-text-primary ${focusStyle}`} />
+      <div className="flex items-center gap-3 py-3"><button type="button" onClick={() => { saveExpertFile(projectId, file, draft); setSaved(true); }} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Save</button>{saved ? <span role="status" className="text-xs text-bd-text-secondary">Saved</span> : null}</div>
+    </div> : null}
+  </div>;
 }

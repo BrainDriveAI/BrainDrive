@@ -36,6 +36,8 @@ describe("sidebar labels", () => {
     expect(rootProjectDisplayLabel("fitness", "Fitness")).toBe("Fitness");
     expect(rootProjectDisplayLabel("finance", "Finance")).toBe("Finance");
     expect(rootProjectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
+    expect(rootProjectDisplayLabel("start-a-business", "Start a Business")).toBe("Start a Business");
+    expect(rootProjectDisplayLabel("x", "  my page ")).toBe("my page");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
     expect(sidebarFileLabel({ name: "journal.md", path: "documents/finance/journal.md" }, "finance")).toBe("Your Journal");

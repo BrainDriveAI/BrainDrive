@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, Puzzle, Sparkles } from "lucide-react";
+import { Bot, FolderOpen, Plus, Puzzle, Sparkles, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
@@ -20,6 +20,8 @@ type SidebarCollapsedProps = {
   onOpenProjectView: (view: ProjectView) => void;
   onSelectProject: (projectId: string) => void;
   accountFooter: ReactNode;
+  onAddPage?: () => void;
+  onDeletePage?: () => void;
 };
 
 export default function SidebarCollapsed({
@@ -32,7 +34,9 @@ export default function SidebarCollapsed({
   onReturnToChat,
   onOpenProjectView,
   onSelectProject,
-  accountFooter
+  accountFooter,
+  onAddPage,
+  onDeletePage
 }: SidebarCollapsedProps) {
   return (
     <aside className="flex h-dvh w-[48px] flex-col items-center border-r border-bd-border bg-bd-bg-secondary pt-3 transition-all duration-200">
@@ -54,7 +58,7 @@ export default function SidebarCollapsed({
             <nav aria-label="Page navigation" className="flex flex-col gap-1">
               <button type="button" aria-label="Conversation" title="Conversation" onClick={onReturnToChat}
                 aria-current={activeView === null ? "page" : undefined}
-                className="flex h-10 w-10 items-center justify-center rounded-md border-l-2 border-bd-amber text-bd-amber hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
+                className="flex h-10 w-10 items-center justify-center rounded-md text-bd-text-primary hover:bg-bd-bg-hover aria-[current=page]:border-l-2 aria-[current=page]:border-bd-amber aria-[current=page]:bg-bd-bg-tertiary aria-[current=page]:text-bd-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
                 <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" />
               </button>
               {([["files", FolderOpen], ["plugins", Puzzle]] as const).map(([view, Icon]) => (
@@ -65,6 +69,10 @@ export default function SidebarCollapsed({
                 </button>
               ))}
             </nav>
+            {onDeletePage ? <button type="button" aria-label="Delete page" title="Delete page" onClick={onDeletePage}
+              className="mt-auto flex h-10 w-10 items-center justify-center rounded-md text-red-400 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
+              <Trash2 size={17} strokeWidth={1.5} aria-hidden="true" />
+            </button> : null}
           </>
         ) : <>
         <button
@@ -109,6 +117,10 @@ export default function SidebarCollapsed({
             </button>
           );
         })}
+        {onAddPage ? <button type="button" aria-label="Add page" title="Add page" onClick={onAddPage}
+          className="flex h-10 w-10 items-center justify-center rounded-md text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
+          <Plus size={17} strokeWidth={1.5} aria-hidden="true" />
+        </button> : null}
         </>}
       </div>
 

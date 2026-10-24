@@ -179,7 +179,7 @@ describe("Sidebar", () => {
 });
 
 
-it("shows three distinct page entries with a persistent Conversation accent", async () => {
+it("shows three distinct page entries where only the current one is marked", async () => {
   const user = userEvent.setup();
   const onOpenProjectView = vi.fn();
   const onClose = vi.fn();
@@ -193,7 +193,7 @@ it("shows three distinct page entries with a persistent Conversation accent", as
   expect(screen.queryByRole("button", { name: "Brief" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Your Files" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
-  expect(screen.getByRole("button", { name: "Conversation" })).toHaveClass("text-bd-amber", "border-bd-amber");
+  expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveClass("text-bd-amber", "border-bd-amber");
   expect(screen.queryByRole("button", { name: /Connections|Agents|Tools|Behavior/ })).not.toBeInTheDocument();
   screen.getByRole("button", { name: "Plugins" }).focus();
   await user.keyboard("{Enter}");
@@ -367,4 +367,25 @@ it.each([false, true])("opens the account menu with Space and restores trigger f
   await user.keyboard("{Enter}");
   expect(account).toHaveAttribute("aria-expanded", "false");
   expect(onToggle).not.toHaveBeenCalled();
+});
+
+it("marks Conversation with the amber accent only while it is the current view", () => {
+  render(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} activeView={null} />);
+  expect(screen.getByRole("button", { name: "Conversation" })).toHaveClass("text-bd-amber", "border-bd-amber");
+});
+
+it("offers Add page on Home and Delete page on a page in the collapsed rail", async () => {
+  const user = userEvent.setup();
+  const onAddPage = vi.fn(), onDeletePage = vi.fn();
+  const { rerender } = render(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} />);
+  expect(screen.getByRole("button", { name: "Add page" })).toHaveAttribute("title", "Add page");
+  expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Add page" }));
+  expect(onAddPage).toHaveBeenCalled();
+  rerender(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
+  expect(screen.queryByRole("button", { name: "Add page" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Delete page" }));
+  expect(onDeletePage).toHaveBeenCalledWith("finance");
+  rerender(<Sidebar {...baseProps} isCollapsed selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
+  expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
 });

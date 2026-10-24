@@ -41,7 +41,7 @@ export function rootProjectDisplayLabel(projectId: string, projectName: string):
     return ROOT_AGENT_DISPLAY_NAME;
   }
 
-  return PROJECT_SHORT_LABELS[normalizedId] ?? PROJECT_SHORT_LABELS[normalizedName] ?? titleCase(projectName);
+  return PROJECT_SHORT_LABELS[normalizedId] ?? PROJECT_SHORT_LABELS[normalizedName] ?? (projectName.trim() || titleCase(projectId));
 }
 
 export function projectShortLabel(projectId: string, projectName: string): string {

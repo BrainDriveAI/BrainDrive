@@ -72,7 +72,10 @@ it("edits and saves a built Expert's instructions from the Behavior entry", asyn
   const user = userEvent.setup();
   resetExpertsMock();
   render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "My Expert", files: { "instructions.md": "Original" } } })} />);
-  await user.click(screen.getByText("instructions.md"));
+  expect(screen.queryByText("SKILL.md")).not.toBeInTheDocument();
+  expect(screen.getByText("How this Expert works with you")).toBeVisible();
+  expect(screen.getByText("No templates saved yet.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Instructions" }));
   const editor = screen.getByLabelText("Edit instructions.md");
   expect(editor).toHaveValue("Original");
   await user.clear(editor); await user.type(editor, "Changed");
@@ -145,4 +148,14 @@ it("reports clipboard failure honestly", async () => {
   render(<ProjectContentView {...props} view="files" />);
   await user.click(screen.getByRole("button", { name: "Copy folder path" }));
   expect(await screen.findByRole("status")).toHaveTextContent("Copy is unavailable");
+});
+
+it("lists installed template files as a Templates card, matching the default-page pattern", async () => {
+  const user = userEvent.setup();
+  resetExpertsMock();
+  render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "Start a Business", files: { "SKILL.md": "Help.", "templates/spec.md": "# Spec" } } })} />);
+  expect(screen.queryByText("No templates saved yet.")).not.toBeInTheDocument();
+  expect(screen.queryByText("SKILL.md")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "spec.md" }));
+  expect(screen.getByLabelText("Edit templates/spec.md")).toHaveValue("# Spec");
 });

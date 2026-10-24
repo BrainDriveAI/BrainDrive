@@ -134,7 +134,7 @@ export function checkPluginFile(fileName: string, mode: "expert" | "plugin"): { 
     const name = lower.includes("business") || lower.includes("starter") ? "Start a Business" : readableName(fileName);
     return { review: {
       kind: "expert", name, creator: "unverified (Sample Author)", license: "MIT",
-      adds: "An Expert with instructions and a spec template, plus one skill.", fileName,
+      adds: "An Expert with instructions and a spec template.", fileName,
       files: {
         "SKILL.md": "---\nname: instructions\ndescription: How this Expert works with you. Sample text while the real package format is built.\n---\nHelp the owner explore the job step by step. Ask one question at a time.",
         "templates/spec.md": "# Spec\n\n(Sample template. The real template text appears here.)",

@@ -274,6 +274,8 @@ export default function Sidebar({
           onSelectProject(projectId);
         }}
         accountFooter={accountFooter}
+        onAddPage={onAddPage}
+        onDeletePage={onDeletePage && selectedProject ? () => onDeletePage(selectedProject.id) : undefined}
       />
     );
   }
@@ -314,12 +316,11 @@ export default function Sidebar({
                 onClick={() => { onReturnToChat(); onClose?.(); }}
                 className={[
                   "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber",
-                  "border-l-2 border-bd-amber pl-[10px] text-bd-amber",
-                  isConversationActive ? "bg-bd-bg-tertiary" : "",
+                  isConversationActive ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-amber" : "text-bd-text-primary",
                 ].join(" ")}
               >
-                <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" className="shrink-0 text-bd-amber" />
-                <span className="truncate text-bd-text-heading">Conversation</span>
+                <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" className={`shrink-0 ${isConversationActive ? "text-bd-amber" : ""}`} />
+                <span className={`truncate ${isConversationActive ? "text-bd-text-heading" : "text-bd-text-nav"}`}>Conversation</span>
               </button>
               <button
                 type="button"
