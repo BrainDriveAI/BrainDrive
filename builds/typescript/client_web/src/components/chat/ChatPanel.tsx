@@ -40,7 +40,13 @@ type ChatPanelProps = {
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
+  // Experts prototype (dev only): BrainDrive-drawn messages shown in the conversation, and the
+  // install-only file input (spec I9). Without `fileDrop`, dropped files are ignored as before.
+  hostEvents?: ReactNode;
+  fileDrop?: { installStep: boolean; onInstallFile: (file: File) => void };
 };
+
+export const NO_FILE_DROP_MESSAGE = "Files can't be added here yet. To install a plugin, choose Add plugin.";
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
   return conversation.messages
@@ -63,8 +69,11 @@ export default function ChatPanel({
   messageMetadata,
   contentOverride,
   onSendMessage,
-  onOpenSettings
+  onOpenSettings,
+  hostEvents,
+  fileDrop
 }: ChatPanelProps) {
+  const [dropNotice, setDropNotice] = useState("");
   const [mobileComposerHeight, setMobileComposerHeight] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "disconnected" | "reconnecting"
@@ -191,7 +200,7 @@ export default function ChatPanel({
   const visibleRecoveryMessage = isProviderError
     ? "The model connection was interrupted. Try again, or open settings if this keeps happening."
     : visibleChatError;
-  const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
+  const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading && !hostEvents;
   const shouldShowConversation = contentOverride === undefined;
 
   function resetErrorPresentation() {
@@ -227,6 +236,20 @@ export default function ChatPanel({
     }
   }
 
+  function handleDrop(event: DragEvent) {
+    ignoreDroppedFiles(event);
+    if (!fileDrop || event.dataTransfer.files.length === 0) return;
+    const file = event.dataTransfer.files[0]!;
+    if (fileDrop.installStep) {
+      setDropNotice("");
+      fileDrop.onInstallFile(file);
+    } else {
+      setDropNotice(NO_FILE_DROP_MESSAGE);
+    }
+  }
+
+  useEffect(() => { setDropNotice(""); }, [activeProjectId]);
+
   const composerProps = {
     onSend: (message: string) => {
       onSendMessage?.();
@@ -261,7 +284,7 @@ export default function ChatPanel({
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-bd-bg-chat"
       style={mobileComposerVar}
       onDragOver={ignoreDroppedFiles}
-      onDrop={ignoreDroppedFiles}
+      onDrop={handleDrop}
     >
       {connectionStatus !== "connected" && (
         <ConnectionBanner
@@ -295,6 +318,7 @@ export default function ChatPanel({
                   </div>
                 </div>
               )}
+              {hostEvents}
               {visibleChatError && (
                 <ErrorMessage
                   message={visibleRecoveryMessage ?? visibleChatError}
@@ -316,6 +340,7 @@ export default function ChatPanel({
           )) : contentOverride}
         </div>
       </div>
+      {dropNotice ? <p role="status" className="mx-auto w-full max-w-[780px] px-4 pb-2 text-sm text-bd-text-secondary">{dropNotice}</p> : null}
       <div className="hidden md:block">
         <Composer {...composerProps} />
       </div>

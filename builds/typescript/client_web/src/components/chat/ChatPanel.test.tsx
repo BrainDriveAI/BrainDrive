@@ -207,4 +207,33 @@ describe("ChatPanel typing indicator behavior", () => {
     );
     expect(hookState.append).toHaveBeenCalledWith("Use ordinary chat.", expect.any(Object));
   });
+
+  it("tells the owner files can't be added outside the install step, and never sends them to the model", () => {
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+    const onInstallFile = vi.fn();
+    const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="finance" isEmpty={false} fileDrop={{ installStep: false, onInstallFile }} />);
+    fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [new File(["x"], "notes.csv")], types: ["Files"] } });
+    expect(screen.getByRole("status")).toHaveTextContent("Files can't be added here yet. To install a plugin, choose Add plugin.");
+    expect(onInstallFile).not.toHaveBeenCalled();
+    expect(hookState.append).not.toHaveBeenCalled();
+  });
+
+  it("sends a dropped file to the install check during the install step", () => {
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+    const onInstallFile = vi.fn();
+    const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="new" isEmpty={false} fileDrop={{ installStep: true, onInstallFile }} />);
+    const file = new File(["x"], "plugin.zip");
+    fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [file], types: ["Files"] } });
+    expect(onInstallFile).toHaveBeenCalledWith(file);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(hookState.append).not.toHaveBeenCalled();
+  });
+
+  it("shows BrainDrive messages instead of the welcome screen on an empty page", () => {
+    useGatewayChatMock.mockReturnValue(makeHookState());
+    render(<ChatPanel activeConversationId={null} activeProjectId="new" isEmpty hostEvents={<p>Fixed BrainDrive text</p>} />);
+    expect(screen.getByText("Fixed BrainDrive text")).toBeVisible();
+  });
 });
