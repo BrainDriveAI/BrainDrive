@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, MoreHorizontal, Pencil, Plus, Settings2, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { Bot, FolderOpen, MoreHorizontal, Pencil, Plus, Puzzle, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -40,7 +40,8 @@ type SidebarProps = {
   onOpenSettings: () => void;
   onLogout: () => void;
   onAddProject?: (name: string) => Promise<void>;
-  onAddExpert?: () => void;
+  onAddPage?: () => void;
+  onDeletePage?: (id: string) => void;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
   tier?: "local" | "concierge";
@@ -63,7 +64,8 @@ export default function Sidebar({
   onOpenSettings,
   onLogout,
   onAddProject,
-  onAddExpert,
+  onAddPage,
+  onDeletePage,
   onRemoveProject,
   onRenameProject,
   tier = "local",
@@ -328,21 +330,19 @@ export default function Sidebar({
                 <FolderOpen size={17} strokeWidth={1.5} aria-hidden="true" />
                 <span className="text-bd-text-nav">Your Files</span>
               </button>
-              {([
-                ["tools", "Tools", Wrench], ["expert", "Behavior", Settings2],
-              ] as const).map(([view, label, Icon]) => (
-                <button
-                  key={view}
-                  type="button"
-                  aria-current={currentView === view ? "page" : undefined}
-                  onClick={() => { onOpenProjectView(view); onClose?.(); }}
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
-                >
-                  <Icon size={17} strokeWidth={1.5} aria-hidden="true" />
-                  <span className="text-bd-text-nav">{label}</span>
-                </button>
-              ))}
+              <button
+                type="button"
+                aria-current={currentView === "plugins" ? "page" : undefined}
+                onClick={() => { onOpenProjectView("plugins"); onClose?.(); }}
+                className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
+              >
+                <Puzzle size={17} strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-bd-text-nav">Plugins</span>
+              </button>
               </div>
+              {onDeletePage && selectedProject ? <div className="mt-auto shrink-0 border-t border-bd-border pt-3">
+                <button type="button" onClick={() => { onDeletePage(selectedProject.id); onClose?.(); }} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-red-400 transition-colors hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Trash2 size={17} strokeWidth={1.5} aria-hidden="true" />Delete page</button>
+              </div> : null}
             </nav>
           ) : (
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
@@ -478,7 +478,7 @@ export default function Sidebar({
                                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-400 transition-colors duration-150 hover:bg-bd-bg-hover"
                               >
                                 <Trash2 size={14} strokeWidth={1.5} />
-                                Remove
+                                {onAddPage ? "Delete page" : "Remove"}
                               </button>
                             ) : null}
                           </div>
@@ -489,7 +489,7 @@ export default function Sidebar({
                 );
               })}
 
-              {onAddExpert ? <button type="button" onClick={onAddExpert} className="flex min-h-11 w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Plus size={17} strokeWidth={1.5} /><span className="text-[14px]">Add Expert</span></button> : isAddingProject ? (
+              {onAddPage ? <button type="button" onClick={() => { onAddPage(); onClose?.(); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Plus size={17} strokeWidth={1.5} /><span className="text-[14px]">Add page</span></button> : isAddingProject ? (
                 <div className="flex items-center gap-2 rounded-xl py-2 pl-4 pr-3">
                   <Plus size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
                   <input

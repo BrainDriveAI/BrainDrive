@@ -1,20 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowUpRight, Copy, FileText } from "lucide-react";
 
-import { getProjectSkills, listSkills } from "@/api/gateway-adapter";
+import { saveExpertFile, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
 import { buildProjectSidebarModel, type SidebarFileItem } from "./sidebar-categorize";
-import { expertPurpose } from "./expert-context";
 import { localPreviewFolder } from "./local-preview-folder";
 
-export type ProjectView = "files" | "tools" | "expert";
+export type ProjectView = "files" | "plugins";
 export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
-  files: "Your Files", tools: "Tools", expert: "Behavior",
+  files: "Your Files", plugins: "Plugins",
 };
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, onRemoveExpert }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert }: {
   view: ProjectView;
   project: Project;
   files: ProjectFile[];
@@ -22,7 +21,9 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   hasFilesError?: boolean;
   onOpenFile: (file: ProjectFile) => void;
   onBack: () => void;
-  onRemoveExpert?: () => void;
+  setup?: PageSetup;
+  onAddPlugin?: () => void;
+  onStartExpert?: () => void;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
   const direction = ([
@@ -36,7 +37,6 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   const interview: DisplayFile[] = [
     ...(interviewGuide ? [{ ...interviewGuide, label: "Interview guide", description: "The questions and process used for this Expert" }] : []),
   ];
-  const remaining = model.advanced.filter((item) => item !== instructions && item !== interviewGuide && !model.expert.templates.includes(item));
   const title = PROJECT_VIEW_LABELS[view];
 
   return (
@@ -49,29 +49,17 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "tools" ? <ProjectTools key={project.id} projectId={project.id} /> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this Expert to try again.</p> : view === "files" ? <>
+          {view === "plugins" ? <PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} behaviorFiles={<>
+            <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
+            {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
+            <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
+            <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
+          </>} /> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
             <ContentSection title="Direction & progress">
               <FileList items={direction} onOpenFile={onOpenFile} empty="No direction or progress files saved yet. Your goals, plans, task lists, and journal will appear here when available." />
             </ContentSection>
-            <ContentSection title="Your work"><FileList items={model.files} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this Expert will appear here." /></ContentSection>
+            <ContentSection title="Your work"><FileList items={model.files} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
             <StorageDetails projectId={project.id} />
-          </> : <>
-            <p className="text-sm text-bd-text-secondary">See how your Expert helps you</p>
-            <ContentSection title="What this Expert is for"><p className="text-sm leading-relaxed text-bd-text-primary">{expertPurpose(project)}</p></ContentSection>
-            <ContentSection title="How it works with you">
-              <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
-            </ContentSection>
-            <ContentSection title="Interview guidance"><FileList items={interview} onOpenFile={onOpenFile} empty="No interview guidance is saved for this Expert yet." /></ContentSection>
-            <ContentSection title="Reusable templates"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No reusable templates saved yet." /><p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p></ContentSection>
-            {onRemoveExpert ? <section className="border-t border-bd-border pt-4"><button type="button" onClick={onRemoveExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Review removal</button></section> : null}
-            <details className="border-t border-bd-border pt-4">
-              <summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>Technical details</summary>
-              <div className="mt-4 space-y-4">
-                <p className="text-sm text-bd-text-secondary">Base instructions and supporting files. These are editable documents; opening them does not run an interview or register a skill.</p>
-                <FileList items={remaining} onOpenFile={onOpenFile} showPaths empty="No additional setup files." />
-                <details><summary className={`cursor-pointer rounded text-sm text-bd-text-secondary ${focusStyle}`}>File paths for the settings above</summary><ul className="mt-3 space-y-2 text-xs text-bd-text-secondary">{[instructions, interviewGuide, ...model.expert.templates].filter((item): item is SidebarFileItem => Boolean(item)).map((item) => <li key={item.file.path}><code className="break-all">{item.file.path}</code></li>)}</ul></details>
-              </div>
-            </details>
           </>}
         </div>
       </div>
@@ -120,23 +108,33 @@ function StorageDetails({ projectId }: { projectId: string }) {
   </section>;
 }
 
-function ProjectTools({ projectId }: { projectId: string }) {
-  const [skills, setSkills] = useState<Array<{ id: string; name: string; description: string }> | null>(null);
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all([getProjectSkills(projectId), listSkills()]).then(([ids, catalog]) => {
-      if (!cancelled) setSkills(ids.map((id) => {
-        const skill = catalog.find((candidate) => candidate.id === id);
-        return { id, name: skill?.name ?? id, description: skill?.description ?? "No description available." };
-      }));
-    }).catch(() => { if (!cancelled) setError(true); });
-    return () => { cancelled = true; };
-  }, [projectId]);
+function PluginsList({ project, setup, onAddPlugin, onStartExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onAddPlugin?: () => void; onStartExpert?: () => void; behaviorFiles: ReactNode }) {
+  const expert = setup?.expert ?? null;
+  const others = (setup?.plugins ?? []).filter((plugin) => plugin.id !== "behavior");
   return <>
-    <p className="text-sm text-bd-text-secondary">Tools this Expert can use.</p>
-    <ContentSection title="Skills">{error ? <p role="status" className="text-sm text-bd-text-secondary">Skills could not be loaded.</p> : skills === null ? <p className="text-sm text-bd-text-secondary">Loading skills…</p> : skills.length === 0 ? <p className="text-sm text-bd-text-secondary">No skills added yet. Interview guidance is in Behavior.</p> : <ul className="space-y-3">{skills.map((skill) => <li key={skill.id}><p className="text-sm">{skill.name}</p><p className="text-sm text-bd-text-secondary">{skill.description}</p></li>)}</ul>}</ContentSection>
-    <ContentSection title="Connections"><p className="text-sm leading-relaxed text-bd-text-secondary">Coming later. You will connect an account once, then choose which Experts can use it.</p></ContentSection>
-    <ContentSection title="Agents"><p className="text-sm text-bd-text-secondary">Coming later.</p></ContentSection>
+    <p className="text-sm text-bd-text-secondary">What shapes and adds to this page.</p>
+    {expert ? <ContentSection title={`Behavior · ${expert.name}`}>
+      {expert.backend ? behaviorFiles : <div className="space-y-3">{Object.entries(expert.files).map(([file, text]) => <MockFileEditor key={`${project.id}:${file}`} projectId={project.id} file={file} text={text} />)}</div>}
+    </ContentSection> : <ContentSection title="Behavior"><p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">This page has no Expert yet. To start one, go to the conversation and choose Build your own or Install one.{onStartExpert ? <button type="button" onClick={onStartExpert} className={`mt-3 block min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Start an Expert</button> : null}</p></ContentSection>}
+    <ContentSection title="Plugins">
+      {others.length === 0 ? <p className="text-sm text-bd-text-secondary">No other plugins on this page yet.</p> : <ul className="divide-y divide-bd-border rounded-lg border border-bd-border">{others.map((plugin) => <li key={plugin.id} className="px-4 py-4">
+        <p className="text-sm text-bd-text-primary">{plugin.name} <span className="text-xs text-bd-text-secondary">· {plugin.source}</span></p>
+        <ul className="mt-2 space-y-1">{plugin.skills.map((skill) => <li key={skill.name} className="text-sm text-bd-text-secondary">{skill.name}{skill.needs ? <span className="block text-xs">{skill.needs}</span> : null}</li>)}</ul>
+      </li>)}</ul>}
+      {onAddPlugin ? <button type="button" onClick={onAddPlugin} className={`mt-4 min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Add plugin</button> : null}
+    </ContentSection>
   </>;
+}
+
+// Files of a page set up in this prototype live in the browser only, so they open in a small
+// editor here instead of the page file editor. Real pages (Finance and so on) use the file editor.
+function MockFileEditor({ projectId, file, text }: { projectId: string; file: string; text: string }) {
+  const [draft, setDraft] = useState(text);
+  const [saved, setSaved] = useState(false);
+  return <details className="rounded-lg border border-bd-border px-3">
+    <summary className={`min-h-11 cursor-pointer break-all py-3 text-sm ${focusStyle}`}>{file}</summary>
+    <label className="block pb-1 text-xs text-bd-text-secondary" htmlFor={`edit-${file}`}>Edit {file}</label>
+    <textarea id={`edit-${file}`} value={draft} rows={8} onChange={(event) => { setDraft(event.target.value); setSaved(false); }} className={`w-full rounded-md border border-bd-border bg-bd-bg-primary p-3 text-sm text-bd-text-primary ${focusStyle}`} />
+    <div className="flex items-center gap-3 py-3"><button type="button" onClick={() => { saveExpertFile(projectId, file, draft); setSaved(true); }} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Save</button>{saved ? <span role="status" className="text-xs text-bd-text-secondary">Saved</span> : null}</div>
+  </details>;
 }

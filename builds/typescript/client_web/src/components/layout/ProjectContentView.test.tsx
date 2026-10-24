@@ -1,9 +1,9 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { getProjectSkills, listSkills } from "@/api/gateway-adapter";
+import { resetExpertsMock, type PageSetup } from "@/api/experts";
 import ProjectContentView from "./ProjectContentView";
 
-vi.mock("@/api/gateway-adapter", () => ({ getProjectSkills: vi.fn(), listSkills: vi.fn() }));
+vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
 const props = {
   project: { id: "start-a-business", name: "Start A Business", icon: "briefcase", conversationId: null },
   files: [], isLoading: false, onOpenFile: vi.fn(), onBack: vi.fn(),
@@ -50,42 +50,56 @@ it("opens an existing To-do file with its original metadata", async () => {
   expect(screen.queryByText(/isn’t set up/)).not.toBeInTheDocument();
 });
 
-it("shows only assigned skills and makes unavailable page capabilities explicit", async () => {
-  vi.mocked(getProjectSkills).mockResolvedValue(["assigned"]);
-  vi.mocked(listSkills).mockResolvedValue(["assigned", "other"].map((id) => ({ id, name: id, description: `${id} description`, scope: "global", version: 1, status: "active", tags: [], updated_at: "" })));
-  render(<ProjectContentView {...props} view="tools" />);
-  expect(await screen.findByText("assigned description")).toBeVisible();
-  expect(getProjectSkills).toHaveBeenCalledWith("start-a-business");
-  expect(screen.queryByText("other description")).not.toBeInTheDocument();
-  expect(screen.getAllByText(/Coming later/)).toHaveLength(2);
+const setup = (over: Partial<PageSetup> = {}): PageSetup => ({ events: [], installStep: null, noticeShown: false, expert: null, plugins: [], ...over });
+
+it("pins Behavior first in Plugins for an Expert page, then lists other plugins with their skills", () => {
+  render(<ProjectContentView {...props} view="plugins" onAddPlugin={vi.fn()} setup={setup({
+    expert: { name: "Start a Business", files: { "instructions.md": "Be helpful." } },
+    plugins: [
+      { id: "behavior", name: "Start a Business", source: "installed from a plugin file", skills: [] },
+      { id: "p", name: "Research", source: "installed from a plugin file", skills: [{ name: "Find sources", needs: "Needs web search (not available yet)" }] },
+    ],
+  })} />);
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  expect(headings[0]).toBe("Behavior · Start a Business");
+  expect(screen.getByText("Research")).toBeVisible();
+  expect(screen.getByText("Needs web search (not available yet)")).toBeVisible();
+  expect(screen.queryByRole("button", { name: /Remove|Delete/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Connections|Agents|Coming later/)).not.toBeInTheDocument();
 });
 
-it("reports an unavailable skill lookup without claiming no assignments exist", async () => {
-  vi.mocked(getProjectSkills).mockRejectedValue(new Error("offline"));
-  vi.mocked(listSkills).mockResolvedValue([]);
-  render(<ProjectContentView {...props} view="tools" />);
-  expect(await screen.findByRole("status")).toHaveTextContent("could not be loaded");
-  expect(screen.queryByText(/No registered skills assigned/)).not.toBeInTheDocument();
-});
-
-it("keeps owner-facing settings simple and technical files reachable without changing file metadata", async () => {
+it("edits and saves a built Expert's instructions from the Behavior entry", async () => {
   const user = userEvent.setup();
-  const files = ["AGENT.md", "business-idea-interview.md", "business-idea-brief-template.md", "business-idea-brief.md", "run-planning.md"].map(file);
+  resetExpertsMock();
+  render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "My Expert", files: { "instructions.md": "Original" } } })} />);
+  await user.click(screen.getByText("instructions.md"));
+  const editor = screen.getByLabelText("Edit instructions.md");
+  expect(editor).toHaveValue("Original");
+  await user.clear(editor); await user.type(editor, "Changed");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Saved");
+});
+
+it("shows no Behavior entry on a page without an Expert, and how to start one", async () => {
+  const onStart = vi.fn(), onAdd = vi.fn();
+  render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onAddPlugin={onAdd} />);
+  expect(screen.queryByRole("heading", { name: /Behavior ·/ })).not.toBeInTheDocument();
+  expect(screen.getByText(/no Expert yet/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Start an Expert" }));
+  expect(onStart).toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Add plugin" }));
+  expect(onAdd).toHaveBeenCalled();
+});
+
+it("opens the real instruction and template files of a page that comes with BrainDrive", async () => {
+  const files = ["AGENT.md", "business-idea-brief-template.md"].map(file);
   const onOpenFile = vi.fn();
-  render(<ProjectContentView {...props} view="expert" files={files} onOpenFile={onOpenFile} />);
-  expect(screen.getByRole("heading", { name: "Behavior" })).toBeVisible();
-  expect(screen.getByText("See how your Expert helps you")).toBeVisible();
-  expect(screen.getByRole("heading", { name: "What this Expert is for" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Instructions" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Instructions" }));
+  render(<ProjectContentView {...props} project={{ ...props.project, id: "start-a-business", name: "Finance" }} view="plugins" files={files} onOpenFile={onOpenFile}
+    setup={setup({ expert: { name: "Finance", files: {}, backend: true }, plugins: [{ id: "braindrive", name: "BrainDrive", source: "included with BrainDrive", skills: [{ name: "Journal method" }] }] })} />);
+  expect(screen.getByRole("heading", { name: "Behavior · Finance" })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Instructions" }));
   expect(onOpenFile).toHaveBeenLastCalledWith(files[0]);
-  await user.click(screen.getByRole("button", { name: "Business Idea Brief Template" }));
-  expect(onOpenFile).toHaveBeenLastCalledWith(files[2]);
-  expect(screen.queryByTitle("business-idea-brief.md")).not.toBeInTheDocument();
-  await user.click(screen.getByText("Technical details", { selector: "summary" }));
-  await user.click(screen.getByRole("button", { name: "Planning" }));
-  expect(onOpenFile).toHaveBeenLastCalledWith(files[files.length - 1]);
-  expect(screen.queryByText(/Customize/)).not.toBeInTheDocument();
+  expect(screen.getByText("included with BrainDrive", { exact: false })).toBeVisible();
 });
 
 const previewPath = "/tmp/sidebar-fixture/documents/start-a-business";

@@ -84,6 +84,19 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
 
+  it("offers one Add page action instead of New project or Add Expert, and Delete page in the page menu", async () => {
+    const user = userEvent.setup();
+    const onAddPage = vi.fn();
+    const onDeletePage = vi.fn();
+    const { rerender } = render(<Sidebar {...baseProps} onAddPage={onAddPage} onAddProject={async () => {}} onRemoveProject={async () => {}} />);
+    await user.click(screen.getByRole("button", { name: "Add page" }));
+    expect(onAddPage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /Create project|New project|Add Expert/ })).not.toBeInTheDocument();
+    rerender(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} onDeletePage={onDeletePage} />);
+    await user.click(screen.getByRole("button", { name: "Delete page" }));
+    expect(onDeletePage).toHaveBeenCalledWith("finance");
+  });
+
   it("keeps Home navigation and Conversation separate without repeating the Expert name", async () => {
     const user = userEvent.setup();
     const onDeselectProject = vi.fn();
@@ -166,7 +179,7 @@ describe("Sidebar", () => {
 });
 
 
-it("shows four distinct page entries with a persistent Conversation accent", async () => {
+it("shows three distinct page entries with a persistent Conversation accent", async () => {
   const user = userEvent.setup();
   const onOpenProjectView = vi.fn();
   const onClose = vi.fn();
@@ -174,31 +187,29 @@ it("shows four distinct page entries with a persistent Conversation accent", asy
     activeView="files" onOpenProjectView={onOpenProjectView} onClose={onClose}
     projectFiles={["spec.md", "plan.md", "journal.md", "brief.md", "AGENT.md"].map((name) => ({ name, path: `documents/finance/${name}` }))} />);
   const nav = screen.getByRole("navigation", { name: "Page navigation" });
-  expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Conversation", "Your Files", "Tools", "Behavior"]);
+  expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Conversation", "Your Files", "Plugins"]);
   expect(nav.querySelectorAll("[aria-expanded]")).toHaveLength(0);
   expect(screen.queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Brief" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Your Files" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
   expect(screen.getByRole("button", { name: "Conversation" })).toHaveClass("text-bd-amber", "border-bd-amber");
-  screen.getByRole("button", { name: "Tools" }).focus();
+  expect(screen.queryByRole("button", { name: /Connections|Agents|Tools|Behavior/ })).not.toBeInTheDocument();
+  screen.getByRole("button", { name: "Plugins" }).focus();
   await user.keyboard("{Enter}");
-  expect(onOpenProjectView).toHaveBeenLastCalledWith("tools");
-  await user.click(screen.getByRole("button", { name: "Behavior" }));
-  expect(onOpenProjectView).toHaveBeenLastCalledWith("expert");
-  expect(onClose).toHaveBeenCalledTimes(2);
+  expect(onOpenProjectView).toHaveBeenLastCalledWith("plugins");
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 it("keeps direct page entries available even when there are no saved files", () => {
   render(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
   expect(screen.queryByRole("button", { name: "To-do" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Your Files" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Tools" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Behavior" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Plugins" })).toBeVisible();
 });
 
 
-it.each(["files", "tools", "expert"] as const)("returns from %s with keyboard activation and closes the mobile drawer", async (activeView) => {
+it.each(["files", "plugins"] as const)("returns from %s with keyboard activation and closes the mobile drawer", async (activeView) => {
   const user = userEvent.setup();
   const onReturnToChat = vi.fn();
   const onClose = vi.fn();
@@ -212,7 +223,7 @@ it.each(["files", "tools", "expert"] as const)("returns from %s with keyboard ac
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it.each([[null, "Conversation"], ["files", "Your Files"], ["tools", "Tools"], ["expert", "Behavior"]] as const)("retains the Expert rail and %s selection when collapsing and expanding", async (activeView, label) => {
+it.each([[null, "Conversation"], ["files", "Your Files"], ["plugins", "Plugins"]] as const)("retains the Expert rail and %s selection when collapsing and expanding", async (activeView, label) => {
   const user = userEvent.setup();
   const onToggle = vi.fn();
   const onSelectProject = vi.fn();
@@ -256,7 +267,7 @@ it("routes each collapsed Expert destination without expanding or selecting a di
     onDeselectProject={onDeselectProject} onOpenProjectView={onOpenProjectView} onReturnToChat={onReturnToChat} />);
   expect(screen.getByRole("button", { name: "Your Files" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
-  for (const [label, view] of [["Your Files", "files"], ["Tools", "tools"], ["Behavior", "expert"]]) {
+  for (const [label, view] of [["Your Files", "files"], ["Plugins", "plugins"]]) {
     await user.click(screen.getByRole("button", { name: label }));
     expect(onOpenProjectView).toHaveBeenLastCalledWith(view);
   }
@@ -302,8 +313,8 @@ it.each([false, true])("keeps the integrated account footer's existing settings 
   await user.click(screen.getByRole("button", { name: "BrainDrive Settings" }));
   expect(onOpenSettings).toHaveBeenCalledTimes(1);
   expect(onOpenProjectView).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Behavior" }));
-  expect(onOpenProjectView).toHaveBeenCalledWith("expert");
+  await user.click(screen.getByRole("button", { name: "Plugins" }));
+  expect(onOpenProjectView).toHaveBeenCalledWith("plugins");
   expect(onOpenSettings).toHaveBeenCalledTimes(1);
 });
 

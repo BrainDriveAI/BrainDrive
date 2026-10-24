@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, Settings2, Sparkles, Wrench } from "lucide-react";
+import { Bot, FolderOpen, Puzzle, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
@@ -57,7 +57,7 @@ export default function SidebarCollapsed({
                 className="flex h-10 w-10 items-center justify-center rounded-md border-l-2 border-bd-amber text-bd-amber hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
                 <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" />
               </button>
-              {([["files", FolderOpen], ["tools", Wrench], ["expert", Settings2]] as const).map(([view, Icon]) => (
+              {([["files", FolderOpen], ["plugins", Puzzle]] as const).map(([view, Icon]) => (
                 <button key={view} type="button" aria-label={PROJECT_VIEW_LABELS[view]} title={PROJECT_VIEW_LABELS[view]}
                   aria-current={activeView === view ? "page" : undefined} onClick={() => onOpenProjectView(view)}
                   className="flex h-10 w-10 items-center justify-center rounded-md text-bd-text-primary hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">

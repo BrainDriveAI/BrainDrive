@@ -11,9 +11,9 @@ import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { ProjectFile } from "@/types/ui";
 
 import Sidebar from "./Sidebar";
-import AddExpert, { expertButton } from "./AddExpert";
-import RemoveExpert from "./RemoveExpert";
-import { expertPreviewEnabled } from "@/api/experts";
+import DeletePage from "./DeletePage";
+import PageHostMessages from "./PageHostMessages";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
 
 type AppShellProps = {
@@ -33,8 +33,7 @@ export default function AppShell({
   appVersion = "unknown",
   onLogout,
 }: AppShellProps) {
-  const [isAddingExpert, setIsAddingExpert] = useState(false);
-  const [removingExpert, setRemovingExpert] = useState<{ id: string; name: string } | null>(null);
+  const [deletingPage, setDeletingPage] = useState<{ id: string; name: string } | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -60,6 +59,39 @@ export default function AppShell({
     removeProject,
     renameProject
   } = useProjects();
+
+  const visibleProjects = expertPreviewEnabled ? projects.filter((project) => !isRetiredPage(project)) : projects;
+  const pageSetup = usePageSetup(expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id) ? selectedProject : null);
+
+  async function handleAddPage() {
+    setIsMobileSidebarOpen(false);
+    try {
+      const page = await mockAddPage();
+      refreshProjects();
+      selectProject(page.id);
+    } catch {
+      // The page was not created; the sidebar is unchanged.
+    }
+  }
+
+  function handleAddPlugin() {
+    if (!selectedProject) return;
+    startInstallStep(selectedProject.id, "plugin");
+    handleReturnToChat();
+  }
+
+  function handleStartExpert() {
+    if (!selectedProject) return;
+    offerStart(selectedProject.id);
+    handleReturnToChat();
+  }
+
+  function handleSendMessage() {
+    handleReturnToChat();
+    if (expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id)) {
+      noteFirstMessage(selectedProject.id, selectedProject.name);
+    }
+  }
 
   const messageMetadata =
     selectedProjectId !== null
@@ -227,7 +259,7 @@ export default function AppShell({
   }
 
   const displayedFile = activeFile;
-  const isCollectionFile = activeFile && (activeView === "files" || activeView === "expert");
+  const isCollectionFile = activeFile && (activeView === "files" || activeView === "plugins");
   const documentContent = displayedFile && selectedProject ? (
     <DocumentView
       key={`${selectedProject.id}:${displayedFile.path}`}
@@ -248,7 +280,9 @@ export default function AppShell({
       hasFilesError={Boolean(filesError)}
       onOpenFile={handleFileClick}
       onBack={handleReturnToChat}
-      onRemoveExpert={expertPreviewEnabled ? () => setRemovingExpert(selectedProject) : undefined}
+      setup={pageSetup}
+      onAddPlugin={expertPreviewEnabled ? handleAddPlugin : undefined}
+      onStartExpert={expertPreviewEnabled ? handleStartExpert : undefined}
     />
   ) : undefined;
 
@@ -303,7 +337,7 @@ export default function AppShell({
           onToggle={() => {
             setIsCollapsed((current) => !current);
           }}
-          projects={projects}
+          projects={visibleProjects}
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
           projectFiles={projectFiles}
@@ -320,8 +354,9 @@ export default function AppShell({
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
-          onAddExpert={expertPreviewEnabled ? () => { setIsMobileSidebarOpen(false); setIsAddingExpert(true); } : undefined}
-          onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setRemovingExpert(project); } : removeProject}
+          onAddPage={expertPreviewEnabled ? () => { void handleAddPage(); } : undefined}
+          onDeletePage={expertPreviewEnabled ? (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : undefined}
+          onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : removeProject}
           onRenameProject={renameProject}
         />
       </div>
@@ -340,7 +375,7 @@ export default function AppShell({
             <Sidebar
               isCollapsed={false}
               onToggle={() => {}}
-              projects={projects}
+              projects={visibleProjects}
               selectedProjectId={selectedProjectId}
               selectedProject={selectedProject}
               projectFiles={projectFiles}
@@ -360,8 +395,9 @@ export default function AppShell({
               onLogout={() => onLogout?.()}
               tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
-              onAddExpert={expertPreviewEnabled ? () => { setIsMobileSidebarOpen(false); setIsAddingExpert(true); } : undefined}
-              onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setRemovingExpert(project); } : removeProject}
+              onAddPage={expertPreviewEnabled ? () => { void handleAddPage(); } : undefined}
+              onDeletePage={expertPreviewEnabled ? (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : undefined}
+              onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : removeProject}
               onRenameProject={renameProject}
               onClose={() => {
                 setIsMobileSidebarOpen(false);
@@ -377,10 +413,9 @@ export default function AppShell({
         >
           {selectedProject && !isRootAgentProjectId(selectedProject.id) ? (
             <div className="shrink-0 px-4 pb-2 pt-3 sm:px-8 md:px-4 md:pb-3 md:pt-5">
-              <p aria-label="Expert title" className="font-heading text-sm font-semibold text-bd-text-heading">{selectedProject.id === "start-a-business" ? "Start a Business" : selectedProject.name}</p>
+              <p aria-label="Expert title" className="font-heading text-sm font-semibold text-bd-text-heading">{selectedProject.name}</p>
             </div>
           ) : null}
-          {expertPreviewEnabled && selectedProject && isRootAgentProjectId(selectedProject.id) ? <div className="flex shrink-0 justify-end px-4 pt-3"><button className={expertButton} onClick={() => setIsAddingExpert(true)}>Add Expert</button></div> : null}
           {children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
@@ -390,7 +425,19 @@ export default function AppShell({
               onConversationComplete={handleConversationComplete}
               messageMetadata={messageMetadata}
               contentOverride={documentContent}
-              onSendMessage={handleReturnToChat}
+              onSendMessage={handleSendMessage}
+              hostEvents={pageSetup && pageSetup.events.length > 0 && selectedProject ? (
+                <PageHostMessages
+                  project={selectedProject}
+                  setup={pageSetup}
+                  takenNames={projects.filter((project) => project.id !== selectedProject.id).map((project) => project.name)}
+                  renamePage={renameProject}
+                />
+              ) : undefined}
+              fileDrop={expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id) ? {
+                installStep: pageSetup?.installStep != null,
+                onInstallFile: (file) => { void submitPluginFile(selectedProject.id, file.name); }
+              } : undefined}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}
@@ -406,8 +453,7 @@ export default function AppShell({
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
-      {expertPreviewEnabled && isAddingExpert ? <AddExpert onClose={() => setIsAddingExpert(false)} onOpenExpert={(id) => { refreshProjects(); selectProject(id); setIsAddingExpert(false); }} /> : null}
-      {expertPreviewEnabled && removingExpert ? <RemoveExpert project={removingExpert} onClose={() => setRemovingExpert(null)} onRemovePage={removeProject} onRemoved={() => { refreshProjects(); void refreshSelectedProjectFiles(); setRemovingExpert(null); }} /> : null}
+      {expertPreviewEnabled && deletingPage ? <DeletePage project={deletingPage} onClose={() => setDeletingPage(null)} onDeletePage={removeProject} onDeleted={() => { refreshProjects(); void refreshSelectedProjectFiles(); setDeletingPage(null); }} /> : null}
       {mobileHeader}
     </div>
   );
