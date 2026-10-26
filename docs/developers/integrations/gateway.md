@@ -20,10 +20,12 @@ Public routes are explicitly enumerated. In managed deployment, `PAA_MANAGED_PUB
 
 The engine can wait for approval and the gateway enforces approval authority, but the current web `ask-on-write` path immediately submits an approved decision when it receives `approval-request`. Do not describe the current web behavior as a human confirmation dialog.
 
+For each chat turn, the Gateway now re-queries configured tool sources before constructing that turn's context and model call. A turn keeps its own tool registry, so another turn's refresh cannot change its dispatch targets. This is a BrainDrive runtime behavior, not a claim that its current HTTP/SSE payloads implement the canonical PAA Gateway API. In the controlled PAA probe, `POST /conversations/messages` returned 404, a structured content-part array sent to `POST /message` returned 400, and the text event lacked the canonical `_event_type` and `content` fields. The product contract gap remains open.
+
 ## Safe validation
 
 Tier A/B repository checks: from `builds/typescript`, run `npm test`, `npm run build`, `npm run web:typecheck`, and `npm run web:test`. A controlled provider-independent startup may validate health/config and the web shell, but provider response validation is separate Tier C work. No command in this page grants production, account, or credential authority.
 
-Source/config/tests: `gateway/server.ts`, `auth/middleware.ts`, `contracts.ts`, `client_web/src/api/{gateway-adapter,config-adapter,runtime-api-base}.ts`, gateway integration/unit tests, and web adapter/hook tests.
+Source/config/tests: `gateway/server.ts`, `auth/middleware.ts`, `contracts.ts`, `client_web/src/api/{gateway-adapter,config-adapter,runtime-api-base}.ts`, gateway integration/unit tests, web adapter/hook tests, and the controlled `tools/paa-v1-proof/probe.mjs` runtime probe.
 
 The pre-Milestone-3 client contract is preserved as [historical context](../history/gateway-contract-original-client.md). It is not current authority.
