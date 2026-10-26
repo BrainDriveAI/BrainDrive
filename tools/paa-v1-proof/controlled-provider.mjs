@@ -1,3 +1,5 @@
+// Local-only deterministic Model API stand-in. Set PAA_PROOF_PROVIDER_LOG to a
+// task-owned path; the log contains selection metadata but no prompt content.
 import http from "node:http";
 import { appendFileSync } from "node:fs";
 

@@ -1,3 +1,5 @@
+// This overwrites PAA_PROOF_SOURCE_FILE, which must be a task-owned fixture.
+// Keep the Gateway and first-party MCP services running during the probe.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 

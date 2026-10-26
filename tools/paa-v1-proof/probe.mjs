@@ -1,3 +1,5 @@
+// Run against an isolated Gateway with the controlled providers listening.
+// PAA_PROOF_AUTH_FILE is a mode-0600 JSON file containing a bearer token.
 import { readFileSync } from "node:fs";
 
 const baseUrl = process.env.PAA_PROOF_GATEWAY_URL ?? "http://127.0.0.1:8799";
