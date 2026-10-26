@@ -337,7 +337,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const adapterConfig = await loadAdapterConfig(rootDir, runtimeConfig.provider_adapter);
 
   auditLog("startup.phase", { phase: "tools" });
-  const tools = await discoverTools(rootDir, runtimeConfig.memory_root, runtimeConfig.tool_sources);
+  await discoverTools(rootDir, runtimeConfig.memory_root, runtimeConfig.tool_sources);
 
   auditLog("startup.phase", { phase: "memory" });
   await ensureMemoryLayout(rootDir, runtimeConfig.memory_root);
@@ -468,7 +468,6 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
   const approvalStore = new ApprovalStore();
-  const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
@@ -714,6 +713,13 @@ export async function buildServer(rootDir = process.cwd()) {
       ...(normalizedRequest.request.metadata ? { metadata: normalizedRequest.request.metadata } : {}),
     };
     const requestedConversationId = normalizedRequest.request.requestedConversationId;
+
+    // A separate service may change its advertised tools while the Gateway runs.
+    // Keep the registry scoped to this turn so concurrent turns cannot change
+    // one another's tool definitions or dispatch targets.
+    const toolExecutor = new ToolExecutor(
+      await discoverTools(rootDir, runtimeConfig.memory_root, runtimeConfig.tool_sources)
+    );
 
     if (requestedConversationId && !conversations.hasConversation(requestedConversationId)) {
       auditLog("contract.error", {
