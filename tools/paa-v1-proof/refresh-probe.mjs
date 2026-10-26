@@ -11,7 +11,17 @@ if (!authPath || !sourcePath || !providerLog) {
   throw new Error("PAA_PROOF_AUTH_FILE, PAA_PROOF_SOURCE_FILE and PAA_PROOF_PROVIDER_LOG are required");
 }
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-const { token } = JSON.parse(readFileSync(authPath, "utf8"));
+const auth = JSON.parse(readFileSync(authPath, "utf8"));
+let token = auth.token;
+if (auth.identifier && auth.password) {
+  const login = await fetch(new URL("/auth/login", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ identifier: auth.identifier, password: auth.password }),
+  });
+  if (!login.ok) throw new Error(`Isolated test login failed: ${login.status}`);
+  token = (await login.json()).access_token;
+}
 const { servers } = JSON.parse(readFileSync(path.join(repoRoot,
   "builds/typescript/mcp/servers.full-mcp.json"), "utf8"));
 const authServer = servers.find((server) => server.id === "auth");

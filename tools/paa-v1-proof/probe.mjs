@@ -1,11 +1,22 @@
 // Run against an isolated Gateway with the controlled providers listening.
-// PAA_PROOF_AUTH_FILE is a mode-0600 JSON file containing a bearer token.
+// PAA_PROOF_AUTH_FILE is a mode-0600 JSON file containing a bearer token or
+// isolated test-account identifier and password. Credentials are never logged.
 import { readFileSync } from "node:fs";
 
 const baseUrl = process.env.PAA_PROOF_GATEWAY_URL ?? "http://127.0.0.1:8799";
 const authPath = process.env.PAA_PROOF_AUTH_FILE;
 if (!authPath) throw new Error("PAA_PROOF_AUTH_FILE is required");
-const { token } = JSON.parse(readFileSync(authPath, "utf8"));
+const auth = JSON.parse(readFileSync(authPath, "utf8"));
+let token = auth.token;
+if (auth.identifier && auth.password) {
+  const login = await fetch(new URL("/auth/login", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ identifier: auth.identifier, password: auth.password }),
+  });
+  if (!login.ok) throw new Error(`Isolated test login failed: ${login.status}`);
+  token = (await login.json()).access_token;
+}
 if (!token) throw new Error("Auth file has no token");
 const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
 const results = [];
@@ -22,6 +33,11 @@ async function request(path, method = "GET", body) {
 
 function check(id, ok, observed) {
   results.push({ id, result: ok ? "pass" : "fail", observed });
+}
+
+const cleanOverlay = await request("/agent", "PUT", { overlay_content: "" });
+if (cleanOverlay.status !== 200) {
+  throw new Error(`Could not reset isolated owner overlay: ${cleanOverlay.status}`);
 }
 
 for (const profile of ["openrouter", "ollama"]) {
@@ -92,6 +108,7 @@ for (const [marker, expected] of [
       expected_seen: message.text.includes(expected),
     });
 }
+await request("/agent", "PUT", { overlay_content: "" });
 
 const canonicalRoute = await request("/conversations/messages", "POST", {
   content: [{ type: "text", text: "Hello" }],
