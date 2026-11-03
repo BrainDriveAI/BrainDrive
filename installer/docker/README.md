@@ -99,13 +99,14 @@ How dev mode works:
 - Backend runs with `tsx watch` against mounted source.
 - Web client runs Vite dev server with HMR.
 - API calls proxy from Vite to backend (`/api` -> app service).
-- Runtime memory is a host bind mount from `PAA_LIBRARY_HOST_PATH` (defaulting to the repository development memory fixture); secrets use the external `braindrive_secrets` volume. The app and web dependency trees use separate named volumes.
-- App startup recursively changes ownership of the active memory bind, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize the exact bind target and UID/GID before starting. Both containers run `npm install` from bind-mounted workspaces, so review package metadata and lockfiles after a recreate.
-- Compose creates or reuses `braindrive_dev_default`; only Vite is host-bound, and its `/api` route proxies to the internal app.
+- Each dev checkout can set its own `BRAINDRIVE_DEV_PROJECT_NAME`, `BRAINDRIVE_DEV_PORT`, `BRAINDRIVE_APP_IMAGE_LOCAL`, and memory, secrets, and dependency volume names in its ignored `.env`. Defaults use project `braindrive_dev` and host port `5073`.
+- Runtime memory uses `BRAINDRIVE_DEV_MEMORY_VOLUME` by default. Set `PAA_LIBRARY_HOST_PATH` to an existing host memory path to retain a previous bind-mounted dev installation. Secrets use the external `BRAINDRIVE_DEV_SECRETS_VOLUME`; dependencies have separate lane-configurable named volumes.
+- App startup recursively changes ownership of the active memory mount, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize any host bind target and UID/GID before starting. Both containers run `npm ci` with read-only source mounts and writable dependency volumes, so startup fails on lockfile drift instead of rewriting tracked package files.
+- Compose creates or reuses the selected project's network; only Vite is host-bound, and its `/api` route proxies to the internal app.
 - Startup update checks are not used in dev mode.
 
 Optional LAN access for dev UI:
-- Set `BRAINDRIVE_DEV_BIND_HOST=0.0.0.0` in `.env`, restart dev mode, then open `http://<this-machine-ip>:5073`.
+- Set `BRAINDRIVE_DEV_BIND_HOST=0.0.0.0` in `.env`, restart dev mode, then open `http://<this-machine-ip>:<BRAINDRIVE_DEV_PORT>`.
 - This exposes the non-TLS Vite shell and proxied gateway API to the LAN. Use only on a trusted network after checking local-auth state; it is not production/public exposure guidance.
 
 If file watching is unreliable (WSL/network mounts), enable polling in `.env`:

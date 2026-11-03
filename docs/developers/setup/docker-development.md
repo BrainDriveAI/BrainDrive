@@ -22,7 +22,7 @@ Docker `dev` is the source-mounted hot-reload mode. It is not Docker `local`: `l
 - Docker Engine or Docker Desktop is running and `docker compose version` succeeds.
 - Run repository commands from the repository root. The only canonical script tree is `installer/docker/scripts/`.
 - For the required start-only journey, installer initialization already exists. A first installation uses `./installer/docker/scripts/install.sh dev`, which creates a protected `.env`, generates a local secrets-encryption key, creates persistent Docker state, builds images, and starts the stack. Do not run it over an existing `.env`.
-- You are authorized to mount and, during container startup, change ownership of the configured `PAA_LIBRARY_HOST_PATH`. The default is the repository development memory fixture; select a task-owned bind path for isolated evidence.
+- If using `PAA_LIBRARY_HOST_PATH`, you are authorized to mount and, during container startup, change ownership of that exact host path. The default is a named Docker volume; select a task-owned bind path when a host memory directory is needed.
 - The configured host web port is free. The gateway remains internal to the Compose network.
 - Building or missing images/dependencies requires network access.
 
@@ -35,7 +35,7 @@ Docker `dev` is the source-mounted hot-reload mode. It is not Docker `local`: `l
 | Platform | Current execution evidence is WSL/Linux shell only. Shell entry points also exist for macOS; PowerShell entry points exist for Windows, but neither platform is evidenced here |
 | Mode | Docker `dev` only; not `local`, `prod`, or managed deployment |
 | Credential need | No model-provider credential for startup or the web shell; an existing install may contain a local secrets-encryption key that must not be printed |
-| Side effects | Ensures named volumes and the Compose network exist; may build/start/recreate services; recursively changes ownership of the configured host memory bind plus secrets/dependency state to the configured host UID/GID; runs `npm install` in bind-mounted workspaces; binds Vite and its proxied API; and may attempt a browser open |
+| Side effects | Ensures the selected lane's named volumes and Compose network exist; may build/start/recreate services; recursively changes ownership of the active memory mount plus secrets/dependency state to the configured host UID/GID; runs `npm ci` with read-only source mounts and writable dependency volumes; binds Vite and its proxied API; and may attempt a browser open |
 | Expected result | Compose reports the app healthy and web running; the web shell responds through the configured dev binding |
 | Failure classification | Docker prerequisite, Compose/config, build/dependency, bind-mount/permission, port conflict, app health, or web startup |
 | Cleanup | For a stack created for the task, run `./installer/docker/scripts/stop.sh dev`; this stops containers but preserves volumes and bind-mounted data. Do not stop a pre-existing stack merely to satisfy generic cleanup |
@@ -54,17 +54,19 @@ The default state map is exact:
 
 | State | Docker dev behavior |
 |---|---|
-| TypeScript source | Bind-mounted from `builds/typescript/` |
-| Web source | Bind-mounted from `builds/typescript/client_web/` |
-| Runtime memory | Host bind mount from `PAA_LIBRARY_HOST_PATH`, defaulting to the repository development memory fixture |
-| Secrets | External named volume `braindrive_secrets` |
-| Runtime dependencies | Named volume `braindrive_dev_app_node_modules` |
-| Web dependencies | Named volume `braindrive_dev_web_node_modules` |
-| Network | Compose network `braindrive_dev_default`; app remains internal while Vite exposes the selected host bind and proxies `/api` to the app |
+| TypeScript source | Read-only bind mount from `builds/typescript/` |
+| Web source | Read-only bind mount from `builds/typescript/client_web/` |
+| Runtime memory | Named volume `BRAINDRIVE_DEV_MEMORY_VOLUME` (default `braindrive_dev_memory`); `PAA_LIBRARY_HOST_PATH` can select an existing host bind instead |
+| Secrets | External named volume `BRAINDRIVE_DEV_SECRETS_VOLUME` (default `braindrive_secrets`) |
+| Runtime dependencies | Named volume `BRAINDRIVE_DEV_APP_NODE_MODULES_VOLUME` (default `braindrive_dev_app_node_modules`) |
+| Web dependencies | Named volume `BRAINDRIVE_DEV_WEB_NODE_MODULES_VOLUME` (default `braindrive_dev_web_node_modules`) |
+| Network | Selected `BRAINDRIVE_DEV_PROJECT_NAME` Compose network (default `braindrive_dev_default`); app remains internal while Vite exposes the selected host bind and proxies `/api` to the app |
 
-Although the lifecycle script ensures `braindrive_memory` exists in dev mode, the current `compose.dev.yml` memory mount is the host path above. Do not describe that unused created volume as the active dev memory store.
+For concurrent checkouts, give each lane a unique project name, host port, image tag, memory volume, secrets volume, and both dependency volumes in its ignored `installer/docker/.env`. Keep `BRAINDRIVE_DEV_BIND_HOST=127.0.0.1` unless LAN access is intentional. The internal Vite, gateway, and MCP ports stay fixed inside each project's network.
 
-On app-container startup, the root entrypoint recursively applies `chown` to the active memory bind, secrets volume, app dependency volume, and its temporary home before dropping to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (both default to `1000`). Both app and web containers run `npm install` from bind-mounted workspace directories; `node_modules` is isolated in named volumes, but package metadata or lockfiles can still change if npm resolves a difference. Review the worktree after a recreate.
+For example, a second checkout can use `BRAINDRIVE_DEV_PROJECT_NAME=braindrive_ws2`, `BRAINDRIVE_DEV_PORT=5075`, `BRAINDRIVE_APP_IMAGE_LOCAL=braindrive-ws2-app:local`, and the matching `braindrive_ws2_*` volume names. The first checkout can keep the default `5073` port. Inspect the selected project's containers and volume names before changing an existing installation: switching from the old memory bind to a named volume starts with different memory data. Set `PAA_LIBRARY_HOST_PATH` to the old path if that data must remain active. Do not delete the old bind or volumes as part of the switch.
+
+On app-container startup, the root entrypoint recursively applies `chown` to the active memory mount, secrets volume, app dependency volume, and its temporary home before dropping to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (both default to `1000`). Both app and web containers run `npm ci` into their named dependency volumes. The source mounts are read-only, so a startup script cannot change tracked source files; lockfile drift fails startup. Review the worktree after a recreate to catch changes from other processes.
 
 Authorize the exact host bind and UID/GID before starting. If ownership is wrong, stop the stack and recover only the verified affected target using its known prior ownership and appropriate host authority; do not apply a recursive ownership command to an unverified owner path.
 
@@ -105,7 +107,7 @@ docker compose -f installer/docker/compose.dev.yml ps
 ## Source evidence
 
 - [`compose.dev.yml`](../../../installer/docker/compose.dev.yml) is authoritative for mounts, ports, health checks, dependency installation, service commands, and named volumes.
-- [`start.sh`](../../../installer/docker/scripts/start.sh) selects dev Compose, ensures volumes, starts services, prints status, and attempts a browser open.
+- [`start.sh`](../../../installer/docker/scripts/start.sh) selects dev Compose, ensures the selected external secrets volume exists, starts services, prints status, and attempts a browser open. Compose creates the selected memory and dependency volumes.
 - [`stop.sh`](../../../installer/docker/scripts/stop.sh) stops services without removing containers or volumes.
 - [`native-command.ps1`](../../../installer/docker/scripts/native-command.ps1) owns fail-closed native exit handling for the PowerShell install/start/stop paths; [`powershell-lifecycle.test.mjs`](../../../tools/docs/test/powershell-lifecycle.test.mjs) enforces the source contract in WSL.
 - [`installer/docker/scripts/README.md`](../../../installer/docker/scripts/README.md) owns the per-script reference; the [Docker overview](../../../installer/docker/README.md) owns mode distinctions.

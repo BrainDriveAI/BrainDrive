@@ -176,8 +176,8 @@ fi
 configure_docker_platform
 
 if [[ "${MODE}" == "dev" ]]; then
-  docker volume create braindrive_memory >/dev/null
-  docker volume create braindrive_secrets >/dev/null
+  DEV_SECRETS_VOLUME="${BRAINDRIVE_DEV_SECRETS_VOLUME:-$(get_env_value BRAINDRIVE_DEV_SECRETS_VOLUME | tr -d '"')}"
+  docker volume create "${DEV_SECRETS_VOLUME:-braindrive_secrets}" >/dev/null
   echo "Building and starting developer stack using ${COMPOSE_FILE}"
   docker compose -f "${COMPOSE_FILE}" up -d --build
 else

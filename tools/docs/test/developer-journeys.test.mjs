@@ -138,7 +138,7 @@ test('native isolation and Docker mutation/network boundaries are explicit', asy
   const docker = await read('docs/developers/setup/docker-development.md');
   assert.match(native, /PAA_MEMORY_ROOT/);
   assert.match(native, /PAA_SECRETS_HOME/);
-  for (const term of ['chown', 'BRAINDRIVE_DEV_HOST_UID', 'npm install', 'proxied', 'trusted LAN']) {
+  for (const term of ['chown', 'BRAINDRIVE_DEV_HOST_UID', 'npm ci', 'proxied', 'trusted LAN']) {
     assert.match(docker, new RegExp(term, 'i'));
   }
 });

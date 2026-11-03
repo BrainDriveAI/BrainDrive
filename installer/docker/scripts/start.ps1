@@ -55,13 +55,11 @@ if ($Mode -eq "prod" -or $Mode -eq "local") {
 }
 
 if ($Mode -eq "dev") {
+  $devSecretsVolume = if ($env:BRAINDRIVE_DEV_SECRETS_VOLUME) { $env:BRAINDRIVE_DEV_SECRETS_VOLUME } else { Get-EnvValue -Key "BRAINDRIVE_DEV_SECRETS_VOLUME" }
+  if (-not $devSecretsVolume) { $devSecretsVolume = "braindrive_secrets" }
   Invoke-CheckedNativeCommand `
     -Command "docker" `
-    -Arguments @("volume", "create", "braindrive_memory") `
-    -FailureMessage "Could not create the BrainDrive memory volume" | Out-Null
-  Invoke-CheckedNativeCommand `
-    -Command "docker" `
-    -Arguments @("volume", "create", "braindrive_secrets") `
+    -Arguments @("volume", "create", $devSecretsVolume) `
     -FailureMessage "Could not create the BrainDrive secrets volume" | Out-Null
 }
 
