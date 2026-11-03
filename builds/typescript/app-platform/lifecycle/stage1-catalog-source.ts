@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
@@ -101,6 +101,7 @@ export const Stage1CatalogSourceConfigSchema = z.discriminatedUnion("kind", [
     kind: z.literal("braindrive_https"),
     catalogUrl: z.string().url(),
     cacheRoot: z.string().min(1),
+    bundledCatalogPath: z.string().min(1).optional(),
   }).strict(),
 ]);
 
@@ -109,11 +110,22 @@ export type Stage1CatalogSourceConfig = z.infer<typeof Stage1CatalogSourceConfig
 type Stage1Catalog = z.infer<typeof Stage1CatalogSchema>;
 type Stage1CatalogEntry = z.infer<typeof CatalogEntrySchema>;
 
-export type Stage1CatalogPackageListing = Omit<Stage1CatalogPackageSource, "repository"> & {
+export type Stage1CatalogPackageListing = Omit<Stage1CatalogPackageSource, "repository" | "catalogMetadata"> & {
   packageId: string;
   publisherId: string;
   releaseStatus: Stage1CatalogEntry["release"]["status"];
   launchableApp: boolean;
+};
+
+export type Stage1CatalogMetadata = {
+  source_label: "BrainDrive Stage 1 catalog";
+  as_of: string;
+  last_refreshed_at: string | null;
+  cache_status: "fresh" | "last_known_good";
+  catalog_digest: `sha256:${string}`;
+  repository_unreachable: boolean;
+  brain_drive_version?: string;
+  brain_drive_update_version?: string | null;
 };
 
 export type Stage1CatalogPackageSource = {
@@ -129,6 +141,7 @@ export type Stage1CatalogPackageSource = {
     label: string;
     cache_status: "fresh" | "last_known_good";
   };
+  catalogMetadata: Stage1CatalogMetadata;
 };
 
 const REQUIRED_AUTHORITY = new Set([
@@ -171,9 +184,10 @@ export async function createStage1CatalogPackageSource(input: {
   publisherId?: string;
   target: Stage1CatalogRuntimeTarget;
   fallbackCacheRoot?: string;
+  trigger?: "startup" | "page_load" | "refresh" | "automatic" | "install";
 }): Promise<Stage1CatalogPackageSource> {
   const config = Stage1CatalogSourceConfigSchema.parse(input.source);
-  const loaded = await readCatalog(config, input.fallbackCacheRoot);
+  const loaded = await readCatalog(config, input.fallbackCacheRoot, input.trigger ?? "startup");
   const catalog = parseCatalog(loaded.raw);
   assertStage1Boundary(catalog);
   const publisherId = input.publisherId ?? "ai.braindrive";
@@ -196,6 +210,15 @@ export async function createStage1CatalogPackageSource(input: {
       authoritiesByAppVersion: { [key]: { trustRootPath: artifacts.trustRootPath, sourceIndexPath: artifacts.sourceIndexPath, revocationListPath: artifacts.revocationListPath } },
     },
     ...sourceProjection(entry, loaded.cacheStatus),
+    catalogMetadata: {
+      source_label: "BrainDrive Stage 1 catalog",
+      as_of: catalog.generated_at,
+      last_refreshed_at: loaded.lastRefreshedAt,
+      cache_status: loaded.cacheStatus,
+      catalog_digest: digestText(loaded.raw),
+      repository_unreachable: loaded.repositoryUnreachable,
+      ...brainDriveUpdateMetadata(),
+    },
   };
 }
 
@@ -203,12 +226,23 @@ export async function listStage1CatalogPackages(input: {
   source: Stage1CatalogSourceConfig;
   target: Stage1CatalogRuntimeTarget;
   fallbackCacheRoot?: string;
+  trigger?: "startup" | "page_load" | "refresh" | "automatic" | "install";
 }): Promise<Stage1CatalogPackageListing[]> {
+  const loaded = await loadStage1CatalogPackages(input);
+  return loaded.packages;
+}
+
+export async function loadStage1CatalogPackages(input: {
+  source: Stage1CatalogSourceConfig;
+  target: Stage1CatalogRuntimeTarget;
+  fallbackCacheRoot?: string;
+  trigger?: "startup" | "page_load" | "refresh" | "automatic" | "install";
+}): Promise<{ packages: Stage1CatalogPackageListing[]; catalogMetadata: Stage1CatalogMetadata }> {
   const config = Stage1CatalogSourceConfigSchema.parse(input.source);
-  const loaded = await readCatalog(config, input.fallbackCacheRoot);
+  const loaded = await readCatalog(config, input.fallbackCacheRoot, input.trigger ?? "page_load");
   const catalog = parseCatalog(loaded.raw);
   assertStage1Boundary(catalog);
-  return catalog.entries
+  const packages = catalog.entries
     .filter((entry) => {
       if (entry.release.status !== "local_dev_verified") return false;
       return entry.target_artifacts.some((artifact) => artifact.target === input.target);
@@ -221,6 +255,18 @@ export async function listStage1CatalogPackages(input: {
       ...sourceProjection(entry, loaded.cacheStatus),
     }))
     .sort((left, right) => left.packageId.localeCompare(right.packageId));
+  return {
+    packages,
+    catalogMetadata: {
+      source_label: "BrainDrive Stage 1 catalog",
+      as_of: catalog.generated_at,
+      last_refreshed_at: loaded.lastRefreshedAt,
+      cache_status: loaded.cacheStatus,
+      catalog_digest: digestText(loaded.raw),
+      repository_unreachable: loaded.repositoryUnreachable,
+      ...brainDriveUpdateMetadata(),
+    },
+  };
 }
 
 function requireVerifiedTarget(entry: Stage1CatalogEntry, targetName: Stage1CatalogRuntimeTarget): Stage1CatalogEntry["target_artifacts"][number] {
@@ -255,7 +301,7 @@ async function resolveTargetArtifacts(
   return { trustRootPath, sourceIndexPath, revocationListPath, descriptorPath, archivePath };
 }
 
-function sourceProjection(entry: Stage1CatalogEntry, cacheStatus: "fresh" | "last_known_good"): Omit<Stage1CatalogPackageSource, "repository"> {
+function sourceProjection(entry: Stage1CatalogEntry, cacheStatus: "fresh" | "last_known_good"): Omit<Stage1CatalogPackageSource, "repository" | "catalogMetadata"> {
   return {
     availableVersion: entry.package_identity.version,
     displayName: entry.safe_presentation.display_name,
@@ -268,6 +314,15 @@ function sourceProjection(entry: Stage1CatalogEntry, cacheStatus: "fresh" | "las
       label: "BrainDrive Stage 1 catalog",
       cache_status: cacheStatus,
     },
+  };
+}
+
+function brainDriveUpdateMetadata(): Pick<Stage1CatalogMetadata, "brain_drive_version" | "brain_drive_update_version"> {
+  const current = process.env.BRAINDRIVE_APP_VERSION?.trim();
+  const available = process.env.BRAINDRIVE_BRAINDRIVE_UPDATE_VERSION?.trim();
+  return {
+    ...(current ? { brain_drive_version: current } : {}),
+    brain_drive_update_version: available || null,
   };
 }
 
@@ -326,10 +381,12 @@ function assertNoForbiddenProjection(value: unknown, pointer = "$"): void {
   }
 }
 
-async function readCatalog(source: Stage1CatalogSourceConfig, fallbackCacheRoot?: string): Promise<{
+async function readCatalog(source: Stage1CatalogSourceConfig, fallbackCacheRoot?: string, trigger: "startup" | "page_load" | "refresh" | "automatic" | "install" = "page_load"): Promise<{
   raw: string;
   sourceRoot: string;
   cacheStatus: "fresh" | "last_known_good";
+  lastRefreshedAt: string | null;
+  repositoryUnreachable: boolean;
   artifactCacheRoot?: string;
 }> {
   const cacheRoot = source.cacheRoot ?? fallbackCacheRoot;
@@ -337,24 +394,47 @@ async function readCatalog(source: Stage1CatalogSourceConfig, fallbackCacheRoot?
     if (!cacheRoot) throw new AppPlatformError("package_not_found", "Stage 1 remote catalog cache is unavailable");
     const catalogUrl = normalizeCatalogUrl(source.catalogUrl);
     assertAllowedCatalogUrl(catalogUrl);
+    if (source.bundledCatalogPath && (trigger === "startup" || trigger === "page_load")) {
+      try {
+        const catalogPath = path.resolve(source.bundledCatalogPath);
+        const raw = await readFile(catalogPath, "utf8");
+        const sourceRoot = catalogReferenceRoot(catalogPath);
+        const refreshedAt = new Date().toISOString();
+        await writeCache(cacheRoot, raw, sourceRoot, refreshedAt);
+        await traceCatalogRequest({ trigger, source: "local_file", outcome: "fresh", target: "local_file" });
+        return { raw, sourceRoot, cacheStatus: "fresh", lastRefreshedAt: refreshedAt, repositoryUnreachable: false, artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+      } catch (error) {
+        const cached = await readCache(cacheRoot);
+        await traceCatalogRequest({ trigger, source: "local_file", outcome: "last_known_good", target: "local_file", error: error instanceof Error ? error.message : String(error) });
+        return { ...cached, repositoryUnreachable: true, artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+      }
+    }
     try {
       const raw = await fetchText(catalogUrl);
       const sourceRoot = catalogReferenceRootUrl(catalogUrl);
-      await writeCache(cacheRoot, raw, sourceRoot);
-      return { raw, sourceRoot, cacheStatus: "fresh", artifactCacheRoot: artifactCacheRoot(cacheRoot) };
-    } catch {
-      return { ...(await readCache(cacheRoot)), artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+      const refreshedAt = new Date().toISOString();
+      await writeCache(cacheRoot, raw, sourceRoot, refreshedAt);
+      await traceCatalogRequest({ trigger, source: "remote", outcome: "fresh", target: catalogUrl });
+      return { raw, sourceRoot, cacheStatus: "fresh", lastRefreshedAt: refreshedAt, repositoryUnreachable: false, artifactCacheRoot: artifactCacheRoot(cacheRoot) };
+    } catch (error) {
+      const cached = await readCache(cacheRoot);
+      await traceCatalogRequest({ trigger, source: "remote", outcome: "last_known_good", target: catalogUrl, error: error instanceof Error ? error.message : String(error) });
+      return { ...cached, repositoryUnreachable: true, artifactCacheRoot: artifactCacheRoot(cacheRoot) };
     }
   }
   try {
     const catalogPath = path.resolve(source.catalogPath);
     const raw = await readFile(catalogPath, "utf8");
     const sourceRoot = catalogReferenceRoot(catalogPath);
-    if (cacheRoot) await writeCache(cacheRoot, raw, sourceRoot);
-    return { raw, sourceRoot, cacheStatus: "fresh" };
+    const refreshedAt = new Date().toISOString();
+    if (cacheRoot) await writeCache(cacheRoot, raw, sourceRoot, refreshedAt);
+      await traceCatalogRequest({ trigger, source: "local_file", outcome: "fresh", target: "local_file" });
+    return { raw, sourceRoot, cacheStatus: "fresh", lastRefreshedAt: refreshedAt, repositoryUnreachable: false };
   } catch (error) {
     if (!cacheRoot) throw asCatalogReadError(error);
-    return readCache(cacheRoot);
+    const cached = await readCache(cacheRoot);
+    await traceCatalogRequest({ trigger, source: "local_file", outcome: "last_known_good", target: "local_file", error: error instanceof Error ? error.message : String(error) });
+    return { ...cached, repositoryUnreachable: true };
   }
 }
 
@@ -398,22 +478,52 @@ function catalogReferenceRootUrl(catalogUrl: string): string {
   return url.toString();
 }
 
-async function writeCache(cacheRoot: string, raw: string, sourceRoot: string): Promise<void> {
+async function writeCache(cacheRoot: string, raw: string, sourceRoot: string, refreshedAt: string): Promise<void> {
   const root = path.join(cacheRoot, "stage1-catalog");
   await mkdir(root, { recursive: true, mode: 0o700 });
   await writeFile(path.join(root, "latest.json"), raw, { mode: 0o600 });
-  await writeFile(path.join(root, "metadata.json"), `${JSON.stringify({ sourceRoot })}\n`, { mode: 0o600 });
+  await writeFile(path.join(root, "metadata.json"), `${JSON.stringify({ sourceRoot, refreshedAt })}\n`, { mode: 0o600 });
 }
 
-async function readCache(cacheRoot: string): Promise<{ raw: string; sourceRoot: string; cacheStatus: "last_known_good" }> {
+async function readCache(cacheRoot: string): Promise<{ raw: string; sourceRoot: string; cacheStatus: "last_known_good"; lastRefreshedAt: string | null; repositoryUnreachable: boolean }> {
   try {
     const root = path.join(cacheRoot, "stage1-catalog");
     const raw = await readFile(path.join(root, "latest.json"), "utf8");
-    const metadata = z.object({ sourceRoot: z.string().min(1) }).strict().parse(JSON.parse(await readFile(path.join(root, "metadata.json"), "utf8")));
-    return { raw, sourceRoot: metadata.sourceRoot, cacheStatus: "last_known_good" };
+    const metadata = z.object({ sourceRoot: z.string().min(1), refreshedAt: z.string().datetime().optional() }).passthrough().parse(JSON.parse(await readFile(path.join(root, "metadata.json"), "utf8")));
+    return { raw, sourceRoot: metadata.sourceRoot, cacheStatus: "last_known_good", lastRefreshedAt: metadata.refreshedAt ?? null, repositoryUnreachable: true };
   } catch (error) {
     throw asCatalogReadError(error);
   }
+}
+
+function digestText(raw: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+}
+
+async function traceCatalogRequest(input: {
+  trigger: "startup" | "page_load" | "refresh" | "automatic" | "install";
+    source: "remote" | "local_file";
+  outcome: "fresh" | "last_known_good";
+  target: string;
+  error?: string;
+}): Promise<void> {
+  const tracePath = process.env.BRAINDRIVE_STAGE1_CATALOG_TRACE_PATH?.trim();
+  if (!tracePath) return;
+  await appendFile(tracePath, `${JSON.stringify({
+    timestamp: new Date().toISOString(),
+    event: "apps.catalog.request",
+    method: "GET",
+    trigger: input.trigger,
+    source: input.source,
+    target: input.source === "remote" ? new URL(input.target).origin : "bundled_snapshot",
+    network: input.source === "remote",
+    outcome: input.outcome,
+    request_body_fields: [],
+    owner_data_fields: [],
+    installed_app_fields: [],
+    usage_fields: [],
+    ...(input.error ? { error_class: "repository_unreachable" } : {}),
+  })}\n`).catch(() => undefined);
 }
 
 function asCatalogReadError(error: unknown): AppPlatformError {

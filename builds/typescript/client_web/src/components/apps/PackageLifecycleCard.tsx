@@ -124,7 +124,9 @@ function componentActions(component: InstalledPackageComponentStatus): string[] 
 }
 
 function safeActions(actions: string[], launchable: boolean, readiness: InstalledPackageStatus["dependency_readiness"]["status"]): string[] {
-  return actions.filter((action) => action !== "launch" || (launchable && readiness !== "blocked" && readiness !== "unknown"));
+  return actions
+    .filter((action) => !["disable", "enable", "rollback"].includes(action))
+    .filter((action) => action !== "launch" || (launchable && readiness !== "blocked" && readiness !== "unknown"));
 }
 
 function formatValue(value: string): string {

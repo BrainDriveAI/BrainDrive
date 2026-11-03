@@ -15,6 +15,7 @@ import { BriefDataLifecycleAdapter } from "../../brief-domain/lifecycle.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import type { LifecycleFaultInjector } from "./desktop-verifier-fault-injector.js";
 
 export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
 type CreateLifecycleInput = {
@@ -26,6 +27,7 @@ type CreateLifecycleInput = {
   isMemoryMigrationInProgress?: () => boolean;
   catalogSource?: Stage1CatalogSourceConfig | null;
   requireCatalogSource?: boolean;
+  faultInjector?: LifecycleFaultInjector;
 };
 export const BRIEF_BUILDER_VERSION = "1.2.1" as const;
 const BRIEF_BUILDER_CAPABILITY_DEPENDENCIES = [
@@ -76,6 +78,7 @@ export async function createAppLifecycle(input: CreateLifecycleInput): Promise<A
       ? { target, runtimeKind: "packaged_node", transport: "loopback" }
       : { target, runtimeKind: "container", transport: "container_internal" },
     audit: auditLog,
+    faultInjector: input.faultInjector,
   });
   await service.initialize();
   return service;
@@ -135,6 +138,7 @@ export async function createBriefAppLifecycle(input: CreateLifecycleInput): Prom
     ...(catalogPackageSource ? { catalogPackageSource } : {}),
     runtimeTarget: target !== "docker_linux_x64" ? { target, runtimeKind: "packaged_node", transport: "loopback" } : { target, runtimeKind: "container", transport: "container_internal" },
     audit: auditLog,
+    faultInjector: input.faultInjector,
   });
   await service.initialize();
   return service;

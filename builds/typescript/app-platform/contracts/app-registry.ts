@@ -81,6 +81,7 @@ export const CatalogPresentationSchema = z
   .object({
     display_name: safePresentationText(80),
     summary: safePresentationText(512),
+    change_note: safePresentationText(512).optional(),
     icon: z
       .object({
         package_path: PackagePathSchema,

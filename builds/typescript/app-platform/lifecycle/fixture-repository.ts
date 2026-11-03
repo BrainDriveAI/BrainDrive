@@ -61,6 +61,7 @@ export type SyntheticFirstPartyFixture = {
   routeKey: string;
   displayName: string;
   summary?: string;
+  changeNote?: string;
   version: string;
   resourceHtml?: string;
   requestedCapabilities?: readonly string[];
@@ -114,7 +115,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
     ]);
     const manifest = GenericPackageManifestSchema.parse({
       manifest_version: 2, app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version,
-      catalog: { display_name: app.displayName, summary: app.summary ?? `Create owner-controlled ${app.displayName.toLowerCase()} content.`, icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
+      catalog: { display_name: app.displayName, summary: app.summary ?? `Create owner-controlled ${app.displayName.toLowerCase()} content.`, ...(app.changeNote ? { change_note: app.changeNote } : {}), icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
       archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
       files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })).sort((a, b) => a.path.localeCompare(b.path)),
       platform_artifacts: [
@@ -1270,6 +1271,7 @@ async function loadOrCreateFixtureSource(
           catalog: {
             display_name: "Resume Builder",
             summary: "Build an owner-reviewed Resume Profile and Resume in a chat-first workspace.",
+            change_note: "Improves the owner-reviewed resume workspace and preserves existing resume data.",
             icon: null,
             retention_summary: "Resume Builder retains career data, resume history, artifacts, exports, and lifecycle evidence after uninstall.",
           },

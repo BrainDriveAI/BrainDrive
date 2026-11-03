@@ -376,7 +376,7 @@ describe("Apps gateway adapter", () => {
     const brief = { ...status, route_key: "brief-builder", identity: { ...status.identity, app_id: "ai.braindrive.brief-builder", display_name: "Brief Builder" } };
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ catalog_version: 1, apps: [brief, status] }), { status: 200 }));
     await expect(getAppCatalog()).resolves.toMatchObject({ apps: [{ route_key: "brief-builder" }, { route_key: "resume-builder" }] });
-    expect(fetchMock).toHaveBeenCalledWith("/api/apps", undefined);
+    expect(fetchMock).toHaveBeenCalledWith("/api/apps", { headers: { "x-braindrive-catalog-trigger": "page_load" } });
   });
 
   it("accepts additive safe installed package projections without exposing package internals", async () => {
@@ -446,7 +446,7 @@ describe("Apps gateway adapter", () => {
     });
     expect(catalog.packages?.[0].available_actions).not.toContain("launch");
     expect(JSON.stringify(catalog.packages?.[0])).not.toMatch(/payload\/|adapter|export_name|secret|endpoint|private_binding|host_path|raw_response|service_name|https?:\/\//i);
-    expect(fetchMock).toHaveBeenCalledWith("/api/apps", undefined);
+    expect(fetchMock).toHaveBeenCalledWith("/api/apps", { headers: { "x-braindrive-catalog-trigger": "page_load" } });
   });
 
   it("finalizes a host export with opaque artifact identity and no path", async () => {

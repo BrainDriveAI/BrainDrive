@@ -36,6 +36,7 @@ export default function AppShell({
   const [isAppsOpen, setIsAppsOpen] = useState(false);
   const [hasOpenedApps, setHasOpenedApps] = useState(false);
   const [isAppWorkspaceActive, setIsAppWorkspaceActive] = useState(false);
+  const [brainDriveUpdateVersion, setBrainDriveUpdateVersion] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -297,6 +298,7 @@ export default function AppShell({
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenApps={handleOpenApps}
           isAppsActive={isAppsOpen}
+          brainDriveUpdateVersion={brainDriveUpdateVersion}
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
@@ -332,6 +334,7 @@ export default function AppShell({
           }}
           onOpenApps={() => { handleOpenApps(); setIsMobileSidebarOpen(false); }}
           isAppsActive={isAppsOpen}
+          brainDriveUpdateVersion={brainDriveUpdateVersion}
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
@@ -358,6 +361,7 @@ export default function AppShell({
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onSessionClosed={handleAppSessionClosed}
                 onWorkspaceActiveChange={setIsAppWorkspaceActive}
+                onBrainDriveUpdateAvailable={setBrainDriveUpdateVersion}
                 onLogout={() => onLogout?.()}
                 tier={deploymentMode === "managed" ? "concierge" : "local"}
               />

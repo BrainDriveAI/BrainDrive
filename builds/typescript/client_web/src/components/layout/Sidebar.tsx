@@ -38,6 +38,7 @@ type SidebarProps = {
   onOpenSettings: () => void;
   onOpenApps: () => void;
   isAppsActive: boolean;
+  brainDriveUpdateVersion?: string | null;
   onLogout: () => void;
   onAddProject?: (name: string) => Promise<void>;
   onRemoveProject?: (id: string) => Promise<void>;
@@ -63,6 +64,7 @@ export default function Sidebar({
   onOpenSettings,
   onOpenApps,
   isAppsActive,
+  brainDriveUpdateVersion,
   onLogout,
   onAddProject,
   onRemoveProject,
@@ -168,6 +170,7 @@ export default function Sidebar({
         onOpenSettings={onOpenSettings}
         onOpenApps={onOpenApps}
         isAppsActive={isAppsActive}
+        brainDriveUpdateVersion={brainDriveUpdateVersion}
       />
     );
   }
@@ -224,7 +227,8 @@ export default function Sidebar({
             ].join(" ")}
           >
             <AppWindow size={17} strokeWidth={1.5} aria-hidden="true" />
-            <span>Apps</span>
+            <span className="min-w-0 flex-1">Apps</span>
+            {brainDriveUpdateVersion ? <span role="status" data-testid="braindrive-update-indicator" className="rounded-full border border-bd-amber px-2 py-0.5 text-[10px] font-medium text-bd-amber">BrainDrive update available: {brainDriveUpdateVersion}</span> : null}
           </button>
         </div>
         {isProjectView ? (

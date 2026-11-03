@@ -133,6 +133,15 @@ export type AppLifecycleOperationView = {
   completed_at: string | null;
 };
 
+export type AppOwnerAttention = {
+  state: "needs_attention";
+  reason: string;
+  next_action: "retry" | "update_brain_drive" | "remove";
+  action_label: "Retry" | "Update BrainDrive" | "Remove";
+  lifecycle_action: AppLifecycleAction | null;
+  owner_data_retained: true;
+};
+
 export type AppPresentationProfileSummary =
   | {
       profile_version: 1;
@@ -188,12 +197,14 @@ export type AppStatus = {
   };
   progress: AppLifecycleOperationView | null;
   recovery: { available: boolean; action: string };
+  owner_attention?: AppOwnerAttention | null;
   capability_dependency_status?: CapabilityDependencyStatus[];
   dependency_readiness?: CapabilityDependencyReadiness;
   catalog?: {
     summary: string;
     icon: { package_path: string; media_type: "image/png" | "image/webp"; content_digest: string } | null;
     retention_summary: string;
+    change_note?: string;
     primary_resource_uri: string;
     provenance: "verified_first_party_package" | "host_registration";
     presentations?: AppPresentationSetSummary | null;
@@ -209,7 +220,21 @@ export type AppStatus = {
   request_resolution?: "confirmed_response" | "refreshed_after_ambiguous_response";
 };
 
-export type AppCatalog = { catalog_version: 1; apps: AppStatus[]; packages?: InstalledPackageStatus[] };
+export type AppCatalog = {
+  catalog_version: 1;
+  catalog?: {
+    source_label: string;
+    as_of: string;
+    last_refreshed_at: string | null;
+    cache_status: "fresh" | "last_known_good";
+    catalog_digest: string;
+    repository_unreachable?: boolean;
+    brain_drive_version?: string;
+    brain_drive_update_version?: string | null;
+  } | null;
+  apps: AppStatus[];
+  packages?: InstalledPackageStatus[];
+};
 
 export type RetainedAppDataActionResult = {
   operation_id: string;
@@ -592,8 +617,8 @@ export function getApp(appKey: string): Promise<AppStatus> {
   return requestJson(`${appPath(appKey)}/status`);
 }
 
-export function getAppCatalog(): Promise<AppCatalog> {
-  return requestJson("/apps");
+export function getAppCatalog(trigger: "page_load" | "refresh" | "automatic" = "page_load"): Promise<AppCatalog> {
+  return requestJson("/apps", { headers: { "x-braindrive-catalog-trigger": trigger } });
 }
 
 export async function installPackage(packageId: string, operationId = secureRandomUuid()): Promise<InstalledPackageStatus> {

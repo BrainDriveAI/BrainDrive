@@ -16,8 +16,9 @@ import {
 } from "./installed-package-store.js";
 import {
   createStage1CatalogPackageSource,
-  listStage1CatalogPackages,
+  loadStage1CatalogPackages,
   type Stage1CatalogRuntimeTarget,
+  type Stage1CatalogMetadata,
   type Stage1CatalogSourceConfig,
 } from "./stage1-catalog-source.js";
 import { readStoredZip, type ZipEntry } from "./zip.js";
@@ -55,39 +56,50 @@ export function createCatalogPackageService(input: {
 }) {
   const catalogSource = input.catalogSource ?? null;
   const includeLaunchablePackages = input.includeLaunchablePackages ?? false;
+  let latestCatalogMetadata: Stage1CatalogMetadata | null = null;
   return Object.freeze({
-    async availablePackages(): Promise<OwnerSafeInstalledPackage[]> {
+    async availablePackages(trigger: "page_load" | "refresh" | "automatic" = "page_load"): Promise<OwnerSafeInstalledPackage[]> {
       if (!catalogSource) return [];
       const installed = await input.packageStore.listPackages();
       const installedIds = new Set(installed.filter((pack) => pack.state !== "uninstalled").map((pack) => pack.package_id));
-      const listings = await listStage1CatalogPackages({
+      const loadedCatalog = await loadStage1CatalogPackages({
         source: catalogSource,
         target: input.target,
         fallbackCacheRoot: catalogCacheRoot(input.memoryRoot, input.stateRoot),
+        trigger,
       });
+      latestCatalogMetadata = loadedCatalog.catalogMetadata;
+      const listings = loadedCatalog.packages;
       const candidates = listings.filter((listing) =>
         (includeLaunchablePackages || !listing.launchableApp) &&
         !installedIds.has(listing.packageId)
       );
       const projections = await Promise.all(candidates.map(async (listing) => {
-        const loaded = await loadCatalogPackage({
-          catalogSource,
-          packageId: listing.packageId,
-          memoryRoot: input.memoryRoot,
-          stateRoot: input.stateRoot,
-          target: input.target,
-        });
-        return ownerSafeAvailablePackageProjection({
-          manifest: loaded.manifest,
-          packageDigest: loaded.packageDigest,
-          source: { kind: "local_package", label: loaded.sourceLabel },
-          dependencyResolver: input.dependencyResolver,
-          currentTarget: input.target,
-          updatedAt: input.now?.(),
-        });
+        try {
+          const loaded = await loadCatalogPackage({
+            catalogSource,
+            packageId: listing.packageId,
+            memoryRoot: input.memoryRoot,
+            stateRoot: input.stateRoot,
+            target: input.target,
+          });
+          return await ownerSafeAvailablePackageProjection({
+            manifest: loaded.manifest,
+            packageDigest: loaded.packageDigest,
+            source: { kind: "local_package", label: loaded.sourceLabel },
+            dependencyResolver: input.dependencyResolver,
+            currentTarget: input.target,
+            updatedAt: input.now?.(),
+          });
+        } catch {
+          // A single package artifact must not hide the bundled catalog or installed apps.
+          return null;
+        }
       }));
-      return projections.sort((left, right) => left.identity.package_id.localeCompare(right.identity.package_id));
+      return projections.filter((projection): projection is OwnerSafeInstalledPackage => projection !== null)
+        .sort((left, right) => left.identity.package_id.localeCompare(right.identity.package_id));
     },
+    catalogMetadata(): Stage1CatalogMetadata | null { return latestCatalogMetadata; },
     async installPackage(packageId: string): Promise<LoadedCatalogPackage> {
       if (!catalogSource) throw new AppPlatformError("package_not_found", "Catalog package source is unavailable", 404);
       const loaded = await loadCatalogPackage({
@@ -162,6 +174,7 @@ async function loadCatalogPackage(input: {
     appId: input.packageId,
     target: input.target,
     fallbackCacheRoot: catalogCacheRoot(input.memoryRoot, input.stateRoot),
+    trigger: "install",
   });
   const packageKey = `${input.packageId}@${catalogPackageSource.availableVersion}`;
   const packagePaths = catalogPackageSource.repository.packagesByAppVersion?.[packageKey];

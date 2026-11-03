@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AppLifecycleService } from "./service.js";
 import { AppPlatformError } from "./errors.js";
+import { LifecycleRecordSchema } from "../contracts/lifecycle.js";
 import { revokeFixtureVersion } from "./fixture-repository.js";
 import { createLifecycleHarness } from "./test-helpers.js";
 import { ImmutablePackageStore } from "./verified-package-store.js";
@@ -191,6 +192,29 @@ describe("trusted lifecycle service", () => {
     expect(quarantined.state).toBe("quarantined");
     expect(h.supervisor.inspect(installed.record.installation_id!)).toEqual([]);
     expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(true);
+  });
+
+  it("makes Retry refuse a revoked failed-recoverable package into quarantine", async () => {
+    const h = await harness();
+    const installed = await h.service.install({ version: "1.0.0", idempotencyKey: "install-key-revoked-retry", approveCapabilities: true });
+    await h.supervisor.stop(h.supervisor.inspect(installed.record.installation_id!)[0], "reconcile");
+    h.tokenBroker.revokeInstallation(installed.record.installation_id!);
+    const failed = LifecycleRecordSchema.parse({
+      ...installed.record,
+      state: "failed_recoverable",
+      generation: installed.record.generation + 1,
+      pending_operation_id: null,
+      updated_at: new Date().toISOString(),
+    });
+    await h.store.compareAndSwapLifecycle(installed.record.generation, failed);
+    await revokeFixtureVersion(h.repository, "1.0.0");
+
+    await expect(h.service.recover({ idempotencyKey: "recover-revoked-package" })).rejects.toMatchObject({ code: "package_revoked" });
+    expect((await h.service.status()).state).toBe("quarantined");
+    expect(h.supervisor.inspect(installed.record.installation_id!)).toEqual([]);
+    expect(h.tokenBroker.isRevoked(installed.record.installation_id!)).toBe(true);
+    const operation = (await h.store.listOperations()).find((candidate) => candidate.kind === "recover");
+    expect(operation).toMatchObject({ status: "failed", recovery: { action: "revoke_and_quarantine" }, error_code: "package_revoked" });
   });
 
   it("reconciles an active durable pointer after host restart and removes runtimes for disabled intent", async () => {

@@ -17,6 +17,7 @@ import type { AppSupervisor, RuntimeIdentity, RuntimeLaunchDescriptor, StopReaso
 import { AppLifecycleStore, type CapabilityGrant, type LifecycleOperation, type LifecycleRecord, type StoredPackage, type UninstallJournal } from "./store.js";
 import { ImmutablePackageStore, type PromotableVerifiedPackage } from "./verified-package-store.js";
 import type { Stage1CatalogPackageSource } from "./stage1-catalog-source.js";
+import type { LifecycleFaultInjector } from "./desktop-verifier-fault-injector.js";
 
 const OWNER_ID = "00000000-0000-4000-8000-000000000001";
 const ACTOR_ID = "00000000-0000-4000-8000-000000000002";
@@ -40,9 +41,10 @@ export type LifecycleDependencies = {
     transport: "container_internal" | "loopback";
   };
   audit?: (event: string, details: Record<string, unknown>) => void;
+  faultInjector?: LifecycleFaultInjector;
   ownerActorId?: string;
   beforeUninstallDelete?: (targetClass: "package_bytes" | "disposable_cache", targetPath: string) => Promise<void>;
-  catalogPackageSource?: Pick<Stage1CatalogPackageSource, "availableVersion" | "displayName" | "publisherName" | "capabilityDependencies" | "ownerSafeSource">;
+  catalogPackageSource?: Pick<Stage1CatalogPackageSource, "availableVersion" | "displayName" | "publisherName" | "capabilityDependencies" | "ownerSafeSource" | "catalogMetadata">;
 };
 
 export type LifecycleResponse = { record: LifecycleRecord; operation: LifecycleOperation; grant: CapabilityGrant | null };
@@ -162,7 +164,7 @@ export class AppLifecycleService {
       const grant = prior.grant_id ? await this.dependencies.store.bumpGrantRevocationGeneration(prior.grant_id) : null;
       operation = await this.stage(operation, "stopping");
       await this.stopInstallation(prior.installation_id!, "disable");
-      const disabled = LifecycleRecordSchema.parse({ ...prior, state: "disabled", generation: prior.generation + 1, pending_operation_id: null, updated_at: new Date().toISOString() });
+      const disabled = LifecycleRecordSchema.parse({ ...prior, state: "disabled", disabled_cause: "owner", generation: prior.generation + 1, pending_operation_id: null, updated_at: new Date().toISOString() });
       await this.dependencies.store.compareAndSwapLifecycle(prior.generation, disabled);
       operation = await this.complete(operation, disabled, "committed", true);
       this.emit("app.lifecycle.disable.committed", prior, disabled, operation);
@@ -433,7 +435,27 @@ export class AppLifecycleService {
       } catch (error) {
         const failure = asAppPlatformError(error);
         if (replacementGrant) await this.dependencies.store.revokeGrant(replacementGrant.grant_id).catch(() => undefined);
-        await this.fail(operation, failure.code, "reconcile_committed_pointer");
+        if (failure.code === "package_revoked") {
+          // Retry is still the single owner action, but the durable host
+          // record decides that a revoked package must refuse into quarantine.
+          // The package is never restarted and the owner-data root is not
+          // touched by this transition.
+          this.dependencies.tokenBroker.revokeInstallation(prior.installation_id);
+          await this.dependencies.store.revokeGrant(prior.grant_id).catch(() => undefined);
+          await this.stopInstallation(prior.installation_id, "revocation").catch(() => undefined);
+          const quarantined = LifecycleRecordSchema.parse({
+            ...prior,
+            state: "quarantined",
+            generation: prior.generation + 1,
+            pending_operation_id: null,
+            updated_at: new Date().toISOString(),
+          });
+          await this.dependencies.store.compareAndSwapLifecycle(prior.generation, quarantined);
+          const refused = await this.fail(operation, failure.code, "revoke_and_quarantine");
+          this.emit("app.lifecycle.recover.refused_into_quarantine", prior, quarantined, refused, failure.code);
+        } else {
+          await this.fail(operation, failure.code, "reconcile_committed_pointer");
+        }
         throw failure;
       }
     });
@@ -924,6 +946,7 @@ export class AppLifecycleService {
   }
 
   private async stage(operation: LifecycleOperation, stage: LifecycleOperation["stage"]): Promise<LifecycleOperation> {
+    await this.dependencies.faultInjector?.beforeStage({ kind: operation.kind, stage, operationId: operation.operation_id });
     const latest = await this.dependencies.store.readOperation(operation.operation_id);
     const base = latest?.status === "cancel_requested" ? latest : operation;
     const next = LifecycleOperationSchema.parse({ ...base, stage, completed_stages: base.completed_stages.includes(base.stage) ? base.completed_stages : [...base.completed_stages, base.stage], updated_at: new Date().toISOString() });

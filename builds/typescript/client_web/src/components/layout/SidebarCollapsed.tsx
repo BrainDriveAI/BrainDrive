@@ -14,6 +14,7 @@ type SidebarCollapsedProps = {
   onOpenSettings: () => void;
   onOpenApps: () => void;
   isAppsActive: boolean;
+  brainDriveUpdateVersion?: string | null;
 };
 
 export default function SidebarCollapsed({
@@ -24,6 +25,7 @@ export default function SidebarCollapsed({
   onOpenSettings,
   onOpenApps,
   isAppsActive,
+  brainDriveUpdateVersion,
 }: SidebarCollapsedProps) {
   return (
     <aside className="flex h-dvh w-[48px] flex-col items-center border-r border-bd-border bg-bd-bg-secondary py-3 transition-all duration-200">
@@ -40,6 +42,7 @@ export default function SidebarCollapsed({
       </button>
 
       <div className="mt-4 flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-1 pb-3">
+        <div className="relative">
         <button
           type="button"
           onClick={onOpenApps}
@@ -53,6 +56,8 @@ export default function SidebarCollapsed({
         >
           <AppWindow size={16} strokeWidth={1.8} />
         </button>
+        {brainDriveUpdateVersion ? <span className="absolute -right-1 -top-1 size-2 rounded-full bg-bd-amber" data-testid="braindrive-update-indicator" aria-label={`BrainDrive update available: ${brainDriveUpdateVersion}`} /> : null}
+        </div>
         <button
           type="button"
           onClick={() => {

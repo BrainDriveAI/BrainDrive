@@ -85,6 +85,7 @@ export const LifecycleRecordSchema = z
     app_id: LifecycleAppIdSchema,
     installation_id: OpaqueIdSchema.nullable(),
     state: LifecycleStateSchema,
+    disabled_cause: z.enum(["owner", "host", "compatibility"]).optional(),
     generation: z.number().int().nonnegative(),
     active_package_digest: Sha256DigestSchema.nullable(),
     last_known_good_package_digest: Sha256DigestSchema.nullable(),

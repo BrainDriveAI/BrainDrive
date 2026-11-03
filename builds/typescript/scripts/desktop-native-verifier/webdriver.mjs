@@ -70,6 +70,14 @@ export class EmbeddedWebDriver {
     return id;
   }
 
+  async findAllByXPath(xpath) {
+    const value = await this.request(this.sessionPath("/elements"), {
+      method: "POST",
+      body: { using: "xpath", value: xpath },
+    });
+    return value.map((element) => element?.[ELEMENT_ID] ?? element?.ELEMENT).filter(Boolean);
+  }
+
   async isDisplayed(elementId) {
     return this.request(this.sessionPath(`/element/${encodeURIComponent(elementId)}/displayed`));
   }
@@ -84,6 +92,18 @@ export class EmbeddedWebDriver {
 
   async property(elementId, name) {
     return this.request(this.sessionPath(`/element/${encodeURIComponent(elementId)}/property/${encodeURIComponent(name)}`));
+  }
+
+  async attribute(elementId, name) {
+    return this.request(this.sessionPath(`/element/${encodeURIComponent(elementId)}/attribute/${encodeURIComponent(name)}`));
+  }
+
+  async executeScript(script, args = [], timeoutMs = 30_000) {
+    return this.request(this.sessionPath("/execute/sync"), {
+      method: "POST",
+      body: { script, args },
+      timeoutMs,
+    });
   }
 
   async sendKeys(elementId, text) {

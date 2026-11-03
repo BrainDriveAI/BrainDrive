@@ -66,7 +66,8 @@ export type AppLifecycleRouteOptions = {
   packageStore?: InstalledPackageStore;
   capabilityDependencyResolver?: CapabilityDependencyResolver | null;
   availablePackages?: readonly OwnerSafeInstalledPackage[];
-  listAvailablePackages?: () => Promise<readonly OwnerSafeInstalledPackage[]>;
+  listAvailablePackages?: (trigger?: "page_load" | "refresh" | "automatic") => Promise<readonly OwnerSafeInstalledPackage[]>;
+  getCatalogMetadata?: () => Record<string, unknown> | null;
   installAvailablePackage?: (packageId: string) => Promise<void>;
 };
 export type AppDependencyRouteGate = {
@@ -89,6 +90,7 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
   const capabilityDependencyResolver = options.capabilityDependencyResolver ?? null;
   const availablePackages = options.availablePackages ?? [];
   const listAvailablePackages = options.listAvailablePackages ?? (async () => availablePackages);
+  const getCatalogMetadata = options.getCatalogMetadata ?? (() => null);
   const installAvailablePackage = options.installAvailablePackage ?? null;
   let admissionTail = Promise.resolve();
   return Object.freeze({
@@ -121,6 +123,7 @@ export function createAppLifecycleRoutePlatform(rawEntries: readonly AppLifecycl
     capabilityDependencyResolver,
     availablePackages,
     listAvailablePackages,
+    getCatalogMetadata,
     installAvailablePackage,
   });
 }
@@ -133,7 +136,9 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
     if (!authorizeOwner(request, reply, platform.entries[0]!.service)) return;
     const apps = await Promise.all(platform.entries.map((entry) => ownerSafeDescriptor(entry, platform)));
     const installedPackages = platform.packageStore ? (await platform.packageStore.ownerSafeCatalog({ dependencyResolver: platform.capabilityDependencyResolver })).filter((pack) => pack.state !== "uninstalled") : [];
-    const catalogPackages = await platform.listAvailablePackages();
+    const catalogHeader = request.headers["x-braindrive-catalog-trigger"];
+    const catalogTrigger = catalogHeader === "automatic" ? "automatic" : catalogHeader === "refresh" ? "refresh" : "page_load";
+    const catalogPackages = await platform.listAvailablePackages(catalogTrigger);
     const installedIds = new Set(installedPackages.map((pack) => pack.identity.package_id));
     const packages = [...installedPackages, ...catalogPackages.filter((pack) => !installedIds.has(pack.identity.package_id))]
       .sort((left, right) => left.identity.package_id.localeCompare(right.identity.package_id));
@@ -141,7 +146,13 @@ export function registerAppLifecycleRoutes(app: FastifyInstance, serviceOrPlatfo
       const descriptor = apps[index]!;
       auditRouteDecision(entry, "app.catalog.projection", descriptor.version.installed ?? descriptor.version.available, "included", null, descriptor.identity.package_digest);
     });
-    return reply.send({ catalog_version: 1, apps, packages });
+    const catalogSource = platform.entries[0]?.service.dependencies.catalogPackageSource;
+    return reply.send({
+      catalog_version: 1,
+      catalog: platform.getCatalogMetadata() ?? catalogSource?.catalogMetadata ?? null,
+      apps,
+      packages,
+    });
   });
 
   app.post("/packages/:packageId/install", async (request, reply) => {
@@ -645,8 +656,10 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
       available: record.state === "failed_recoverable",
       action: record.state === "failed_recoverable" ? "retry_recovery_or_reinstall" : record.state === "quarantined" ? "uninstall_and_reinstall_verified_version" : "none",
     },
+    owner_attention: ownerAttentionProjection(record),
     catalog: manifest?.manifest_version === 2 ? {
       summary: manifest.catalog.summary, icon: manifest.catalog.icon,
+      ...(manifest.catalog.change_note ? { change_note: manifest.catalog.change_note } : {}),
       retention_summary: manifest.catalog.retention_summary, primary_resource_uri: manifest.primary_resource.uri,
       presentations: manifest.presentations ? {
         presentation_set_version: manifest.presentations.presentation_set_version,
@@ -682,6 +695,42 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry, platform: AppL
     available_actions: lifecycleActions(record.state, descriptor.packageVersion, availableVersion, packageUsable, record.active_package_digest, availablePackage?.packageDigest ?? null),
     updated_at: record.updated_at,
   };
+}
+
+function ownerAttentionProjection(
+  record: Awaited<ReturnType<AppLifecycleService["ownerDescriptor"]>>["record"],
+) {
+  if (record.state === "failed_recoverable") {
+    return {
+      state: "needs_attention" as const,
+      reason: "The last app change didn't finish. Your data is kept.",
+      next_action: "retry" as const,
+      action_label: "Retry" as const,
+      lifecycle_action: "recover" as const,
+      owner_data_retained: true as const,
+    };
+  }
+  if (record.state === "quarantined") {
+    return {
+      state: "needs_attention" as const,
+      reason: "BrainDrive stopped this app for safety. Your data is kept.",
+      next_action: "remove" as const,
+      action_label: "Remove" as const,
+      lifecycle_action: "uninstall" as const,
+      owner_data_retained: true as const,
+    };
+  }
+  if (record.state === "disabled" && record.disabled_cause !== "owner") {
+    return {
+      state: "needs_attention" as const,
+      reason: "This app needs a newer BrainDrive.",
+      next_action: "update_brain_drive" as const,
+      action_label: "Update BrainDrive" as const,
+      lifecycle_action: null,
+      owner_data_retained: true as const,
+    };
+  }
+  return null;
 }
 
 function retentionProjection(manifest: RuntimePackageManifest | undefined): {

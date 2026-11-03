@@ -153,6 +153,7 @@ describe("Stage 1 catalog source", () => {
       target: "desktop_windows_x64",
     });
     expect(cached.ownerSafeSource.cache_status).toBe("last_known_good");
+    expect(cached.catalogMetadata).toMatchObject({ cache_status: "last_known_good", repository_unreachable: true });
     await expect(new PackageVerifier("26.7.23", "desktop_windows_x64").verifyForCatalog(
       cached.repository,
       cached.availableVersion,

@@ -59,6 +59,10 @@ const readinessCopy: Record<NonNullable<AppStatus["dependency_readiness"]>["stat
 };
 
 const activationActions = new Set(["install", "reinstall", "update", "enable", "launch"]);
+// V1 deliberately keeps disable/enable/rollback out of the owner-facing
+// lifecycle UX. The lifecycle service still owns those transitions for host
+// reconciliation and recovery; they are not Apps-page controls.
+const ownerProhibitedActions = new Set(["disable", "enable", "rollback"]);
 const setupWarningClass = "mt-4 rounded-lg border border-bd-amber px-4 py-3 text-sm text-bd-text-primary";
 const dangerWarningClass = "mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary";
 
@@ -123,10 +127,11 @@ function readinessGuidance(app: AppStatus): string {
 
 function visibleActions(app: AppStatus): string[] {
   const readiness = app.dependency_readiness?.status;
+  const available = (app.available_actions ?? []).filter((action) => !ownerProhibitedActions.has(action));
   if (readiness === "blocked" || readiness === "unknown") {
-    return (app.available_actions ?? []).filter((action) => !activationActions.has(action));
+    return available.filter((action) => !activationActions.has(action));
   }
-  return app.available_actions ?? [];
+  return available;
 }
 
 export default function AppCatalogCard({
@@ -138,8 +143,10 @@ export default function AppCatalogCard({
   launchLabel,
   launchButtonRef,
   uninstallButtonRef,
+  retainedDataActionRef,
   onAction,
   onRetainedDataAction,
+  onBrainDriveUpdate,
 }: {
   app: AppStatus;
   busy: AppLifecycleAction | "launch" | `retained-data:${"delete" | "export" | "archive"}` | null;
@@ -149,22 +156,27 @@ export default function AppCatalogCard({
   launchLabel?: string;
   launchButtonRef?: Ref<HTMLButtonElement>;
   uninstallButtonRef?: Ref<HTMLButtonElement>;
+  retainedDataActionRef?: Ref<HTMLButtonElement>;
   onAction: (action: AppLifecycleAction | "launch") => void;
   onRetainedDataAction?: (action: "delete" | "export" | "archive") => void;
+  onBrainDriveUpdate?: () => void;
 }) {
   const titleId = `app-${app.route_key}-title`;
-  const actions = visibleActions(app);
+  const attention = app.owner_attention ?? null;
+  const actions = attention?.lifecycle_action ? [attention.lifecycle_action] : attention ? [] : visibleActions(app);
   const catalog = app.catalog;
   const fallbackDescription = appDescriptionCopy[app.identity.app_id];
   const shortDescription = fallbackDescription?.short ?? catalog?.summary ?? `Open ${app.identity.display_name}.`;
   const longDescription = catalog?.summary ?? fallbackDescription?.long ?? shortDescription;
   const retainedDataControls = app.state === "not_installed" ? app.retention.post_uninstall_controls ?? [] : [];
-  const recoveryMessage = app.state === "failed_recoverable" ? "Recovery required — your saved data is retained." : null;
+  const recoveryMessage = attention?.reason ?? (app.state === "failed_recoverable" ? "Recovery required — your saved data is retained." : null);
   const dependencyReadiness = app.dependency_readiness;
   const dependencyIds = dependencyOperationIds(app);
   const dependencyDetailText = dependencyDetail(app.capability_dependency_status);
   const showDependencyReadiness = dependencyReadiness && (dependencyReadiness.status !== "ready" || dependencyIds.length > 0);
   const showSearchDisclosure = hasInternetSearchDependency(app.capability_dependency_status);
+  const updateAvailable = Boolean(app.version.installed && app.version.available !== app.version.installed && actions.includes("update"));
+  const changeNote = catalog?.change_note ?? "Review the latest BrainDrive-reviewed changes before updating.";
 
   return (
     <article className="flex h-full flex-col rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-app-key={app.route_key}>
@@ -178,8 +190,9 @@ export default function AppCatalogCard({
           </div>
         </div>
         <div className="min-w-0 text-left sm:max-w-48 sm:text-right">
-          <p className="font-medium text-bd-text-primary">{stateCopy[app.state] ?? app.state}</p>
+          <p className="font-medium text-bd-text-primary">{attention?.state === "needs_attention" ? "Needs attention" : attention ? "Normal (off)" : stateCopy[app.state] ?? app.state}</p>
           <p className="text-xs text-bd-text-muted">{app.version.installed ? `Version ${app.version.installed}` : `Available ${app.version.available}`}</p>
+          {updateAvailable ? <span className="mt-1 inline-flex rounded-full border border-bd-amber px-2 py-0.5 text-xs font-medium text-bd-amber" data-testid="app-update-badge">Update available</span> : null}
         </div>
       </div>
 
@@ -200,7 +213,8 @@ export default function AppCatalogCard({
       {recoveryMessage ? <div role="alert" className={dangerWarningClass}>{recoveryMessage}</div> : null}
       {error ? <div role="alert" className={dangerWarningClass}>{error}</div> : null}
       {notice ? <div role="status" className="mt-4 rounded-lg border border-bd-amber px-4 py-3 text-sm text-bd-text-primary">{notice}</div> : null}
-      {app.availability?.status === "unavailable" ? <div role="alert" className={setupWarningClass}>{app.availability.safe_message ?? "This app is unavailable."}</div> : null}
+      {updateAvailable ? <p className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs text-bd-text-secondary" data-testid="app-change-note"><span className="font-semibold text-bd-text-primary">What changed:</span> {changeNote}</p> : null}
+      {app.availability?.status === "unavailable" && !attention ? <div role="alert" className={setupWarningClass}>{app.availability.safe_message ?? "This app is unavailable."}</div> : null}
       {showDependencyReadiness ? (
         <div role={dependencyReadiness.status === "blocked" ? "alert" : "status"} aria-label={`${app.identity.display_name} dependency readiness`} className={dependencyReadiness.status === "blocked" ? setupWarningClass : "mt-4 rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-primary"}>
           {readinessCopy[dependencyReadiness.status]}
@@ -222,9 +236,9 @@ export default function AppCatalogCard({
         <section aria-labelledby={`${titleId}-trust`}>
           <h3 id={`${titleId}-trust`} className="flex items-center gap-2 font-heading font-semibold text-bd-text-heading"><ShieldCheck size={16} aria-hidden="true" />Trust and source</h3>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-bd-text-secondary">
-            <dt>Status</dt><dd className="text-bd-text-primary">{app.trust.status.replaceAll("_", " ")}</dd>
+            <dt>Status</dt><dd className="text-bd-text-primary">{attention ? "Needs attention" : app.trust.status.replaceAll("_", " ")}</dd>
             <dt>Provenance</dt><dd>{catalog?.provenance === "verified_first_party_package" ? "Verified first-party package" : "Host registration"}</dd>
-            <dt>Revocation</dt><dd>{app.trust.revocation_status.replaceAll("_", " ")}</dd>
+            <dt>Revocation</dt><dd>{attention ? "Review required" : app.trust.revocation_status.replaceAll("_", " ")}</dd>
             <dt>Source</dt><dd>{app.source.label}</dd>
             <dt>Compatibility</dt><dd>{app.compatibility.host === false ? "Host incompatible" : app.compatibility.host === true ? "Host compatible" : "Checked during install"}</dd>
             <dt>Protocol</dt><dd>{app.compatibility.mcp_protocol ?? "Unavailable"}</dd>
@@ -245,6 +259,7 @@ export default function AppCatalogCard({
             {retainedDataControls.map((action) => <button
               key={action}
               type="button"
+              ref={action === "delete" ? retainedDataActionRef : undefined}
               disabled={Boolean(busy)}
               onClick={() => onRetainedDataAction?.(action)}
               className={action === "delete" ? "rounded-lg border border-bd-danger px-3 py-1.5 text-xs font-medium text-bd-text-primary hover:bg-bd-bg-hover disabled:opacity-60" : "rounded-lg border border-bd-border px-3 py-1.5 text-xs font-medium text-bd-text-primary hover:bg-bd-bg-hover disabled:opacity-60"}
@@ -256,9 +271,19 @@ export default function AppCatalogCard({
       </div> : null}
 
       <div className="mt-auto flex flex-wrap gap-2 pt-6" aria-label={`${app.identity.display_name} controls`}>
+        {attention?.next_action === "update_brain_drive" ? <button
+          type="button"
+          data-attention-action="update_brain_drive"
+          aria-label="Update BrainDrive"
+          disabled={Boolean(busy)}
+          onClick={() => onBrainDriveUpdate?.()}
+          className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary disabled:opacity-60"
+        >Update BrainDrive</button> : null}
         {actions.map((action) => {
           const isPrimary = ["install", "reinstall", "launch", "enable", "recover", "update"].includes(action);
-          const label = action === "launch" && launchLabel ? launchLabel : actionLabel[action];
+          const label = attention?.lifecycle_action === action
+            ? attention.action_label
+            : action === "launch" && launchLabel ? launchLabel : actionLabel[action];
           if (!label) return null;
           return <button
             key={action}

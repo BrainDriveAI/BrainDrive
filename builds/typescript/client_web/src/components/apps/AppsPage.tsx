@@ -22,6 +22,15 @@ import AppChatWorkspace from "./AppChatWorkspace";
 import AppCatalogCard from "./AppCatalogCard";
 import PackageLifecycleCard from "./PackageLifecycleCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
+import {
+  AUTOMATIC_CATALOG_CHECK_CLOCK_EVENT,
+  AUTOMATIC_CATALOG_CHECK_INTERVAL_LABEL,
+  AUTOMATIC_CATALOG_CHECK_INTERVAL_MS,
+  CATALOG_CHECK_DISCLOSURE,
+  persistAutomaticChecksEnabled,
+  readAutomaticChecksEnabled,
+  verifierClockNow,
+} from "./automatic-catalog-checks";
 
 type RetainedDataAction = "delete" | "export" | "archive";
 type BusyState = AppLifecycleAction | "launch" | `retained-data:${RetainedDataAction}`;
@@ -60,6 +69,7 @@ export default function AppsPage({
   onOpenSettings,
   onSessionClosed,
   onWorkspaceActiveChange,
+  onBrainDriveUpdateAvailable,
   onLogout,
   tier = "local",
 }: {
@@ -67,6 +77,7 @@ export default function AppsPage({
   onOpenSettings?: () => void;
   onSessionClosed?: () => void;
   onWorkspaceActiveChange?: (active: boolean) => void;
+  onBrainDriveUpdateAvailable?: (version: string | null) => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
 }) {
@@ -79,28 +90,67 @@ export default function AppsPage({
   const [errorsByPackage, setErrorsByPackage] = useState<Record<string, string | undefined>>({});
   const [noticesByApp, setNoticesByApp] = useState<Record<string, string | undefined>>({});
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogMetadata, setCatalogMetadata] = useState<NonNullable<Awaited<ReturnType<typeof getAppCatalog>>["catalog"]> | null>(null);
+  const [automaticChecksEnabled, setAutomaticChecksEnabled] = useState(() => readAutomaticChecksEnabled());
+  const [automaticChecksPromptOpen, setAutomaticChecksPromptOpen] = useState(false);
+  const automaticChecksEnabledRef = useRef(automaticChecksEnabled);
+  const automaticCheckClockRef = useRef<{ lastCheckAt: number | null }>({ lastCheckAt: null });
   const [compactCards, setCompactCards] = useState(true);
   const [confirmUninstallKey, setConfirmUninstallKey] = useState<string | null>(null);
+  const [confirmRetainedDeleteKey, setConfirmRetainedDeleteKey] = useState<string | null>(null);
   const launchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const lastChatLaunches = useRef(new Map<string, Extract<AppLaunch, { kind: "chat_workspace" }>>());
   const uninstallButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const retainedDeleteButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const retainedDeleteConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const retainedDeleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (trigger: "page_load" | "refresh" | "automatic" = "page_load", options?: { silent?: boolean }) => {
     try {
-      const catalog = await getAppCatalog();
+      const catalog = await getAppCatalog(trigger);
       setApps(catalog.apps);
       setPackages(catalog.packages ?? []);
+      setCatalogMetadata(catalog.catalog ?? null);
+      onBrainDriveUpdateAvailable?.(catalog.catalog?.brain_drive_update_version ?? null);
       setCatalogError(null);
-    } catch {
+    } catch (failure) {
       setApps((current) => current ?? []);
       setPackages((current) => current ?? []);
-      setCatalogError("Apps are unavailable in this BrainDrive environment.");
+      if (!options?.silent) {
+        setCatalogError(failure instanceof GatewayError ? failure.message : "Apps are unavailable in this BrainDrive environment.");
+      }
     }
-  }, []);
+  }, [onBrainDriveUpdateAvailable]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    automaticChecksEnabledRef.current = automaticChecksEnabled;
+  }, [automaticChecksEnabled]);
+  useEffect(() => {
+    if (!automaticChecksEnabled) {
+      automaticCheckClockRef.current.lastCheckAt = null;
+      return;
+    }
+
+    automaticCheckClockRef.current.lastCheckAt = verifierClockNow();
+    const checkIfDue = () => {
+      if (!automaticChecksEnabledRef.current) return;
+      const now = verifierClockNow();
+      const lastCheckAt = automaticCheckClockRef.current.lastCheckAt ?? now;
+      if (now - lastCheckAt < AUTOMATIC_CATALOG_CHECK_INTERVAL_MS) return;
+      automaticCheckClockRef.current.lastCheckAt = now;
+      void refresh("automatic", { silent: true });
+    };
+    const interval = window.setInterval(checkIfDue, AUTOMATIC_CATALOG_CHECK_INTERVAL_MS);
+    window.addEventListener(AUTOMATIC_CATALOG_CHECK_CLOCK_EVENT, checkIfDue);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener(AUTOMATIC_CATALOG_CHECK_CLOCK_EVENT, checkIfDue);
+    };
+  }, [automaticChecksEnabled, refresh]);
   useEffect(() => { if (confirmUninstallKey) confirmButtonRef.current?.focus(); }, [confirmUninstallKey]);
+  useEffect(() => { if (confirmRetainedDeleteKey) retainedDeleteConfirmButtonRef.current?.focus(); }, [confirmRetainedDeleteKey]);
   useEffect(() => {
     onWorkspaceActiveChange?.(Boolean(selected));
     return () => onWorkspaceActiveChange?.(false);
@@ -241,6 +291,30 @@ export default function AppsPage({
     await mutate(uninstallApp, "uninstall");
   };
 
+  const closeRetainedDeleteConfirmation = () => {
+    const appKey = confirmRetainedDeleteKey;
+    setConfirmRetainedDeleteKey(null);
+    if (appKey) queueMicrotask(() => retainedDeleteButtonRefs.current.get(appKey)?.focus());
+  };
+
+  const retainedDeleteApp = apps?.find((app) => app.route_key === confirmRetainedDeleteKey) ?? null;
+  const confirmRetainedDelete = async () => {
+    if (!retainedDeleteApp) return;
+    setConfirmRetainedDeleteKey(null);
+    await retainedDataAction(retainedDeleteApp, "delete");
+  };
+
+  const enableAutomaticChecks = () => {
+    persistAutomaticChecksEnabled(true);
+    setAutomaticChecksEnabled(true);
+    setAutomaticChecksPromptOpen(false);
+  };
+
+  const disableAutomaticChecks = () => {
+    persistAutomaticChecksEnabled(false);
+    setAutomaticChecksEnabled(false);
+  };
+
   if (selected) return isChatWorkspaceLaunch(selected.launch)
     ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onRenewSession={(currentLaunch) => renewChatWorkspaceSession(selected.appKey, currentLaunch)} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
     : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
@@ -259,12 +333,24 @@ export default function AppsPage({
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={8}>{compactCards ? "Show detailed cards" : "Show compact cards"}</TooltipContent>
             </Tooltip>
-            <button type="button" aria-label="Refresh app catalog" onClick={() => void refresh()} className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><RefreshCw size={18} /></button>
+            <label className="mr-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-bd-text-secondary" data-testid="automatic-catalog-check-control">
+              <input
+                type="checkbox"
+                aria-label="Check automatically"
+                checked={automaticChecksEnabled}
+                onChange={(event) => event.target.checked ? setAutomaticChecksPromptOpen(true) : disableAutomaticChecks()}
+                className="size-4 accent-bd-amber"
+              />
+              <span>Check automatically</span>
+            </label>
+            <button type="button" aria-label="Refresh app catalog" onClick={() => void refresh("refresh")} className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><RefreshCw size={18} /></button>
           </div>
         </div>
+        <p className="-mt-3 mb-4 text-xs text-bd-text-muted" data-testid="catalog-check-disclosure">{CATALOG_CHECK_DISCLOSURE} Automatic checks run {AUTOMATIC_CATALOG_CHECK_INTERVAL_LABEL} while BrainDrive is open.</p>
         {catalogError ? <div role="alert" className="mb-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{catalogError}</div> : null}
         {!apps || !packages ? <p aria-live="polite" className="text-bd-text-secondary">Loading app catalog…</p> : (
           <div className="space-y-8">
+            {catalogMetadata ? <div className="rounded-lg border border-bd-border px-4 py-3 text-xs text-bd-text-secondary" data-testid="apps-catalog-metadata"><span>{catalogMetadata.source_label}</span><span className="mx-2">·</span><span>As of {new Date(catalogMetadata.as_of).toLocaleString()}</span><span className="mx-2">·</span><span>Last checked {catalogMetadata.last_refreshed_at ? new Date(catalogMetadata.last_refreshed_at).toLocaleString() : "unknown"}</span><span className="mx-2">·</span><span>{catalogMetadata.cache_status === "last_known_good" ? "Last-known catalog" : "Fresh catalog"}</span><span className="sr-only">Catalog digest {catalogMetadata.catalog_digest}</span>{catalogMetadata.repository_unreachable ? <span className="ml-2" role="status">Couldn’t reach the app catalog — try again later.</span> : null}</div> : null}
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2" data-testid="app-catalog">
               {apps.map((app) => <AppCatalogCard
                 key={app.route_key}
@@ -277,7 +363,8 @@ export default function AppsPage({
                 launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
                 uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}
                 onAction={(action) => { if (action === "launch") void open(app); else if (action === "uninstall") setConfirmUninstallKey(app.route_key); else void mutate(app, action); }}
-                onRetainedDataAction={(action) => void retainedDataAction(app, action)}
+                retainedDataActionRef={(node) => { if (node) retainedDeleteButtonRefs.current.set(app.route_key, node); else retainedDeleteButtonRefs.current.delete(app.route_key); }}
+                onRetainedDataAction={(action) => action === "delete" ? setConfirmRetainedDeleteKey(app.route_key) : void retainedDataAction(app, action)}
               />)}
             </div>
             {packages.length > 0 ? (
@@ -300,6 +387,8 @@ export default function AppsPage({
       </div>
 
       {uninstallApp ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") closeConfirmation(); if (event.key === "Tab" && event.shiftKey && document.activeElement === confirmButtonRef.current) { event.preventDefault(); cancelButtonRef.current?.focus(); } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === cancelButtonRef.current) { event.preventDefault(); confirmButtonRef.current?.focus(); } }}><div role="dialog" aria-modal="true" aria-labelledby="uninstall-title" aria-describedby="uninstall-description" className="w-full max-w-lg rounded-xl border border-bd-danger bg-bd-bg-secondary p-5 shadow-xl"><h2 id="uninstall-title" className="font-heading text-lg font-semibold text-bd-text-heading">Uninstall {uninstallApp.identity.display_name}?</h2><div id="uninstall-description" className="mt-3 space-y-2 text-sm text-bd-text-primary"><p>BrainDrive will remove {uninstallApp.retention.uninstall_removes.join(", ") || "the app's runtime authority"}.</p><p>BrainDrive will retain {uninstallApp.retention.uninstall_retains.join(", ") || "no app-owned records"}.</p></div><div className="mt-5 flex flex-wrap gap-2"><button ref={confirmButtonRef} type="button" onClick={() => void confirmUninstall()} className="rounded-lg bg-bd-danger px-4 py-2 font-semibold text-white">Uninstall app code</button><button ref={cancelButtonRef} type="button" onClick={closeConfirmation} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button></div></div></div> : null}
+      {retainedDeleteApp ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") closeRetainedDeleteConfirmation(); if (event.key === "Tab" && event.shiftKey && document.activeElement === retainedDeleteConfirmButtonRef.current) { event.preventDefault(); retainedDeleteCancelButtonRef.current?.focus(); } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === retainedDeleteCancelButtonRef.current) { event.preventDefault(); retainedDeleteConfirmButtonRef.current?.focus(); } }}><div role="dialog" aria-modal="true" aria-labelledby="delete-retained-title" aria-describedby="delete-retained-description" className="w-full max-w-lg rounded-xl border border-bd-danger bg-bd-bg-secondary p-5 shadow-xl"><h2 id="delete-retained-title" className="font-heading text-lg font-semibold text-bd-text-heading">Delete retained data for {retainedDeleteApp.identity.display_name}?</h2><div id="delete-retained-description" className="mt-3 space-y-2 text-sm text-bd-text-primary"><p>This permanently deletes the retained owner data for {retainedDeleteApp.identity.display_name}.</p><p>This action cannot be undone and does not remove any other BrainDrive owner data.</p></div><div className="mt-5 flex flex-wrap gap-2"><button ref={retainedDeleteConfirmButtonRef} type="button" onClick={() => void confirmRetainedDelete()} className="rounded-lg bg-bd-danger px-4 py-2 font-semibold text-white">Delete retained data</button><button ref={retainedDeleteCancelButtonRef} type="button" onClick={closeRetainedDeleteConfirmation} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button></div></div></div> : null}
+      {automaticChecksPromptOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") setAutomaticChecksPromptOpen(false); }}><div role="dialog" aria-modal="true" aria-labelledby="automatic-checks-title" aria-describedby="automatic-checks-description" className="w-full max-w-lg rounded-xl border border-bd-border bg-bd-bg-secondary p-5 shadow-xl"><h2 id="automatic-checks-title" className="font-heading text-lg font-semibold text-bd-text-heading">Turn on automatic checks?</h2><div id="automatic-checks-description" className="mt-3 space-y-2 text-sm text-bd-text-primary"><p>{CATALOG_CHECK_DISCLOSURE}</p><p>BrainDrive will check {AUTOMATIC_CATALOG_CHECK_INTERVAL_LABEL} while it is open. Automatic checks only discover apps and updates; they never install or update anything.</p></div><div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={enableAutomaticChecks} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">Turn on automatic checks</button><button type="button" onClick={() => setAutomaticChecksPromptOpen(false)} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button></div></div></div> : null}
     </div>
   );
 }

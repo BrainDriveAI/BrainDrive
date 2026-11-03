@@ -11,6 +11,7 @@ import { z } from "zod";
 import { BRIEF_BUILDER_VERSION, createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
 import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
 import { createCatalogPackageService } from "../app-platform/lifecycle/catalog-package-service.js";
+import { createDesktopVerifierFaultInjector } from "../app-platform/lifecycle/desktop-verifier-fault-injector.js";
 import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
 import type { Stage1CatalogSourceConfig } from "../app-platform/lifecycle/stage1-catalog-source.js";
@@ -501,6 +502,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         isMemoryMigrationInProgress: () => migrationInProgress,
         catalogSource: stage1CatalogSource,
         requireCatalogSource: requireStage1CatalogSource,
+        faultInjector: createDesktopVerifierFaultInjector(),
       })
     : null;
   const briefLifecycleService = appLifecycleService
@@ -513,6 +515,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
         isMemoryMigrationInProgress: () => migrationInProgress,
         catalogSource: stage1CatalogSource,
         requireCatalogSource: requireStage1CatalogSource,
+        faultInjector: createDesktopVerifierFaultInjector(),
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
@@ -881,7 +884,8 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform(lifecycleEntries, 2, {
       packageStore: internetSearchRuntime.packageStore,
       capabilityDependencyResolver: packageDependencyResolver,
-      listAvailablePackages: () => catalogPackageService.availablePackages(),
+      listAvailablePackages: (trigger) => catalogPackageService.availablePackages(trigger),
+      getCatalogMetadata: () => catalogPackageService.catalogMetadata(),
       installAvailablePackage: async (packageId) => {
         await catalogPackageService.installPackage(packageId);
         await internetSearchRuntime.activateInstalledPackage(packageId);
@@ -3703,6 +3707,7 @@ function readStage1CatalogSourceEnv(): Stage1CatalogSourceConfig | null {
       kind: "braindrive_https",
       catalogUrl,
       cacheRoot: process.env.BRAINDRIVE_STAGE1_CATALOG_CACHE_ROOT?.trim() || path.join(tmpdir(), "braindrive-stage1-catalog-cache"),
+      ...(process.env.BRAINDRIVE_STAGE1_CATALOG_BUNDLED_PATH?.trim() ? { bundledCatalogPath: process.env.BRAINDRIVE_STAGE1_CATALOG_BUNDLED_PATH.trim() } : {}),
     };
   }
   return null;
@@ -3720,7 +3725,7 @@ function applyDesktopCorsHeaders(
   }
 }
 
-function buildDesktopCorsHeaders(
+export function buildDesktopCorsHeaders(
   origin: string | undefined,
   configuredOrigin: string,
   desktopTokenEnabled: boolean
@@ -3738,7 +3743,7 @@ function buildDesktopCorsHeaders(
     vary: "origin",
     "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers":
-      "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-desktop-token,x-conversation-id",
+      "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-catalog-trigger,x-braindrive-desktop-token,x-conversation-id",
     "access-control-expose-headers":
       "x-conversation-id,x-context-window-warning,x-context-window-estimated-tokens,x-context-window-budget-tokens,x-context-window-ratio,x-context-window-threshold,x-context-window-managed,x-context-window-message",
     "access-control-allow-credentials": "true",
