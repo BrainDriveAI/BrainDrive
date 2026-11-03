@@ -1,4 +1,4 @@
-name: braindrive_dev
+name: ${BRAINDRIVE_DEV_PROJECT_NAME:-braindrive_dev}
 
 services:
   app:
@@ -24,7 +24,7 @@ services:
             setpriv --reuid="$${HOST_UID}" --regid="$${HOST_GID}" --clear-groups "$$@"
         }
 
-        run_as_host npm install --no-audit --no-fund
+        run_as_host npm ci --no-audit --no-fund
         pids=()
         cleanup() {
           for pid in "$${pids[@]:-}"; do
@@ -89,10 +89,10 @@ services:
       CHOKIDAR_USEPOLLING: ${BRAINDRIVE_DEV_CHOKIDAR_POLLING:-false}
       CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
     volumes:
-      - ../../builds/typescript:/app/typescript
-      - braindrive_dev_app_node_modules:/app/typescript/node_modules
-      - ${PAA_LIBRARY_HOST_PATH:-../../builds/typescript/your-memory}:/data/memory
-      - braindrive_secrets:/run/paa-secrets
+      - ../../builds/typescript:/app/typescript:ro
+      - dev_app_node_modules:/app/typescript/node_modules
+      - ${PAA_LIBRARY_HOST_PATH:-dev_memory}:/data/memory
+      - dev_secrets:/run/paa-secrets
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
@@ -109,7 +109,7 @@ services:
       - "-lc"
       - |
         set -euo pipefail
-        npm install --no-audit --no-fund
+        npm ci --no-audit --no-fund
         npm run dev -- --host 0.0.0.0 --port 5073 --strictPort
     environment:
       VITE_GATEWAY_PROXY_TARGET: http://app:8787
@@ -118,8 +118,8 @@ services:
       WATCHPACK_POLLING: ${BRAINDRIVE_DEV_WATCHPACK_POLLING:-false}
       WATCHPACK_POLLING_INTERVAL: ${BRAINDRIVE_DEV_WATCHPACK_POLLING_INTERVAL:-250}
     volumes:
-      - ../../builds/typescript/client_web:/workspace/builds/typescript/client_web
-      - braindrive_dev_web_node_modules:/workspace/builds/typescript/client_web/node_modules
+      - ../../builds/typescript/client_web:/workspace/builds/typescript/client_web:ro
+      - dev_web_node_modules:/workspace/builds/typescript/client_web/node_modules
     depends_on:
       app:
         condition: service_healthy
@@ -127,10 +127,12 @@ services:
       - "${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}:5073"
 
 volumes:
-  braindrive_dev_app_node_modules:
-    name: braindrive_dev_app_node_modules
-  braindrive_dev_web_node_modules:
-    name: braindrive_dev_web_node_modules
-  braindrive_secrets:
+  dev_memory:
+    name: ${BRAINDRIVE_DEV_MEMORY_VOLUME:-braindrive_dev_memory}
+  dev_app_node_modules:
+    name: ${BRAINDRIVE_DEV_APP_NODE_MODULES_VOLUME:-braindrive_dev_app_node_modules}
+  dev_web_node_modules:
+    name: ${BRAINDRIVE_DEV_WEB_NODE_MODULES_VOLUME:-braindrive_dev_web_node_modules}
+  dev_secrets:
     external: true
-    name: braindrive_secrets
+    name: ${BRAINDRIVE_DEV_SECRETS_VOLUME:-braindrive_secrets}

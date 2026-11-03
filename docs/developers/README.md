@@ -45,6 +45,8 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Maintain documentation | [Documentation governance](governance.md), [scoped instructions](../AGENTS.md), [catalog](catalog.json), and [validator](../../tools/docs/README.md) | Current repository contract; named owners and external enforcement remain OPEN-01/OPEN-08 |
 | Release | [Release and version truth](releases.md), [changelog](../../CHANGELOG.md), and [bootstrap trust](../../installer/bootstrap/README.md) | Current public contract; restricted execution and external evidence remain explicit |
 
+Docker development supports concurrent checkouts with per-lane project, port, image, and volume settings; the [Docker development guide](setup/docker-development.md) covers setup and existing-memory migration.
+
 ## Start by component
 
 | Component | Responsibility | Source-adjacent route |

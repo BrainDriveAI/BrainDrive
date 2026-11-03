@@ -124,7 +124,7 @@ Key behavior:
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config touched:
-- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, release manifest/signature/key settings, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`
+- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, release manifest/signature/key settings, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `BRAINDRIVE_DEV_PROJECT_NAME`, and dev volume/image names from `.env`
 - Writes: `.env`, `PAA_SECRETS_MASTER_KEY_B64` when missing; in `prod`, `PAA_AUTH_BOOTSTRAP_TOKEN` and `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false`
 
 ### start (`start.sh`, `start.ps1`)
@@ -132,7 +132,7 @@ Env/config touched:
 What it does:
 - Starts services for selected mode.
 - Runs startup update policy check for `local` and `prod` before `docker compose up -d`.
-- Creates required volumes in `dev` mode.
+- Creates the selected external secrets volume in `dev` mode; Compose creates the selected memory and dependency volumes.
 - In `prod`, generates a missing signup bootstrap token before Compose validation so existing installations continue to start safely.
 
 Usage:
@@ -149,7 +149,7 @@ Key behavior:
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config read:
-- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `DOMAIN`, `BRAINDRIVE_DOCKER_PLATFORM`
+- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `BRAINDRIVE_DEV_SECRETS_VOLUME`, `DOMAIN`, `BRAINDRIVE_DOCKER_PLATFORM`
 
 ### stop (`stop.sh`, `stop.ps1`)
 

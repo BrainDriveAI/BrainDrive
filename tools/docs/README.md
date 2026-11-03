@@ -12,6 +12,8 @@ npm run docs:verify
 
 Run `node tools/docs/sync-generated.mjs --check` from the repository root to verify declared visible catalog projections. `--write` changes only declared generated blocks and is never part of ordinary verification.
 
+`tools/docs/test/developer-journeys.test.mjs` checks the source-backed Docker development guide, including its `npm ci` and read-only source-mount contract. The [Docker development guide](../../docs/developers/setup/docker-development.md) owns the lane setup details.
+
 `tools/docs/test/agent-contract.test.mjs` protects the repository context-discovery contract. It verifies that root instructions route specification, planning, and implementation work through applicable `AGENTS.md` files, `agentContract.taskRoutes`, task-relevant canonical context, and explicit conflict handling; it also verifies that the public README remains a discovery aid rather than independent working authority.
 
 Freeze and test a clean source commit, then run `node tools/docs/candidate-digest.mjs --source-test-revision <full-sha>`. It prints `SOURCE_TEST_REVISION` and `SOURCE_CANDIDATE_PROOF`, which evidence records embed. Evidence collection may create a later `EVIDENCE_REVISION`, but only the fixed catalog-declared AI scorecards, two platform reports, eight human reviews, Milestone 7, trace matrix, and readiness summary are evidence outputs. The checker takes the evidence revision from an explicit argument or the clean checkout; records do not embed their own future commit SHA. Those files never alter the proof of the named source revision.

@@ -81,8 +81,8 @@ if [[ "${MODE}" == "prod" || "${MODE}" == "local" ]]; then
 fi
 
 if [[ "${MODE}" == "dev" ]]; then
-  docker volume create braindrive_memory >/dev/null
-  docker volume create braindrive_secrets >/dev/null
+  DEV_SECRETS_VOLUME="${BRAINDRIVE_DEV_SECRETS_VOLUME:-$(get_env_value BRAINDRIVE_DEV_SECRETS_VOLUME | tr -d '"')}"
+  docker volume create "${DEV_SECRETS_VOLUME:-braindrive_secrets}" >/dev/null
 fi
 
 if ! docker compose -f "${COMPOSE_FILE}" up -d; then
