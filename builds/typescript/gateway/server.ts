@@ -783,6 +783,7 @@ export async function buildServer(rootDir = process.cwd()) {
       messages: contextWindow.messages,
       ...(body.metadata ? { clientMetadata: body.metadata } : {}),
     });
+    engineRequest.auth_context = request.paaAuthContext;
 
     const livePreferences = await loadLivePreferences();
     const promptAuditRecorder = createPromptAuditRecorder({

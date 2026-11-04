@@ -13,6 +13,7 @@ import { buildToolContext } from "../tools.js";
 import { ApprovalStore } from "./approval-store.js";
 import { classifyProviderError } from "./errors.js";
 import { ToolExecutor } from "./tool-executor.js";
+import { validatePaaAuthContext } from "../auth/policy.js";
 
 const EMPTY_COMPLETION_MAX_RETRIES = 1;
 
@@ -43,6 +44,9 @@ export async function* runAgentLoop(
   auth: AuthContext,
   options: LoopOptions
 ): AsyncGenerator<StreamEvent> {
+  if (request.auth_context) {
+    validatePaaAuthContext(request.auth_context);
+  }
   const messages = [...request.messages];
   const seenToolCallKeys = new Map<string, number>();
   const recentNonDestructiveMutationPaths: string[] = [];

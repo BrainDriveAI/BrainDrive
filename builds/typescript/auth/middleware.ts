@@ -1,8 +1,9 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import type { AuthContext, AuthState } from "../contracts.js";
+import type { AuthContext, AuthState, PaaAuthContext } from "../contracts.js";
 import { auditLog } from "../logger.js";
 import { parsePermissionHeaders } from "./headers.js";
+import { ownerActor } from "./policy.js";
 
 function buildLocalOwnerAuthContext(request: FastifyRequest, authState: AuthState): AuthContext {
   const headerContext = parsePermissionHeaders(request.headers as Record<string, unknown>);
@@ -39,8 +40,11 @@ export async function authMiddleware(
   try {
     const authState = options.getAuthState();
     request.authContext = await buildAuthContext(request, authState, options);
+    request.paaAuthContext = buildPaaAuthContext(request, authState, request.authContext);
     auditLog("auth.authorized", {
       actor_id: request.authContext.actorId,
+      authentication_id: request.paaAuthContext.authentication_id,
+      correlation_id: request.paaAuthContext.correlation_id,
       method: request.method,
       path: request.url,
     });
@@ -51,6 +55,25 @@ export async function authMiddleware(
     });
     reply.code(401).send({ error: "Unauthorized" });
   }
+}
+
+function buildPaaAuthContext(
+  request: FastifyRequest,
+  authState: AuthState,
+  authContext: AuthContext,
+): PaaAuthContext {
+  const correlationId = firstHeaderValue(request.headers["x-correlation-id"]) ?? request.id;
+  return {
+    actor: {
+      ...ownerActor(authState),
+      id: authContext.actorId,
+      type: authContext.actorType,
+      status: authState.account_initialized === false ? "inactive" : "active",
+    },
+    authentication_id: request.id,
+    authenticated_at: new Date().toISOString(),
+    correlation_id: correlationId,
+  };
 }
 
 async function buildAuthContext(

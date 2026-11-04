@@ -63,6 +63,46 @@ export type AuthContext = {
   mode: AuthMode;
 };
 
+/**
+ * PAA v1 identity carried by Auth. Credentials and permission lists are
+ * intentionally excluded from the transport context.
+ */
+export type AuthActor = {
+  id: string;
+  type: "owner" | "agent" | "service" | "external" | "economic";
+  display_name?: string;
+  status: "active" | "suspended" | "revoked" | "inactive";
+  created: string;
+};
+
+/** PAA v1 auth_context shape for the Gateway → Agent Loop boundary. */
+export type PaaAuthContext = {
+  actor: AuthActor;
+  authentication_id: string;
+  authenticated_at: string;
+  expires_at?: string;
+  correlation_id: string;
+};
+
+export type AuthAuthorizationRequest = {
+  actor: AuthActor;
+  resource: string;
+  action: string;
+  resource_id?: string;
+  correlation_id: string;
+};
+
+export type AuthAuthorizationDecision = {
+  allowed: boolean;
+  reason: "allowed" | "unknown_actor" | "inactive_actor" | "unknown_resource" | "unknown_action" | "policy_denied";
+};
+
+export type AuthService = {
+  authenticate: (request: { authentication_id: string; correlation_id: string }) => Promise<PaaAuthContext>;
+  authorize: (request: AuthAuthorizationRequest) => Promise<AuthAuthorizationDecision>;
+  exportState: () => Promise<unknown>;
+};
+
 export type ClientMessageRequest = {
   content: string;
   metadata?: Record<string, unknown>;
@@ -108,6 +148,7 @@ export type GatewayMessage = {
 
 export type GatewayEngineRequest = {
   messages: GatewayMessage[];
+  auth_context?: PaaAuthContext;
   metadata: {
     correlation_id: string;
     conversation_id?: string;
