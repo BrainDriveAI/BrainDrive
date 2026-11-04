@@ -9,6 +9,17 @@ const request: GatewayEngineRequest = {
     { role: "system", content: "System prompt" },
     { role: "user", content: "Hello" },
   ],
+  auth_context: {
+    actor: {
+      id: "owner",
+      type: "owner",
+      status: "active",
+      created: "2026-11-04T00:00:00.000Z",
+    },
+    authentication_id: "test-authentication",
+    authenticated_at: "2026-11-04T00:00:00.000Z",
+    correlation_id: "correlation-1",
+  },
   metadata: {
     correlation_id: "correlation-1",
     conversation_id: "conversation-1",

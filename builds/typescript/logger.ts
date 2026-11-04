@@ -64,9 +64,25 @@ export function auditLog(event: string, details: Record<string, unknown>): void 
   appendAuditFileLine(line, payload.timestamp);
 }
 
-function appendAuditFileLine(line: string, isoTimestamp: string): void {
+/** Record a security-sensitive action or throw before the action can start. */
+export function auditLogRequired(event: string, details: Record<string, unknown>): void {
+  const sanitizedDetails = sanitizeForAudit(details);
+  const payload: AuditLogEvent = {
+    timestamp: new Date().toISOString(),
+    event,
+    details: sanitizedDetails,
+  };
+  const line = `${JSON.stringify(payload)}\n`;
+  process.stdout.write(line);
+  appendAuditFileLine(line, payload.timestamp, true);
+}
+
+function appendAuditFileLine(line: string, isoTimestamp: string, required = false): void {
   const sink = auditFileSinkState;
   if (!sink) {
+    if (required) {
+      throw new Error("Durable audit sink unavailable");
+    }
     return;
   }
 
@@ -80,6 +96,9 @@ function appendAuditFileLine(line: string, isoTimestamp: string): void {
     const byteLength = Buffer.byteLength(line, "utf8");
     writeAuditLineWithRotation(sink, line, dateSegment, byteLength);
   } catch (error) {
+    if (required) {
+      throw new Error("Durable audit sink unavailable", { cause: error });
+    }
     process.stderr.write(`[audit] failed to persist audit log: ${toErrorMessage(error)}\n`);
   }
 }

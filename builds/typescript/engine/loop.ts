@@ -1,6 +1,7 @@
 import type {
   ApprovalMode,
   AuthContext,
+  AuthService,
   GatewayEngineRequest,
   StreamEvent,
   ToolDefinition,
@@ -23,6 +24,7 @@ type LoopOptions = {
   safetyIterationLimit?: number;
   repeatToolCallThreshold?: number;
   toolExecutionGuard?: ToolExecutionGuard;
+  authService?: AuthService;
   promptAudit?: {
     recorder: PromptAuditRecorder;
     adapterName: string;
@@ -44,8 +46,12 @@ export async function* runAgentLoop(
   auth: AuthContext,
   options: LoopOptions
 ): AsyncGenerator<StreamEvent> {
-  if (request.auth_context) {
-    validatePaaAuthContext(request.auth_context);
+  if (!request.auth_context) {
+    throw new Error("Missing verified auth context");
+  }
+  validatePaaAuthContext(request.auth_context);
+  if (request.auth_context.correlation_id !== request.metadata.correlation_id) {
+    throw new Error("Auth context correlation mismatch");
   }
   const messages = [...request.messages];
   const seenToolCallKeys = new Map<string, number>();
@@ -444,7 +450,13 @@ export async function* runAgentLoop(
 
       const result = await toolExecutor.execute(
         auth,
-        buildToolContext(options.memoryRoot, auth, request.metadata.correlation_id),
+        buildToolContext(
+          options.memoryRoot,
+          auth,
+          request.metadata.correlation_id,
+          request.auth_context,
+          options.authService,
+        ),
         toolCall.name,
         toolCall.input
       );

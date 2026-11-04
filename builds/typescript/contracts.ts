@@ -100,6 +100,7 @@ export type AuthAuthorizationDecision = {
 export type AuthService = {
   authenticate: (request: { authentication_id: string; correlation_id: string }) => Promise<PaaAuthContext>;
   authorize: (request: AuthAuthorizationRequest) => Promise<AuthAuthorizationDecision>;
+  manage: (operation: "revoke" | "activate", actorId: string) => Promise<void>;
   exportState: () => Promise<unknown>;
 };
 
@@ -190,6 +191,8 @@ export type ToolContext = {
   memoryRoot: string;
   auth: AuthContext;
   correlationId: string;
+  paaAuthContext?: PaaAuthContext;
+  authService?: AuthService;
 };
 
 export type ToolCallRequest = {

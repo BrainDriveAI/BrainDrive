@@ -1,9 +1,9 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import type { AuthContext, AuthState, PaaAuthContext } from "../contracts.js";
+import type { AuthContext, AuthService, AuthState, PaaAuthContext } from "../contracts.js";
 import { auditLog } from "../logger.js";
 import { parsePermissionHeaders } from "./headers.js";
-import { ownerActor } from "./policy.js";
+import { classifyGatewayRoute, ownerActor } from "./policy.js";
 
 function buildLocalOwnerAuthContext(request: FastifyRequest, authState: AuthState): AuthContext {
   const headerContext = parsePermissionHeaders(request.headers as Record<string, unknown>);
@@ -30,6 +30,7 @@ export type AuthMiddlewareOptions = {
   getAuthState: () => AuthState;
   authenticateLocalJwtAccessToken?: (accessToken: string) => Promise<AuthContext>;
   isDesktopRequestAuthorized?: (request: FastifyRequest) => boolean;
+  authService?: AuthService;
 };
 
 export async function authMiddleware(
@@ -41,6 +42,18 @@ export async function authMiddleware(
     const authState = options.getAuthState();
     request.authContext = await buildAuthContext(request, authState, options);
     request.paaAuthContext = buildPaaAuthContext(request, authState, request.authContext);
+    const route = classifyGatewayRoute(request.method, request.url);
+    if (!route.public && options.authService) {
+      const decision = await options.authService.authorize({
+        actor: request.paaAuthContext.actor,
+        resource: route.resource,
+        action: route.action,
+        correlation_id: request.paaAuthContext.correlation_id,
+      });
+      if (!decision.allowed) {
+        throw new Error(`Not permitted: ${decision.reason}`);
+      }
+    }
     auditLog("auth.authorized", {
       actor_id: request.authContext.actorId,
       authentication_id: request.paaAuthContext.authentication_id,
@@ -48,12 +61,14 @@ export async function authMiddleware(
       method: request.method,
       path: request.url,
     });
-  } catch {
+  } catch (error) {
     auditLog("auth.denied", {
       method: request.method,
       path: request.url,
+      reason: error instanceof Error ? error.message : "authorization_failed",
     });
-    reply.code(401).send({ error: "Unauthorized" });
+    const denied = error instanceof Error && error.message.startsWith("Not permitted:");
+    reply.code(denied ? 403 : 401).send({ error: denied ? "not permitted" : "Unauthorized" });
   }
 }
 

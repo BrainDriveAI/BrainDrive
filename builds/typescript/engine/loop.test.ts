@@ -23,6 +23,17 @@ const ownerAuth: AuthContext = {
 
 const request: GatewayEngineRequest = {
   messages: [{ role: "user", content: "Read my project setup." }],
+  auth_context: {
+    actor: {
+      id: "owner",
+      type: "owner",
+      status: "active",
+      created: "2026-11-04T00:00:00.000Z",
+    },
+    authentication_id: "test-authentication",
+    authenticated_at: "2026-11-04T00:00:00.000Z",
+    correlation_id: "test-correlation",
+  },
   metadata: {
     correlation_id: "test-correlation",
     conversation_id: "conversation-1",

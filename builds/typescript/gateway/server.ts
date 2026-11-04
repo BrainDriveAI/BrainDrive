@@ -17,6 +17,7 @@ import {
 import type { ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
 import { authMiddleware } from "../auth/middleware.js";
+import { createLocalPaaAuthService } from "../auth/policy.js";
 import {
   AccountAlreadyInitializedError,
   AccountInitializationLockedError,
@@ -468,7 +469,6 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
   const approvalStore = new ApprovalStore();
-  const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
@@ -488,6 +488,8 @@ export async function buildServer(rootDir = process.cwd()) {
           persistAuthState,
         })
       : null;
+  const authService = createLocalPaaAuthService(() => authState, runtimeConfig.memory_root);
+  const toolExecutor = new ToolExecutor(tools, { authService, requireDurableAudit: true });
   let migrationInProgress = false;
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
@@ -676,6 +678,7 @@ export async function buildServer(rootDir = process.cwd()) {
     await authMiddleware(request, reply, {
       mode: runtimeConfig.auth_mode,
       getAuthState: () => authState,
+      authService,
       authenticateLocalJwtAccessToken: localJwtAuthService
         ? async (accessToken: string) => localJwtAuthService.authenticateAccessToken(accessToken)
         : undefined,
@@ -871,6 +874,7 @@ export async function buildServer(rootDir = process.cwd()) {
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
           toolExecutionGuard: createBrainDriveMemorySafetyGuard(projectId, conversations.detail(conversationId)),
+          authService,
           ...(promptAuditRecorder
             ? {
                 promptAudit: {
