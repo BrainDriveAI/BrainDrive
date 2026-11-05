@@ -26,8 +26,12 @@ Release evidence for BrainDrive Models credit changes must show the provider bou
 
 The gateway resolves the effective profile and credential immediately before the chat model adapter is created. Provider network errors are classified for the stream. Endpoint reachability, model availability, account entitlement, and provider-specific behavior are not established by config parsing.
 
+## Authenticated request context
+
+Provider adapter requests are created only after the Gateway has authenticated the caller and established the PAA permission-free `auth_context`. The adapter request carries that verified context together with the matching correlation ID so the Agent Loop can reject forged, missing, expired, or mismatched handoffs before any provider call is attempted. Provider selection and credential resolution remain separate from authorization; the provider adapter does not receive a caller-supplied permission list.
+
 ## Verification boundary
 
 Safe Tier A checks are the adapter/config/resolver/provider-activation tests and runtime build. They use unit, mock, or in-process evidence, not live provider compatibility evidence. Any live provider call is Tier C: it needs explicit owner authority, a selected independent profile, sanitized evidence, and bounded resource use. Do not use a BrainDrive Models credential to claim OpenRouter or Ollama evidence, or vice versa.
 
-Source/tests: `builds/typescript/adapters/openai-compatible.json`, `adapters/index.ts`, `adapters/openai-compatible.ts`, `config.ts`, `secrets/resolver.ts`, `gateway/provider-activation.ts`, their tests, and gateway settings/message routes.
+Source/tests: `builds/typescript/adapters/openai-compatible.json`, `adapters/index.ts`, `adapters/openai-compatible.ts`, `adapters/openai-compatible.test.ts`, `config.ts`, `secrets/resolver.ts`, `gateway/provider-activation.ts`, their tests, and gateway settings/message routes.
