@@ -36,6 +36,8 @@ BrainDrive does not have one universal request flow. The route, authentication m
 
 The browser/Tauri-to-gateway hop is an authentication boundary. The gateway derives `request.authContext`; it does not accept model output as authority. Tool discovery classifies configured sources, and each tool is filtered by permissions before listing or execution. A desktop transport token authorizes the loopback transport, while the gateway auth middleware still constructs the trusted local auth context from initialized auth state.
 
+For the PAA v1 boundary, the gateway also asks the Auth service to authorize each protected route as a resource/action pair. After authentication, it creates the permission-free `paaAuthContext` containing the actor, authentication ID, authentication timestamp, and correlation ID. The Agent Loop validates that context and uses the same correlation ID; it does not accept a caller-supplied permission list or an unverified context. Tool execution performs a fresh Auth authorization immediately before execution and records the durable tool-action audit before starting the tool. Auth or durable-audit failure therefore prevents the tool call, and a revoked actor is denied even when an earlier context was active.
+
 ### Persistence
 
 - User, assistant, and tool messages are written through `GatewayConversationService` and the configured markdown conversation repository.
@@ -67,7 +69,7 @@ The independent deployment, install, auth, client-transport, and packaging dimen
 
 - Web request/stream handling: `builds/typescript/client_web/src/api/useGatewayChat.ts`, `gateway-adapter.ts`, `runtime-api-base.ts`, and their tests.
 - Gateway assembly and persistence: `builds/typescript/gateway/server.ts`, `conversations.ts`, `context-window.ts`, and gateway tests.
-- Engine and approvals: `builds/typescript/engine/loop.ts`, `tool-executor.ts`, `approval-store.ts`, plus `loop.test.ts`.
+- Engine and approvals: `builds/typescript/engine/loop.ts`, `tool-executor.ts`, `approval-store.ts`, plus `loop.test.ts`. PAA context validation, route/action authorization, revocation, and fail-closed tool/audit behavior are implemented in `builds/typescript/auth/policy.ts` and the gateway/tool boundaries.
 - Tool/MCP discovery: `builds/typescript/tools.ts`, `mcp/config.ts`, `mcp/client.ts`, and `mcp/registry.ts`.
 
 ### Focused checks

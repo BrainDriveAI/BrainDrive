@@ -756,7 +756,7 @@ export async function buildServer(rootDir = process.cwd()) {
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
-    const correlationId = crypto.randomUUID();
+    const correlationId = request.paaAuthContext?.correlation_id ?? crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
