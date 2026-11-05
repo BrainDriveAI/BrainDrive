@@ -40,21 +40,31 @@ export class ToolExecutor {
       return { status: "error", output: { code: "auth_unavailable", message: "not permitted" }, recoverable: false };
     }
 
-    const decision = this.authService
-      ? await this.authService.authorize({
-          actor: context.paaAuthContext.actor,
-          resource: "tool",
-          action: "execute",
-          resource_id: name,
-          correlation_id: context.correlationId,
-        })
-      : evaluateAuthorization({
-          actor: context.paaAuthContext.actor,
-          resource: "tool",
-          action: "execute",
-          resource_id: name,
-          correlation_id: context.correlationId,
-        });
+    let decision;
+    try {
+      decision = this.authService
+        ? await this.authService.authorize({
+            actor: context.paaAuthContext.actor,
+            resource: "tool",
+            action: "execute",
+            resource_id: name,
+            correlation_id: context.correlationId,
+          })
+        : evaluateAuthorization({
+            actor: context.paaAuthContext.actor,
+            resource: "tool",
+            action: "execute",
+            resource_id: name,
+            correlation_id: context.correlationId,
+          });
+    } catch (error) {
+      auditLog("tool.auth_unavailable", {
+        tool: name,
+        correlation_id: context.correlationId,
+        reason: error instanceof Error ? error.message : "authorization_failed",
+      });
+      return { status: "error", output: { code: "auth_unavailable", message: "not permitted" }, recoverable: false };
+    }
     if (!decision.allowed) {
       auditLog("tool.denied", { tool: tool.name, reason: decision.reason, correlation_id: context.correlationId });
       return { status: "denied", output: { code: "not_permitted", message: "not permitted" }, recoverable: false };
@@ -63,16 +73,25 @@ export class ToolExecutor {
     // Legacy permission checks remain a compatibility guard, never the policy authority.
     authorizeToolUse(auth, tool);
 
-    if (this.requireDurableAudit) {
-      auditLogRequired("tool.call", {
-        actor_id: context.paaAuthContext.actor.id,
-        resource: "tool",
-        action: "execute",
+    try {
+      if (this.requireDurableAudit) {
+        auditLogRequired("tool.call", {
+          actor_id: context.paaAuthContext.actor.id,
+          resource: "tool",
+          action: "execute",
+          tool: tool.name,
+          correlation_id: context.correlationId,
+        });
+      } else {
+        auditLog("tool.call", { tool: tool.name, correlation_id: context.correlationId });
+      }
+    } catch (error) {
+      auditLog("tool.audit_unavailable", {
         tool: tool.name,
         correlation_id: context.correlationId,
+        reason: error instanceof Error ? error.message : "audit_failed",
       });
-    } else {
-      auditLog("tool.call", { tool: tool.name, correlation_id: context.correlationId });
+      return { status: "error", output: { code: "audit_unavailable", message: "not permitted" }, recoverable: false };
     }
 
     try {

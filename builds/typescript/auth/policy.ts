@@ -135,11 +135,17 @@ export function createLocalPaaAuthService(
   },
   memoryRoot: string,
 ): AuthService {
+  const revokedActors = new Set<string>();
   return {
     async authenticate(request) {
       const state = getAuthState();
       const context: PaaAuthContext = {
-        actor: { ...ownerActor(state), status: state.account_initialized === false ? "inactive" : "active" },
+        actor: {
+          ...ownerActor(state),
+          status: revokedActors.has(state.actor_id)
+            ? "revoked"
+            : state.account_initialized === false ? "inactive" : "active",
+        },
         authentication_id: request.authentication_id,
         authenticated_at: new Date().toISOString(),
         correlation_id: request.correlation_id,
@@ -148,6 +154,9 @@ export function createLocalPaaAuthService(
       return context;
     },
     async authorize(request) {
+      if (revokedActors.has(request.actor.id)) {
+        return { allowed: false, reason: "inactive_actor" };
+      }
       return evaluateAuthorization(request);
     },
     async manage(operation, actorId) {
@@ -156,6 +165,11 @@ export function createLocalPaaAuthService(
       }
       if (actorId !== getAuthState().actor_id) {
         throw new Error("Unknown actor");
+      }
+      if (operation === "revoke") {
+        revokedActors.add(actorId);
+      } else {
+        revokedActors.delete(actorId);
       }
     },
     async exportState() {
@@ -166,7 +180,9 @@ export function createLocalPaaAuthService(
         identities: [{
           id: state.actor_id,
           type: state.actor_type,
-          status: state.account_initialized === false ? "inactive" : "active",
+          status: revokedActors.has(state.actor_id)
+            ? "revoked"
+            : state.account_initialized === false ? "inactive" : "active",
           created: state.account_created_at ?? state.created_at,
         }],
         policies: [{ actor_id: state.actor_id, resource: "*", action: "*", effect: "allow", precedence: "owner-default" }],
