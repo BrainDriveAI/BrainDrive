@@ -2,6 +2,8 @@ import { Dialog } from "radix-ui";
 import { X } from "lucide-react";
 
 export const expertButton = "min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber disabled:opacity-50";
+// Amber-filled variant: its own class list, so no light text color can override the dark text.
+export const expertPrimaryButton = "min-h-11 rounded-lg border border-bd-amber bg-bd-amber px-4 py-2 text-sm font-medium text-bd-bg-primary hover:bg-bd-amber-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber disabled:opacity-50";
 export function ExpertDialog({ title, description, onClose, children }: { title: string; description: string; onClose: () => void; children: React.ReactNode }) {
   return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal>
     <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />

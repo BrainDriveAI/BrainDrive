@@ -5,9 +5,8 @@ import {
   AI_NOTICE, applyInstall, cancelInstall, startBuild, startInstallStep, submitPluginFile, uniquePageName,
   type HostEvent, type PageSetup, type PluginReview,
 } from "@/api/experts";
-import { expertButton } from "./expert-ui";
+import { expertButton, expertPrimaryButton } from "./expert-ui";
 
-const primary = "bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover";
 
 // BrainDrive-drawn messages (spec I8): fixed text rendered by BrainDrive's own code, framed and
 // labelled so they cannot be mistaken for an AI reply. Nothing here comes from the model.
@@ -35,7 +34,7 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
     <button type="button" aria-expanded={showFiles} onClick={() => setShowFiles((open) => !open)} className={`${expertButton} mt-3`}>{showFiles ? "Hide files" : "See every file"}</button>
     {showFiles ? <div className="mt-3 space-y-3">{Object.entries(review.files).map(([name, text]) => <div key={name}><p className="break-all text-xs font-semibold text-bd-text-heading">{name}</p><pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{text}</pre></div>)}</div> : null}
     {status === "pending" ? <div className="mt-4 flex flex-wrap gap-2">
-      <button type="button" disabled={busy} onClick={onInstall} className={`${expertButton} ${primary}`}>{busy ? "Installing…" : "Install"}</button>
+      <button type="button" disabled={busy} onClick={onInstall} className={expertPrimaryButton}>{busy ? "Installing…" : "Install"}</button>
       <button type="button" disabled={busy} onClick={onCancel} className={expertButton}>Cancel</button>
     </div> : <p role="status" className="mt-4 text-bd-text-secondary">{status === "installed" ? "Installed." : "Cancelled. Nothing was installed."}</p>}
   </Card>;
@@ -66,7 +65,7 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "choose": return <Card key={event.id}>
         <p>Do you want to create an Expert for this page, or install one?</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={`${expertButton} ${primary}`} onClick={() => startBuild(project.id)}>Create an Expert</button>
+          <button type="button" className={expertPrimaryButton} onClick={() => startBuild(project.id)}>Create an Expert</button>
           <button type="button" className={expertButton} onClick={() => startInstallStep(project.id, "expert")}>Install an Expert</button>
         </div>
         <p className="mt-2 text-xs text-bd-text-secondary">Create builds a new Expert by talking it through, and can use what's already in your BrainDrive.</p>
@@ -85,7 +84,7 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
           </ol>
           {active ? <div className="mt-3">
             <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) void submitPluginFile(project.id, file.name); }} />
-            <button type="button" className={`${expertButton} ${primary}`} onClick={() => fileInput.current?.click()}>Choose plugin file</button>
+            <button type="button" className={expertPrimaryButton} onClick={() => fileInput.current?.click()}>Choose plugin file</button>
             <p className="mt-2 text-xs text-bd-text-secondary">Or drop the file anywhere in this conversation. BrainDrive checks it first.</p>
           </div> : null}
         </Card>;
