@@ -320,7 +320,7 @@ export default function Sidebar({
                 ].join(" ")}
               >
                 <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" className={`shrink-0 ${isConversationActive ? "text-bd-amber" : ""}`} />
-                <span className={`truncate ${isConversationActive ? "text-bd-text-heading" : "text-bd-text-nav"}`}>Conversation</span>
+                <span className={`truncate ${isConversationActive ? "text-bd-text-heading" : "text-bd-text-nav"}`}>Your Expert</span>
               </button>
               <button
                 type="button"
@@ -338,7 +338,7 @@ export default function Sidebar({
                 className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
               >
                 <Puzzle size={17} strokeWidth={1.5} aria-hidden="true" />
-                <span className="text-bd-text-nav">Plugins</span>
+                <span className="text-bd-text-nav">Expert settings</span>
               </button>
               </div>
               {onDeletePage && selectedProject ? <div className="mt-auto shrink-0 border-t border-bd-border pt-3">
@@ -490,7 +490,7 @@ export default function Sidebar({
                 );
               })}
 
-              {onAddPage ? <button type="button" onClick={() => { onAddPage(); onClose?.(); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Plus size={17} strokeWidth={1.5} /><span className="text-[14px]">Add page</span></button> : isAddingProject ? (
+              {onAddPage ? <button type="button" onClick={() => { onAddPage(); onClose?.(); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Plus size={17} strokeWidth={1.5} /><span className="text-[14px]">New page</span></button> : isAddingProject ? (
                 <div className="flex items-center gap-2 rounded-xl py-2 pl-4 pr-3">
                   <Plus size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
                   <input

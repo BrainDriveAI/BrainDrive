@@ -23,18 +23,20 @@ beforeEach(() => {
 it("opens with fixed BrainDrive text and exactly two buttons, with no model needed", async () => {
   render(<Harness />); await addPage();
   expect(screen.getByText(/build your own Expert for this page, or install one/)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Build your own" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Install one" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Create an Expert" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Install an Expert" })).toBeVisible();
+  expect(screen.getByText(/Create builds a new Expert by talking it through/)).toBeVisible();
   expect(screen.getByLabelText("From BrainDrive")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
 });
 
-it("Build your own attaches the BrainDrive plugin and a Behavior plugin, with no try-now or question count", async () => {
+it("Create an Expert attaches the BrainDrive plugin and a Behavior plugin, with no try-now or question count", async () => {
   const user = userEvent.setup();
   let seen: ReturnType<typeof usePageSetup>;
   function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
   render(<><Harness /><Probe /></>); await addPage();
-  await user.click(screen.getByRole("button", { name: "Build your own" }));
+  await user.click(screen.getByRole("button", { name: "Create an Expert" }));
+  expect(screen.getByText(/Let's create your Expert\. Its starting instructions are in Expert settings/)).toBeVisible();
   expect(seen!.expert?.name).toBe("My Expert");
   expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["My Expert", "BrainDrive"]);
   expect(seen!.plugins[1]!.source).toBe("included with BrainDrive");
@@ -42,10 +44,10 @@ it("Build your own attaches the BrainDrive plugin and a Behavior plugin, with no
   expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
 });
 
-it("Install one lists the three ways and shows Choose plugin file only during the install step", async () => {
+it("Install an Expert lists the three ways and shows Choose plugin file only during the install step", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Install one" }));
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   expect(screen.getByText(/community forum/)).toBeVisible();
   expect(screen.getByText(/GitHub link: coming later/)).toBeVisible();
   expect(screen.getByRole("button", { name: "Choose plugin file" })).toBeVisible();
@@ -54,7 +56,7 @@ it("Install one lists the three ways and shows Choose plugin file only during th
 it("checks the file first and shows a one-line plain reason when it fails", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Install one" }));
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   await submit("notes.txt");
   expect(await screen.findByRole("alert")).toHaveTextContent("This is not a valid ZIP file.");
   await submit("my-scripts.zip");
@@ -65,7 +67,7 @@ it("checks the file first and shows a one-line plain reason when it fails", asyn
 it("takes a chosen file from the button into the check", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Install one" }));
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "start-a-business.zip")] } });
   expect(await screen.findByRole("heading", { name: "Start a Business" })).toBeVisible();
 });
@@ -73,7 +75,7 @@ it("takes a chosen file from the button into the check", async () => {
 it("shows a BrainDrive review card with summary first and every file in full, then installs on THIS page", async () => {
   const user = userEvent.setup();
   render(<Harness taken={["Start a Business"]} />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Install one" }));
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   await submit("start-a-business.zip");
   const card = await screen.findByLabelText("From BrainDrive: review before installing");
   expect(card).toHaveTextContent("unverified");
@@ -94,12 +96,12 @@ it("shows a BrainDrive review card with summary first and every file in full, th
 it("Cancel installs nothing and offers the two buttons again", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Install one" }));
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   await submit("start-a-business.zip");
   await user.click(await screen.findByRole("button", { name: "Cancel" }));
   expect(renamePage).not.toHaveBeenCalled();
   expect(screen.getByText("Nothing was installed.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Build your own" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Create an Expert" })).toBeVisible();
 });
 
 it("Add plugin adds a plugin to the current page only, and refuses an Expert file", async () => {
@@ -120,7 +122,7 @@ it("Add plugin adds a plugin to the current page only, and refuses an Expert fil
 it("shows the AI notice once, on the first message of a page with an Expert", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
-  await user.click(screen.getByRole("button", { name: "Build your own" }));
+  await user.click(screen.getByRole("button", { name: "Create an Expert" }));
   expect(screen.queryByText(AI_NOTICE)).not.toBeInTheDocument();
   act(() => noteFirstMessage("p1", "New page"));
   act(() => noteFirstMessage("p1", "New page"));

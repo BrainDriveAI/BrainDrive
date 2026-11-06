@@ -66,12 +66,13 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "choose": return <Card key={event.id}>
         <p>Do you want to build your own Expert for this page, or install one?</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={`${expertButton} ${primary}`} onClick={() => startBuild(project.id)}>Build your own</button>
-          <button type="button" className={expertButton} onClick={() => startInstallStep(project.id, "expert")}>Install one</button>
+          <button type="button" className={`${expertButton} ${primary}`} onClick={() => startBuild(project.id)}>Create an Expert</button>
+          <button type="button" className={expertButton} onClick={() => startInstallStep(project.id, "expert")}>Install an Expert</button>
         </div>
+        <p className="mt-2 text-xs text-bd-text-secondary">Create builds a new Expert by talking it through, and can use what's already in your BrainDrive.</p>
       </Card>;
       case "build": return <Card key={event.id}>
-        <p>Let's build your Expert. The BrainDrive plugin is now on this page, and your Expert's starting instructions are in Plugins. Tell me about the job you want it to do.</p>
+        <p>{event.typed ? "Got it. Let me ask a couple of questions to shape this Expert." : "Let's create your Expert. Its starting instructions are in Expert settings. Tell me about what you want it to help with."}</p>
       </Card>;
       case "install-help": {
         const active = setup.installStep !== null && event.id === lastHelpId;

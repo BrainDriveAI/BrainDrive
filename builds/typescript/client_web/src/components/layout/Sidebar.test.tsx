@@ -84,12 +84,12 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
 
-  it("offers one Add page action instead of New project or Add Expert, and Delete page in the page menu", async () => {
+  it("offers one New page action instead of New project or Add Expert, and Delete page in the page menu", async () => {
     const user = userEvent.setup();
     const onAddPage = vi.fn();
     const onDeletePage = vi.fn();
     const { rerender } = render(<Sidebar {...baseProps} onAddPage={onAddPage} onAddProject={async () => {}} onRemoveProject={async () => {}} />);
-    await user.click(screen.getByRole("button", { name: "Add page" }));
+    await user.click(screen.getByRole("button", { name: "New page" }));
     expect(onAddPage).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: /Create project|New project|Add Expert/ })).not.toBeInTheDocument();
     rerender(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} onDeletePage={onDeletePage} />);
@@ -116,13 +116,13 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "Your Finances" })).not.toBeInTheDocument();
     act(() => screen.getByRole("button", { name: /^Home$/ }).focus());
     await user.keyboard("{Enter}");
-    await user.click(screen.getByRole("button", { name: "Conversation" }));
+    await user.click(screen.getByRole("button", { name: "Your Expert" }));
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
-  it("returns to chat from a document using the Conversation entry", async () => {
+  it("returns to chat from a document using the Your Expert entry", async () => {
     const user = userEvent.setup();
     const onReturnToChat = vi.fn();
     const onClose = vi.fn();
@@ -139,7 +139,7 @@ describe("Sidebar", () => {
       />
     );
 
-    const conversation = screen.getByRole("button", { name: "Conversation" });
+    const conversation = screen.getByRole("button", { name: "Your Expert" });
     expect(conversation).not.toHaveAttribute("aria-current");
 
     await user.click(conversation);
@@ -159,7 +159,7 @@ describe("Sidebar", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Your Expert" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: /^Home$/ })).not.toHaveAttribute("aria-current");
   });
 
@@ -187,15 +187,15 @@ it("shows three distinct page entries where only the current one is marked", asy
     activeView="files" onOpenProjectView={onOpenProjectView} onClose={onClose}
     projectFiles={["spec.md", "plan.md", "journal.md", "brief.md", "AGENT.md"].map((name) => ({ name, path: `documents/finance/${name}` }))} />);
   const nav = screen.getByRole("navigation", { name: "Page navigation" });
-  expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Conversation", "Your Files", "Plugins"]);
+  expect([...nav.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Your Expert", "Your Files", "Expert settings"]);
   expect(nav.querySelectorAll("[aria-expanded]")).toHaveLength(0);
   expect(screen.queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Brief" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Your Files" })).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
-  expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveClass("text-bd-amber", "border-bd-amber");
+  expect(screen.getByRole("button", { name: "Your Expert" })).not.toHaveAttribute("aria-current");
+  expect(screen.getByRole("button", { name: "Your Expert" })).not.toHaveClass("text-bd-amber", "border-bd-amber");
   expect(screen.queryByRole("button", { name: /Connections|Agents|Tools|Behavior/ })).not.toBeInTheDocument();
-  screen.getByRole("button", { name: "Plugins" }).focus();
+  screen.getByRole("button", { name: "Expert settings" }).focus();
   await user.keyboard("{Enter}");
   expect(onOpenProjectView).toHaveBeenLastCalledWith("plugins");
   expect(onClose).toHaveBeenCalledTimes(1);
@@ -205,7 +205,7 @@ it("keeps direct page entries available even when there are no saved files", () 
   render(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
   expect(screen.queryByRole("button", { name: "To-do" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Your Files" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Plugins" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Expert settings" })).toBeVisible();
 });
 
 
@@ -215,7 +215,7 @@ it.each(["files", "plugins"] as const)("returns from %s with keyboard activation
   const onClose = vi.fn();
   render(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!}
     activeView={activeView} onReturnToChat={onReturnToChat} onClose={onClose} />);
-  const conversation = screen.getByRole("button", { name: "Conversation" });
+  const conversation = screen.getByRole("button", { name: "Your Expert" });
   expect(conversation).not.toHaveAttribute("aria-current");
   conversation.focus();
   await user.keyboard("{Enter}");
@@ -223,7 +223,7 @@ it.each(["files", "plugins"] as const)("returns from %s with keyboard activation
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it.each([[null, "Conversation"], ["files", "Your Files"], ["plugins", "Plugins"]] as const)("retains the Expert rail and %s selection when collapsing and expanding", async (activeView, label) => {
+it.each([[null, "Your Expert"], ["files", "Your Files"], ["plugins", "Expert settings"]] as const)("retains the Expert rail and %s selection when collapsing and expanding", async (activeView, label) => {
   const user = userEvent.setup();
   const onToggle = vi.fn();
   const onSelectProject = vi.fn();
@@ -266,12 +266,12 @@ it("routes each collapsed Expert destination without expanding or selecting a di
     activeFilePath="documents/finance/plan.md" onToggle={onToggle} onSelectProject={onSelectProject}
     onDeselectProject={onDeselectProject} onOpenProjectView={onOpenProjectView} onReturnToChat={onReturnToChat} />);
   expect(screen.getByRole("button", { name: "Your Files" })).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("button", { name: "Conversation" })).not.toHaveAttribute("aria-current");
-  for (const [label, view] of [["Your Files", "files"], ["Plugins", "plugins"]]) {
+  expect(screen.getByRole("button", { name: "Your Expert" })).not.toHaveAttribute("aria-current");
+  for (const [label, view] of [["Your Files", "files"], ["Expert settings", "plugins"]]) {
     await user.click(screen.getByRole("button", { name: label }));
     expect(onOpenProjectView).toHaveBeenLastCalledWith(view);
   }
-  await user.click(screen.getByRole("button", { name: "Conversation" }));
+  await user.click(screen.getByRole("button", { name: "Your Expert" }));
   expect(onReturnToChat).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "Home" }));
   expect(onDeselectProject).toHaveBeenCalledTimes(1);
@@ -313,7 +313,7 @@ it.each([false, true])("keeps the integrated account footer's existing settings 
   await user.click(screen.getByRole("button", { name: "BrainDrive Settings" }));
   expect(onOpenSettings).toHaveBeenCalledTimes(1);
   expect(onOpenProjectView).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Plugins" }));
+  await user.click(screen.getByRole("button", { name: "Expert settings" }));
   expect(onOpenProjectView).toHaveBeenCalledWith("plugins");
   expect(onOpenSettings).toHaveBeenCalledTimes(1);
 });
@@ -371,19 +371,19 @@ it.each([false, true])("opens the account menu with Space and restores trigger f
 
 it("marks Conversation with the amber accent only while it is the current view", () => {
   render(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} activeView={null} />);
-  expect(screen.getByRole("button", { name: "Conversation" })).toHaveClass("text-bd-amber", "border-bd-amber");
+  expect(screen.getByRole("button", { name: "Your Expert" })).toHaveClass("text-bd-amber", "border-bd-amber");
 });
 
-it("offers Add page on Home and Delete page on a page in the collapsed rail", async () => {
+it("offers New page on Home and Delete page on a page in the collapsed rail", async () => {
   const user = userEvent.setup();
   const onAddPage = vi.fn(), onDeletePage = vi.fn();
   const { rerender } = render(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} />);
-  expect(screen.getByRole("button", { name: "Add page" })).toHaveAttribute("title", "Add page");
+  expect(screen.getByRole("button", { name: "New page" })).toHaveAttribute("title", "New page");
   expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Add page" }));
+  await user.click(screen.getByRole("button", { name: "New page" }));
   expect(onAddPage).toHaveBeenCalled();
   rerender(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
-  expect(screen.queryByRole("button", { name: "Add page" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "New page" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Delete page" }));
   expect(onDeletePage).toHaveBeenCalledWith("finance");
   rerender(<Sidebar {...baseProps} isCollapsed selectedProjectId="finance" selectedProject={mockProjects[0]!} />);

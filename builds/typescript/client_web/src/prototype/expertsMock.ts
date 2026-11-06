@@ -1,13 +1,13 @@
 // PROTOTYPE ONLY: Experts and skills spec v0.8, Release 1 (no export, forum posting, link
 // install or updates). The gateway has no page-setup, plugin check or install endpoints yet, so
-// the "Add page" conversation, the plugin file check, the review card and the Plugins list are
+// the "New page" conversation, the plugin file check, the review card and the Plugins list are
 // held here, in memory, in the browser. A reload forgets them. The only real back-end calls are
 // the existing project create, rename and delete, which give each page a real sidebar entry.
 //
 // What this stand-in does:
-// - Add page makes a page and opens its chat with fixed BrainDrive text (not model output).
-// - Build your own attaches the BrainDrive plugin and a "made by you" Behavior plugin.
-// - Install one / Add plugin open the install step. A chosen or dropped file goes to a mock
+// - New page makes a page and opens its chat with fixed BrainDrive text (not model output).
+// - Create an Expert attaches the BrainDrive plugin and a "made by you" Behavior plugin.
+// - Install an Expert / Add plugin open the install step. A chosen or dropped file goes to a mock
 //   BrainDrive check first (name-based rules, see checkPluginFile), then a review card.
 // - Install applies to the current page: it is renamed to the Expert's name (auto-numbered).
 // - Finance, Fitness, Career and Relationships are Experts that come with BrainDrive.
@@ -28,7 +28,7 @@ export type PluginReview = {
 };
 export type HostEvent =
   | { id: string; type: "choose" }
-  | { id: string; type: "build" }
+  | { id: string; type: "build"; typed?: boolean }
   | { id: string; type: "install-help"; mode: "expert" | "plugin" }
   | { id: string; type: "refused"; reason: string }
   | { id: string; type: "review"; review: PluginReview; status: "pending" | "installed" | "cancelled" }
@@ -96,16 +96,16 @@ export async function mockAddPage(): Promise<{ id: string }> {
   return { id };
 }
 
-export function startBuild(id: string) {
+export function startBuild(id: string, typed = false) {
   update(id, nameOf(id), (setup) => ({
-    events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "build" }],
+    events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "build", typed }],
     installStep: null,
     expert: { name: "My Expert", files: { "instructions.md": "# My Expert\n\nThis Expert helps you with the job you describe in the conversation. Tell it what you want done, and change these instructions any time.\n" } },
     plugins: [{ id: "behavior", name: "My Expert", source: "made by you", skills: [{ name: "Instructions" }] }, BRAINDRIVE_PLUGIN],
   }));
 }
 
-/** Opens the install step: from "Install one" (Expert) or from Add plugin (plugin). */
+/** Opens the install step: from "Install an Expert" (Expert) or from Add plugin (plugin). */
 export function startInstallStep(id: string, mode: "expert" | "plugin") {
   update(id, nameOf(id), (setup) => ({
     events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "install-help", mode }],

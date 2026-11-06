@@ -15,9 +15,8 @@ it.each([0, 1, 3])("organizes %i outputs separately from direction, progress, an
   const onOpenFile = vi.fn();
   render(<ProjectContentView {...props} view="files" files={[file("spec.md"), file("journal.md"), file("AGENT.md"), ...files]} onOpenFile={onOpenFile} />);
   const outputs = within(screen.getByRole("region", { name: "Your work" }));
-  const direction = within(screen.getByRole("region", { name: "Direction & progress" }));
-  expect(direction.getByRole("button", { name: "Goals" })).toBeVisible();
-  expect(direction.getByRole("button", { name: "Journal" })).toBeVisible();
+  const pinned = within(screen.getByRole("region", { name: "Pinned" }));
+  expect(pinned.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Journal"]);
   if (!count) expect(outputs.getByText(/No outputs saved yet/)).toBeVisible();
   else {
     expect(outputs.getAllByRole("button", { name: /Brief/ })).toHaveLength(count);
@@ -30,7 +29,7 @@ it.each([0, 1, 3])("organizes %i outputs separately from direction, progress, an
 
 it("shows an honest empty workspace without creating files or fake To-do synchronization", () => {
   render(<ProjectContentView {...props} view="files" />);
-  expect(screen.getByText(/No direction or progress files saved yet/)).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Pinned" })).not.toBeInTheDocument();
   expect(screen.getByText(/No outputs saved yet/)).toBeVisible();
   expect(screen.queryByRole("button", { name: /Goals|Plan|To-do|Journal/ })).not.toBeInTheDocument();
 });
@@ -61,7 +60,9 @@ it("pins Behavior first in Plugins for an Expert page, then lists other plugins 
     ],
   })} />);
   const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-  expect(headings[0]).toBe("Behavior · Start a Business");
+  expect(headings).toEqual(["Access", "What Start a Business comes with", "Plugins it uses"]);
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Expert settings");
+  expect(screen.getAllByText("Installed from a plugin file", { exact: false }).length).toBeGreaterThan(0);
   expect(screen.getByText("Research")).toBeVisible();
   expect(screen.getByText("Needs web search (not available yet)")).toBeVisible();
   expect(screen.queryByRole("button", { name: /Remove|Delete/ })).not.toBeInTheDocument();
@@ -85,10 +86,10 @@ it("edits and saves a built Expert's instructions from the Behavior entry", asyn
 
 it("shows no Behavior entry on a page without an Expert, and how to start one", async () => {
   const onStart = vi.fn(), onAdd = vi.fn();
-  render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onAddPlugin={onAdd} />);
-  expect(screen.queryByRole("heading", { name: /Behavior ·/ })).not.toBeInTheDocument();
-  expect(screen.getByText(/no Expert yet/)).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Start an Expert" }));
+  render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onInstallExpert={vi.fn()} onAddPlugin={onAdd} />);
+  expect(screen.queryByRole("heading", { name: "Access" })).not.toBeInTheDocument();
+  expect(screen.getByText("This page has no Expert yet.")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Create an Expert" }));
   expect(onStart).toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Add plugin" }));
   expect(onAdd).toHaveBeenCalled();
@@ -99,10 +100,10 @@ it("opens the real instruction and template files of a page that comes with Brai
   const onOpenFile = vi.fn();
   render(<ProjectContentView {...props} project={{ ...props.project, id: "start-a-business", name: "Finance" }} view="plugins" files={files} onOpenFile={onOpenFile}
     setup={setup({ expert: { name: "Finance", files: {}, backend: true }, plugins: [{ id: "braindrive", name: "BrainDrive", source: "included with BrainDrive", skills: [{ name: "Journal method" }] }] })} />);
-  expect(screen.getByRole("heading", { name: "Behavior · Finance" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "What Finance comes with" })).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Instructions" }));
   expect(onOpenFile).toHaveBeenLastCalledWith(files[0]);
-  expect(screen.getByText("included with BrainDrive", { exact: false })).toBeVisible();
+  expect(screen.getAllByText("included with BrainDrive", { exact: false }).length).toBeGreaterThan(0);
 });
 
 const previewPath = "/tmp/sidebar-fixture/documents/start-a-business";
@@ -158,4 +159,12 @@ it("lists installed template files as a Templates card, matching the default-pag
   expect(screen.queryByText("SKILL.md")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "spec.md" }));
   expect(screen.getByLabelText("Edit templates/spec.md")).toHaveValue("# Spec");
+});
+
+it("shows a mock Access section with a Change choice for an Expert that comes with BrainDrive", async () => {
+  render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "Finance", files: {}, backend: true } })} />);
+  expect(screen.getByText("Included with BrainDrive")).toBeVisible();
+  expect(screen.getByText(/Anything relevant from the rest of your BrainDrive, through Your Agent/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Change" }));
+  for (const name of ["Yes", "Ask me each time", "Only this page"]) expect(screen.getByRole("radio", { name })).toBeVisible();
 });

@@ -13,7 +13,7 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startBuild, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
 
 type AppShellProps = {
@@ -86,9 +86,17 @@ export default function AppShell({
     handleReturnToChat();
   }
 
+  function handleInstallExpert() {
+    if (!selectedProject) return;
+    startInstallStep(selectedProject.id, "expert");
+    handleReturnToChat();
+  }
+
   function handleSendMessage() {
     handleReturnToChat();
     if (expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id)) {
+      // Typing on a new page that is still offering Create / Install starts the Create path.
+      if (pageSetup?.events.some((event) => event.type === "choose")) startBuild(selectedProject.id, true);
       noteFirstMessage(selectedProject.id, selectedProject.name);
     }
   }
@@ -283,6 +291,7 @@ export default function AppShell({
       setup={pageSetup}
       onAddPlugin={expertPreviewEnabled ? handleAddPlugin : undefined}
       onStartExpert={expertPreviewEnabled ? handleStartExpert : undefined}
+      onInstallExpert={expertPreviewEnabled ? handleInstallExpert : undefined}
     />
   ) : undefined;
 

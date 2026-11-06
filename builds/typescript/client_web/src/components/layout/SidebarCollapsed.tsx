@@ -56,7 +56,7 @@ export default function SidebarCollapsed({
         {isProjectView ? (
           <>
             <nav aria-label="Page navigation" className="flex flex-col gap-1">
-              <button type="button" aria-label="Conversation" title="Conversation" onClick={onReturnToChat}
+              <button type="button" aria-label="Your Expert" title="Your Expert" onClick={onReturnToChat}
                 aria-current={activeView === null ? "page" : undefined}
                 className="flex h-10 w-10 items-center justify-center rounded-md text-bd-text-primary hover:bg-bd-bg-hover aria-[current=page]:border-l-2 aria-[current=page]:border-bd-amber aria-[current=page]:bg-bd-bg-tertiary aria-[current=page]:text-bd-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
                 <Sparkles size={17} strokeWidth={1.7} aria-hidden="true" />
@@ -117,7 +117,7 @@ export default function SidebarCollapsed({
             </button>
           );
         })}
-        {onAddPage ? <button type="button" aria-label="Add page" title="Add page" onClick={onAddPage}
+        {onAddPage ? <button type="button" aria-label="New page" title="New page" onClick={onAddPage}
           className="flex h-10 w-10 items-center justify-center rounded-md text-bd-text-primary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
           <Plus size={17} strokeWidth={1.5} aria-hidden="true" />
         </button> : null}

@@ -8,12 +8,12 @@ import { localPreviewFolder } from "./local-preview-folder";
 
 export type ProjectView = "files" | "plugins";
 export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
-  files: "Your Files", plugins: "Plugins",
+  files: "Your Files", plugins: "Expert settings",
 };
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert }: {
   view: ProjectView;
   project: Project;
   files: ProjectFile[];
@@ -24,14 +24,15 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   setup?: PageSetup;
   onAddPlugin?: () => void;
   onStartExpert?: () => void;
+  onInstallExpert?: () => void;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
-  const direction = ([
-    [model.goals, "Goals", "What you want to achieve"],
-    [model.plan, "Plan", "Your approach and next steps"],
-    [model.todo, "To-do", "Your saved task list"],
-    [model.journal, "Journal", "Notes and progress over time"],
+  const pinned = ([
+    [model.goals, "Your Goals", "What you want to achieve"],
+    [model.plan, "Your Plan", "Your approach and next steps"],
+    [model.journal, "Your Journal", "Notes and progress over time"],
   ] as const).flatMap(([item, label, description]) => item ? [{ ...item, label, description }] : []);
+  const work: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
   const instructions = model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
   const interviewGuide = model.expert.skills.find((item) => item.canonicalPath === "business-idea-interview.md");
   const interview: DisplayFile[] = [
@@ -44,21 +45,19 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       <header className="border-b border-bd-border px-4 py-4 sm:px-8">
         <div className="mx-auto flex max-w-[780px] flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <h1 className="font-heading text-xl text-bd-text-heading">{title}</h1>
-          <button type="button" onClick={onBack} className={`flex shrink-0 items-center gap-2 rounded-md p-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}><ArrowLeft size={16} aria-hidden="true" />Back to Conversation</button>
+          <button type="button" onClick={onBack} className={`flex shrink-0 items-center gap-2 rounded-md p-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}><ArrowLeft size={16} aria-hidden="true" />Back to Your Expert</button>
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "plugins" ? <PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} behaviorFiles={<>
+          {view === "plugins" ? <PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
             <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
           </>} /> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
-            <ContentSection title="Direction & progress">
-              <FileList items={direction} onOpenFile={onOpenFile} empty="No direction or progress files saved yet. Your goals, plans, task lists, and journal will appear here when available." />
-            </ContentSection>
-            <ContentSection title="Your work"><FileList items={model.files} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
+            {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} /></ContentSection> : null}
+            <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
             <StorageDetails projectId={project.id} />
           </>}
         </div>
@@ -108,15 +107,33 @@ function StorageDetails({ projectId }: { projectId: string }) {
   </section>;
 }
 
-function PluginsList({ project, setup, onAddPlugin, onStartExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onAddPlugin?: () => void; onStartExpert?: () => void; behaviorFiles: ReactNode }) {
+const ACCESS_CHOICES = ["Yes", "Ask me each time", "Only this page"] as const;
+// Mock only: the choice is kept in local state and changes nothing.
+function AccessSection({ origin }: { origin: string }) {
+  const [choice, setChoice] = useState<(typeof ACCESS_CHOICES)[number]>("Yes");
+  const [changing, setChanging] = useState(false);
+  return <ContentSection title="Access">
+    <div className="space-y-2 rounded-lg border border-bd-border p-4 text-sm text-bd-text-secondary">
+      <p><span className="text-bd-text-primary">Access:</span> Anything relevant from the rest of your BrainDrive, through Your Agent{choice === "Yes" ? "" : ` (${choice})`}</p>
+      <p><span className="text-bd-text-primary">Origin:</span> {origin}</p>
+      <button type="button" aria-expanded={changing} onClick={() => setChanging(!changing)} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Change</button>
+      {changing ? <fieldset className="space-y-1"><legend className="mb-1 text-xs">Let this Expert use the rest of your BrainDrive?</legend>
+        {ACCESS_CHOICES.map((item) => <label key={item} className="flex min-h-9 items-center gap-2 text-bd-text-primary"><input type="radio" name="expert-access" checked={choice === item} onChange={() => setChoice(item)} />{item}</label>)}
+      </fieldset> : null}
+    </div>
+  </ContentSection>;
+}
+
+function PluginsList({ project, setup, onAddPlugin, onStartExpert, onInstallExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onAddPlugin?: () => void; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode }) {
   const expert = setup?.expert ?? null;
   const others = (setup?.plugins ?? []).filter((plugin) => plugin.id !== "behavior");
   return <>
     <p className="text-sm text-bd-text-secondary">What shapes and adds to this page.</p>
-    {expert ? <ContentSection title={`Behavior · ${expert.name}`}>
+    {expert ? <AccessSection origin={expert.backend ? "Included with BrainDrive" : setup?.plugins.find((plugin) => plugin.id === "behavior")?.source === "installed from a plugin file" ? "Installed from a plugin file" : "Made by you"} /> : null}
+    {expert ? <ContentSection title={`What ${expert.name} comes with`}>
       {expert.backend ? behaviorFiles : <MockBehavior projectId={project.id} files={expert.files} />}
-    </ContentSection> : <ContentSection title="Behavior"><p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">This page has no Expert yet. To start one, go to the conversation and choose Build your own or Install one.{onStartExpert ? <button type="button" onClick={onStartExpert} className={`mt-3 block min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Start an Expert</button> : null}</p></ContentSection>}
-    <ContentSection title="Plugins">
+    </ContentSection> : <ContentSection title="What this Expert comes with"><div className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary"><p>This page has no Expert yet.</p>{onStartExpert ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onStartExpert} className={`min-h-11 rounded-lg border border-bd-amber bg-bd-amber px-4 py-2 text-bd-bg-primary hover:bg-bd-amber-hover ${focusStyle}`}>Create an Expert</button><button type="button" onClick={onInstallExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Install an Expert</button></div> : null}</div></ContentSection>}
+    <ContentSection title="Plugins it uses">
       {others.length === 0 ? <p className="text-sm text-bd-text-secondary">No other plugins on this page yet.</p> : <ul className="divide-y divide-bd-border rounded-lg border border-bd-border">{others.map((plugin) => <li key={plugin.id} className="px-4 py-4">
         <p className="text-sm text-bd-text-primary">{plugin.name} <span className="text-xs text-bd-text-secondary">· {plugin.source}</span></p>
         <ul className="mt-2 space-y-1">{plugin.skills.map((skill) => <li key={skill.name} className="text-sm text-bd-text-secondary">{skill.name}{skill.needs ? <span className="block text-xs">{skill.needs}</span> : null}</li>)}</ul>
