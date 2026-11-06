@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetExpertsMock, type PageSetup } from "@/api/experts";
 import ProjectContentView from "./ProjectContentView";
@@ -16,11 +16,11 @@ it.each([0, 1, 3])("organizes %i outputs separately from direction, progress, an
   render(<ProjectContentView {...props} view="files" files={[file("spec.md"), file("journal.md"), file("AGENT.md"), ...files]} onOpenFile={onOpenFile} />);
   const outputs = within(screen.getByRole("region", { name: "Your work" }));
   const pinned = within(screen.getByRole("region", { name: "Pinned" }));
-  expect(pinned.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Journal"]);
+  expect(pinned.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Your Goals", "Unpin Your Goals", "Your Journal", "Unpin Your Journal"]);
   if (!count) expect(outputs.getByText(/No outputs saved yet/)).toBeVisible();
   else {
-    expect(outputs.getAllByRole("button", { name: /Brief/ })).toHaveLength(count);
-    await userEvent.click(outputs.getAllByRole("button", { name: /Brief/ })[0]!);
+    expect(outputs.getAllByRole("button", { name: /^Brief/ })).toHaveLength(count);
+    await userEvent.click(outputs.getAllByRole("button", { name: /^Brief/ })[0]!);
     expect(onOpenFile).toHaveBeenCalledWith(files[0]);
   }
   expect(outputs.queryByRole("button", { name: /Journal|Goals/ })).not.toBeInTheDocument();
@@ -47,6 +47,50 @@ it("opens an existing To-do file with its original metadata", async () => {
   await userEvent.click(screen.getByRole("button", { name: "To-do" }));
   expect(onOpenFile).toHaveBeenCalledWith(todo);
   expect(screen.queryByText(/isn’t set up/)).not.toBeInTheDocument();
+});
+
+describe("pinning files", () => {
+  const all = [file("spec.md"), file("plan.md"), file("journal.md"), file("brief-0.md")];
+  const region = (name: string) => within(screen.getByRole("region", { name }));
+  beforeEach(() => localStorage.clear());
+
+  it("pins Goals, Plan and Journal by default, in order", () => {
+    render(<ProjectContentView {...props} view="files" files={all} />);
+    expect(region("Pinned").getAllByRole("button", { name: /^Your / }).map((b) => b.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Plan", "Your Journal"]);
+    expect(region("Your work").getByRole("button", { name: "Pin Brief 0" })).toBeVisible();
+  });
+
+  it("moves an unpinned Your Plan into Your work and hides Pinned when empty", async () => {
+    render(<ProjectContentView {...props} view="files" files={all} />);
+    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
+    expect(region("Pinned").queryByRole("button", { name: "Your Plan" })).not.toBeInTheDocument();
+    expect(region("Your work").getByRole("button", { name: "Your Plan" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Goals" }));
+    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Journal" }));
+    expect(screen.queryByRole("region", { name: "Pinned" })).not.toBeInTheDocument();
+  });
+
+  it("pins an output to the end of Pinned without opening it", async () => {
+    const onOpenFile = vi.fn();
+    render(<ProjectContentView {...props} view="files" files={all} onOpenFile={onOpenFile} />);
+    await userEvent.click(screen.getByRole("button", { name: "Pin Brief 0" }));
+    expect(region("Pinned").getAllByRole("button", { name: /^(Your |Brief)/ }).map((b) => b.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Plan", "Your Journal", "Brief 0"]);
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps pin state after remount for the same page only", async () => {
+    const { unmount } = render(<ProjectContentView {...props} view="files" files={all} />);
+    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pin Brief 0" }));
+    unmount();
+    render(<ProjectContentView {...props} view="files" files={all} />);
+    expect(region("Pinned").queryByRole("button", { name: "Your Plan" })).not.toBeInTheDocument();
+    expect(region("Pinned").getByRole("button", { name: "Brief 0" })).toBeVisible();
+    unmount();
+    cleanup();
+    render(<ProjectContentView {...props} project={{ ...props.project, id: "other" }} view="files" files={all.map((f) => ({ ...f, path: f.path.replace("start-a-business", "other") }))} />);
+    expect(region("Pinned").getByRole("button", { name: "Your Plan" })).toBeVisible();
+  });
 });
 
 const setup = (over: Partial<PageSetup> = {}): PageSetup => ({ events: [], installStep: null, noticeShown: false, expert: null, plugins: [], ...over });

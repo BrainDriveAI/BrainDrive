@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowUpRight, Copy, FileText, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowUpRight, Copy, FileText, Pin, PinOff, Trash2 } from "lucide-react";
 
 import { saveExpertFile, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
@@ -28,12 +28,23 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   onInstallExpert?: () => void;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
-  const pinned = ([
+  const defaultPinned: DisplayFile[] = ([
     [model.goals, "Your Goals", "What you want to achieve"],
     [model.plan, "Your Plan", "Your approach and next steps"],
     [model.journal, "Your Journal", "Notes and progress over time"],
   ] as const).flatMap(([item, label, description]) => item ? [{ ...item, label, description }] : []);
-  const work: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
+  const baseWork: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
+  const everyFile = [...defaultPinned, ...baseWork];
+  const [pinnedPaths, setPinnedPaths] = useState<string[] | null>(() => readPins(project.id));
+  useEffect(() => { setPinnedPaths(readPins(project.id)); }, [project.id]);
+  const pinnedOrder = pinnedPaths ?? defaultPinned.map((item) => item.file.path);
+  const pinned = pinnedOrder.flatMap((path) => everyFile.filter((item) => item.file.path === path));
+  const work = everyFile.filter((item) => !pinnedOrder.includes(item.file.path)).sort((a, b) => Number(defaultPinned.includes(a)) - Number(defaultPinned.includes(b)));
+  function togglePin(path: string) {
+    const next = pinnedOrder.includes(path) ? pinnedOrder.filter((item) => item !== path) : [...pinnedOrder, path];
+    setPinnedPaths(next);
+    writePins(project.id, next);
+  }
   const instructions = model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
   const interviewGuide = model.expert.skills.find((item) => item.canonicalPath === "business-idea-interview.md");
   const interview: DisplayFile[] = [
@@ -57,8 +68,8 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
           </>} />{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
-            {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} /></ContentSection> : null}
-            <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
+            {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} /></ContentSection> : null}
+            <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
             <StorageDetails projectId={project.id} />
           </>}
         </div>
@@ -71,7 +82,19 @@ function ContentSection({ title, children }: { title: string; children: ReactNod
   return <section aria-label={title}><h2 className="mb-3 font-heading text-base text-bd-text-heading">{title}</h2>{children}</section>;
 }
 
-function FileList({ items, onOpenFile, empty, showPaths = false }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean }) {
+// Prototype stand-in for a plain file in the page's folder that would hold the pinned list.
+const pinsKey = (projectId: string) => `braindrive.pinned-files.${projectId}`;
+function readPins(projectId: string): string[] | null {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(pinsKey(projectId)) ?? "null");
+    return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
+  } catch { return null; }
+}
+function writePins(projectId: string, paths: string[]) {
+  try { localStorage.setItem(pinsKey(projectId), JSON.stringify(paths)); } catch { /* keep in memory only */ }
+}
+
+function FileList({ items, onOpenFile, empty, showPaths = false, onTogglePin, pinnedPaths = [] }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean; onTogglePin?: (path: string) => void; pinnedPaths?: string[] }) {
   if (items.length === 0) return empty ? <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">{empty}</p> : null;
   return <div className="divide-y divide-bd-border rounded-lg border border-bd-border">{items.map((item) => <div key={item.file.path} className="flex items-center gap-2 rounded-lg px-3 hover:bg-bd-bg-secondary">
     <button type="button" aria-label={item.label} title={item.canonicalPath} onClick={() => onOpenFile(item.file)} className={`flex min-w-0 flex-1 items-center gap-3 rounded-md py-4 text-left ${focusStyle}`}>
@@ -79,6 +102,7 @@ function FileList({ items, onOpenFile, empty, showPaths = false }: { items: Disp
       <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{item.label}</span>{item.description || showPaths ? <span className="mt-1 block break-words text-xs text-bd-text-secondary">{showPaths ? item.canonicalPath : item.description}</span> : null}</span>
       {item.badge ? <span className="text-xs text-bd-text-secondary">{item.badge}</span> : null}<ArrowUpRight size={16} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
     </button>
+    {onTogglePin ? (() => { const isPinned = pinnedPaths.includes(item.file.path); const Icon = isPinned ? PinOff : Pin; return <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${item.label}`} aria-pressed={isPinned} onClick={() => onTogglePin(item.file.path)} className={`flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}><Icon size={16} aria-hidden="true" /></button>; })() : null}
   </div>)}</div>;
 }
 
