@@ -168,3 +168,21 @@ it("shows a mock Access section with a Change choice for an Expert that comes wi
   await userEvent.click(screen.getByRole("button", { name: "Change" }));
   for (const name of ["Yes", "Ask me each time", "Only this page"]) expect(screen.getByRole("radio", { name })).toBeVisible();
 });
+
+it("puts Delete page at the bottom of Page Settings, after everything else", async () => {
+  const onDeletePage = vi.fn();
+  render(<ProjectContentView {...props} view="plugins" onDeletePage={onDeletePage} setup={setup({
+    expert: { name: "Start a Business", files: { "instructions.md": "Be helpful." } },
+    plugins: [{ id: "behavior", name: "Start a Business", source: "installed from a plugin file", skills: [] }],
+  })} />);
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  expect(headings[headings.length - 1]).toBe("Delete page");
+  expect(screen.getByText(/Your files stay in your Memory folder/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Delete page" }));
+  expect(onDeletePage).toHaveBeenCalledTimes(1);
+});
+
+it("shows no Delete page in Your Files", () => {
+  render(<ProjectContentView {...props} view="files" onDeletePage={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
+});

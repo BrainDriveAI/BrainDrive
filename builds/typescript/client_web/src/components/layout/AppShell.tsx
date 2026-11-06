@@ -292,6 +292,7 @@ export default function AppShell({
       onAddPlugin={expertPreviewEnabled ? handleAddPlugin : undefined}
       onStartExpert={expertPreviewEnabled ? handleStartExpert : undefined}
       onInstallExpert={expertPreviewEnabled ? handleInstallExpert : undefined}
+      onDeletePage={expertPreviewEnabled ? () => setDeletingPage(selectedProject) : undefined}
     />
   ) : undefined;
 
@@ -364,7 +365,6 @@ export default function AppShell({
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
           onAddPage={expertPreviewEnabled ? () => { void handleAddPage(); } : undefined}
-          onDeletePage={expertPreviewEnabled ? (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : undefined}
           onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : removeProject}
           onRenameProject={renameProject}
         />
@@ -405,8 +405,7 @@ export default function AppShell({
               tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
               onAddPage={expertPreviewEnabled ? () => { void handleAddPage(); } : undefined}
-              onDeletePage={expertPreviewEnabled ? (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : undefined}
-              onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : removeProject}
+                  onRemoveProject={expertPreviewEnabled ? async (id) => { const project = projects.find((item) => item.id === id); if (project) setDeletingPage(project); } : removeProject}
               onRenameProject={renameProject}
               onClose={() => {
                 setIsMobileSidebarOpen(false);

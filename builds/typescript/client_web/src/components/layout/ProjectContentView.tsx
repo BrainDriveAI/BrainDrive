@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowUpRight, Copy, FileText } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Copy, FileText, Trash2 } from "lucide-react";
 
 import { saveExpertFile, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
@@ -13,8 +13,9 @@ export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert, onDeletePage }: {
   view: ProjectView;
+  onDeletePage?: () => void;
   project: Project;
   files: ProjectFile[];
   isLoading: boolean;
@@ -50,12 +51,12 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "plugins" ? <PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
+          {view === "plugins" ? <><PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
             <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
-          </>} /> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
+          </>} />{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
             {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} /></ContentSection> : null}
             <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
             <StorageDetails projectId={project.id} />

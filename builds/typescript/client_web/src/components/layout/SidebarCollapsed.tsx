@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, Plus, Puzzle, Sparkles, Trash2 } from "lucide-react";
+import { Bot, FolderOpen, Plus, Puzzle, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
@@ -21,7 +21,6 @@ type SidebarCollapsedProps = {
   onSelectProject: (projectId: string) => void;
   accountFooter: ReactNode;
   onAddPage?: () => void;
-  onDeletePage?: () => void;
 };
 
 export default function SidebarCollapsed({
@@ -35,8 +34,7 @@ export default function SidebarCollapsed({
   onOpenProjectView,
   onSelectProject,
   accountFooter,
-  onAddPage,
-  onDeletePage
+  onAddPage
 }: SidebarCollapsedProps) {
   return (
     <aside className="flex h-dvh w-[48px] flex-col items-center border-r border-bd-border bg-bd-bg-secondary pt-3 transition-all duration-200">
@@ -69,10 +67,6 @@ export default function SidebarCollapsed({
                 </button>
               ))}
             </nav>
-            {onDeletePage ? <button type="button" aria-label="Delete page" title="Delete page" onClick={onDeletePage}
-              className="mt-auto flex h-10 w-10 items-center justify-center rounded-md text-red-400 hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
-              <Trash2 size={17} strokeWidth={1.5} aria-hidden="true" />
-            </button> : null}
           </>
         ) : <>
         <button

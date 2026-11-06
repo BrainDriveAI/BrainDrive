@@ -84,17 +84,15 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
 
-  it("offers one New page action instead of New project or Add Expert, and Delete page in the page menu", async () => {
+  it("offers one New page action instead of New project or Add Expert, and no Delete page in the sidebar", async () => {
     const user = userEvent.setup();
     const onAddPage = vi.fn();
-    const onDeletePage = vi.fn();
     const { rerender } = render(<Sidebar {...baseProps} onAddPage={onAddPage} onAddProject={async () => {}} onRemoveProject={async () => {}} />);
     await user.click(screen.getByRole("button", { name: "New page" }));
     expect(onAddPage).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: /Create project|New project|Add Expert/ })).not.toBeInTheDocument();
-    rerender(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} onDeletePage={onDeletePage} />);
-    await user.click(screen.getByRole("button", { name: "Delete page" }));
-    expect(onDeletePage).toHaveBeenCalledWith("finance");
+    rerender(<Sidebar {...baseProps} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
+    expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
   });
 
   it("keeps Home navigation and Conversation separate without repeating the Expert name", async () => {
@@ -374,18 +372,14 @@ it("marks Conversation with the amber accent only while it is the current view",
   expect(screen.getByRole("button", { name: "Your Expert" })).toHaveClass("text-bd-amber", "border-bd-amber");
 });
 
-it("offers New page on Home and Delete page on a page in the collapsed rail", async () => {
+it("offers New page on Home in the collapsed rail and no Delete page on a page", async () => {
   const user = userEvent.setup();
-  const onAddPage = vi.fn(), onDeletePage = vi.fn();
-  const { rerender } = render(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} />);
+  const onAddPage = vi.fn();
+  const { rerender } = render(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} />);
   expect(screen.getByRole("button", { name: "New page" })).toHaveAttribute("title", "New page");
-  expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "New page" }));
   expect(onAddPage).toHaveBeenCalled();
-  rerender(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} onDeletePage={onDeletePage} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
+  rerender(<Sidebar {...baseProps} isCollapsed onAddPage={onAddPage} selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
   expect(screen.queryByRole("button", { name: "New page" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Delete page" }));
-  expect(onDeletePage).toHaveBeenCalledWith("finance");
-  rerender(<Sidebar {...baseProps} isCollapsed selectedProjectId="finance" selectedProject={mockProjects[0]!} />);
   expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
 });

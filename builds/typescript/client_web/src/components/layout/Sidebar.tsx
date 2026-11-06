@@ -41,7 +41,6 @@ type SidebarProps = {
   onLogout: () => void;
   onAddProject?: (name: string) => Promise<void>;
   onAddPage?: () => void;
-  onDeletePage?: (id: string) => void;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
   tier?: "local" | "concierge";
@@ -65,7 +64,6 @@ export default function Sidebar({
   onLogout,
   onAddProject,
   onAddPage,
-  onDeletePage,
   onRemoveProject,
   onRenameProject,
   tier = "local",
@@ -275,7 +273,6 @@ export default function Sidebar({
         }}
         accountFooter={accountFooter}
         onAddPage={onAddPage}
-        onDeletePage={onDeletePage && selectedProject ? () => onDeletePage(selectedProject.id) : undefined}
       />
     );
   }
@@ -341,9 +338,6 @@ export default function Sidebar({
                 <span className="text-bd-text-nav">Settings</span>
               </button>
               </div>
-              {onDeletePage && selectedProject ? <div className="mt-auto shrink-0 border-t border-bd-border pt-3">
-                <button type="button" onClick={() => { onDeletePage(selectedProject.id); onClose?.(); }} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-red-400 transition-colors hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><Trash2 size={17} strokeWidth={1.5} aria-hidden="true" />Delete page</button>
-              </div> : null}
             </nav>
           ) : (
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
