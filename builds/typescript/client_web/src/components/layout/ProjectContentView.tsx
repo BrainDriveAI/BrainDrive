@@ -8,7 +8,7 @@ import { localPreviewFolder } from "./local-preview-folder";
 
 export type ProjectView = "files" | "plugins";
 export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
-  files: "Your Files", plugins: "Expert settings",
+  files: "Your Files", plugins: "Settings",
 };
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
@@ -38,7 +38,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   const interview: DisplayFile[] = [
     ...(interviewGuide ? [{ ...interviewGuide, label: "Interview guide", description: "The questions and process used for this Expert" }] : []),
   ];
-  const title = PROJECT_VIEW_LABELS[view];
+  const title = view === "plugins" ? "Page Settings" : PROJECT_VIEW_LABELS[view];
 
   return (
     <section aria-label={`${title} content`} className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat pb-[var(--mobile-composer-height,0px)] md:pb-0">

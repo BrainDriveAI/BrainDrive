@@ -61,7 +61,7 @@ it("pins Behavior first in Plugins for an Expert page, then lists other plugins 
   })} />);
   const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
   expect(headings).toEqual(["Access", "What Start a Business comes with", "Plugins it uses"]);
-  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Expert settings");
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Page Settings");
   expect(screen.getAllByText("Installed from a plugin file", { exact: false }).length).toBeGreaterThan(0);
   expect(screen.getByText("Research")).toBeVisible();
   expect(screen.getByText("Needs web search (not available yet)")).toBeVisible();

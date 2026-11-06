@@ -22,7 +22,7 @@ beforeEach(() => {
 
 it("opens with fixed BrainDrive text and exactly two buttons, with no model needed", async () => {
   render(<Harness />); await addPage();
-  expect(screen.getByText(/build your own Expert for this page, or install one/)).toBeVisible();
+  expect(screen.getByText(/create an Expert for this page, or install one/)).toBeVisible();
   expect(screen.getByRole("button", { name: "Create an Expert" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Install an Expert" })).toBeVisible();
   expect(screen.getByText(/Create builds a new Expert by talking it through/)).toBeVisible();
@@ -36,7 +36,7 @@ it("Create an Expert attaches the BrainDrive plugin and a Behavior plugin, with 
   function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
   render(<><Harness /><Probe /></>); await addPage();
   await user.click(screen.getByRole("button", { name: "Create an Expert" }));
-  expect(screen.getByText(/Let's create your Expert\. Its starting instructions are in Expert settings/)).toBeVisible();
+  expect(screen.getByText(/Let's create your Expert\. Its starting instructions are in this page's Settings/)).toBeVisible();
   expect(seen!.expert?.name).toBe("My Expert");
   expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["My Expert", "BrainDrive"]);
   expect(seen!.plugins[1]!.source).toBe("included with BrainDrive");

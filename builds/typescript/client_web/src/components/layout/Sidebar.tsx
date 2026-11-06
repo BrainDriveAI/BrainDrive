@@ -338,7 +338,7 @@ export default function Sidebar({
                 className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors hover:bg-bd-bg-hover aria-[current=page]:bg-bd-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
               >
                 <Puzzle size={17} strokeWidth={1.5} aria-hidden="true" />
-                <span className="text-bd-text-nav">Expert settings</span>
+                <span className="text-bd-text-nav">Settings</span>
               </button>
               </div>
               {onDeletePage && selectedProject ? <div className="mt-auto shrink-0 border-t border-bd-border pt-3">
