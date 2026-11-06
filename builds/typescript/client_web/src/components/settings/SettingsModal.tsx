@@ -3664,7 +3664,7 @@ function ProfileSection() {
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
               >
                 {isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
                 {isSaving ? "Saving…" : "Save"}
@@ -3884,7 +3884,7 @@ function YourAgentSection() {
                       type="button"
                       onClick={handleSave}
                       disabled={!hasChanges || isSaving}
-                      className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
                     >
                       {isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
                       {isSaving ? "Saving..." : "Save"}

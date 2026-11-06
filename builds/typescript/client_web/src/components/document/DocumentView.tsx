@@ -123,7 +123,7 @@ export default function DocumentView({
                   size="sm"
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="bg-bd-amber text-white hover:bg-bd-amber-hover"
+                  className="bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover"
                 >
                   {isSaving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}
                   {isSaving ? "Saving..." : "Save"}

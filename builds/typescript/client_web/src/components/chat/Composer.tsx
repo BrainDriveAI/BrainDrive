@@ -143,7 +143,7 @@ export default function Composer({
               onPointerDown={handleActionPointerDown}
               onClick={handleSend}
               className={[
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-amber text-white transition-all duration-200",
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-amber text-bd-bg-primary transition-all duration-200",
                 !hasContent
                   ? "cursor-not-allowed opacity-50"
                   : "hover:bg-bd-amber-hover"

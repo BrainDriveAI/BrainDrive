@@ -89,7 +89,7 @@ export default function WhyFinderScreen({ onComplete }: WhyFinderScreenProps) {
               aria-label="Send message"
               disabled={trimmed.length === 0}
               className={[
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-amber text-white transition-all duration-200",
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-amber text-bd-bg-primary transition-all duration-200",
                 trimmed.length === 0
                   ? "cursor-not-allowed opacity-50"
                   : "hover:bg-bd-amber-hover"
