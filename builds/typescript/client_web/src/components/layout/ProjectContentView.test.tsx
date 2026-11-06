@@ -150,51 +150,6 @@ it("opens the real instruction and template files of a page that comes with Brai
   expect(screen.getAllByText("included with BrainDrive", { exact: false }).length).toBeGreaterThan(0);
 });
 
-const previewPath = "/tmp/sidebar-fixture/documents/start-a-business";
-function configureLocalFolder() {
-  vi.stubEnv("DEV", true);
-  vi.stubEnv("VITE_LOCAL_PREVIEW_ORIGIN", window.location.origin);
-  vi.stubEnv("VITE_LOCAL_PREVIEW_PROJECT_ID", "start-a-business");
-  vi.stubEnv("VITE_LOCAL_PREVIEW_FOLDER_PATH", previewPath);
-}
-afterEach(() => vi.unstubAllEnvs());
-
-it("shows the configured local folder with direct Finder instructions and copies the full path", async () => {
-  configureLocalFolder();
-  const user = userEvent.setup();
-  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-  render(<ProjectContentView {...props} view="files" />);
-  expect(screen.getByText("These files are saved on this computer. You can open the folder in Finder.")).toBeVisible();
-  expect(screen.getByText(previewPath)).toBeVisible();
-  expect(screen.getByText(/Go to Folder/)).toBeVisible();
-  expect(screen.queryByText("Technical details")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Copy folder path" }));
-  expect(copy).toHaveBeenCalledWith(previewPath);
-  expect(await screen.findByRole("status")).toHaveTextContent("Folder path copied.");
-  expect(screen.queryByRole("button", { name: /Open.*folder/ })).not.toBeInTheDocument();
-});
-
-it.each(["production", "different-origin", "different-project", "unconfigured"])("does not expose the preview host path for %s", (scenario) => {
-  configureLocalFolder();
-  if (scenario === "production") vi.stubEnv("DEV", false);
-  if (scenario === "different-origin") vi.stubEnv("VITE_LOCAL_PREVIEW_ORIGIN", "https://example.com");
-  if (scenario === "different-project") vi.stubEnv("VITE_LOCAL_PREVIEW_PROJECT_ID", "another-project");
-  if (scenario === "unconfigured") vi.stubEnv("VITE_LOCAL_PREVIEW_FOLDER_PATH", "");
-  render(<ProjectContentView {...props} view="files" />);
-  expect(screen.queryByText(previewPath)).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Copy folder path" })).not.toBeInTheDocument();
-  expect(screen.getByText("documents/start-a-business/")).toBeVisible();
-});
-
-it("reports clipboard failure honestly", async () => {
-  configureLocalFolder();
-  const user = userEvent.setup();
-  vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
-  render(<ProjectContentView {...props} view="files" />);
-  await user.click(screen.getByRole("button", { name: "Copy folder path" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("Copy is unavailable");
-});
-
 it("lists installed template files as a Templates card, matching the default-page pattern", async () => {
   const user = userEvent.setup();
   resetExpertsMock();
@@ -229,4 +184,22 @@ it("puts Delete page at the bottom of Page Settings, after everything else", asy
 it("shows no Delete page in Your Files", () => {
   render(<ProjectContentView {...props} view="files" onDeletePage={vi.fn()} />);
   expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
+});
+
+it("pins a Journal that appears later, but not one the owner unpinned before", async () => {
+  localStorage.clear();
+  const user = userEvent.setup();
+  const plan = { name: "plan.md", path: "documents/start-a-business/plan.md" };
+  const journal = { name: "journal.md", path: "documents/start-a-business/journal.md" };
+  const { unmount } = render(<ProjectContentView {...props} view="files" files={[plan]} />);
+  await user.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
+  await user.click(screen.getByRole("button", { name: "Pin Your Plan" }));
+  unmount();
+  const second = render(<ProjectContentView {...props} view="files" files={[plan, journal]} />);
+  const pinnedNames = () => screen.queryAllByRole("button", { name: /^Unpin / }).map((b) => b.getAttribute("aria-label"));
+  expect(pinnedNames()).toContain("Unpin Your Journal");
+  await user.click(screen.getByRole("button", { name: "Unpin Your Journal" }));
+  second.unmount();
+  render(<ProjectContentView {...props} view="files" files={[plan, journal]} />);
+  expect(pinnedNames()).not.toContain("Unpin Your Journal");
 });

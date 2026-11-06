@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowUpRight, Copy, FileText, Pin, PinOff, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, FileText, Pin, PinOff, Trash2 } from "lucide-react";
 
 import { saveExpertFile, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
 import { buildProjectSidebarModel, type SidebarFileItem } from "./sidebar-categorize";
-import { localPreviewFolder } from "./local-preview-folder";
 
 export type ProjectView = "files" | "plugins";
 export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
@@ -35,14 +34,19 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   ] as const).flatMap(([item, label, description]) => item ? [{ ...item, label, description }] : []);
   const baseWork: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
   const everyFile = [...defaultPinned, ...baseWork];
-  const [pinnedPaths, setPinnedPaths] = useState<string[] | null>(() => readPins(project.id));
-  useEffect(() => { setPinnedPaths(readPins(project.id)); }, [project.id]);
-  const pinnedOrder = pinnedPaths ?? defaultPinned.map((item) => item.file.path);
+  const [pins, setPins] = useState<PinState>(() => readPins(project.id));
+  useEffect(() => { setPins(readPins(project.id)); }, [project.id]);
+  const defaultPaths = defaultPinned.map((item) => item.file.path);
+  // Goals, Plan and Journal pin themselves when they first appear, unless the owner unpinned that one before.
+  const pinnedOrder = [...pins.pinned, ...defaultPaths.filter((path) => !pins.pinned.includes(path) && !pins.unpinned.includes(path))];
   const pinned = pinnedOrder.flatMap((path) => everyFile.filter((item) => item.file.path === path));
   const work = everyFile.filter((item) => !pinnedOrder.includes(item.file.path)).sort((a, b) => Number(defaultPinned.includes(a)) - Number(defaultPinned.includes(b)));
   function togglePin(path: string) {
-    const next = pinnedOrder.includes(path) ? pinnedOrder.filter((item) => item !== path) : [...pinnedOrder, path];
-    setPinnedPaths(next);
+    const isPinned = pinnedOrder.includes(path);
+    const next: PinState = isPinned
+      ? { pinned: pinnedOrder.filter((item) => item !== path), unpinned: [...pins.unpinned.filter((item) => item !== path), path] }
+      : { pinned: [...pinnedOrder, path], unpinned: pins.unpinned.filter((item) => item !== path) };
+    setPins(next);
     writePins(project.id, next);
   }
   const instructions = model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
@@ -70,7 +74,6 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
           </>} />{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
             {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} /></ContentSection> : null}
             <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
-            <StorageDetails projectId={project.id} />
           </>}
         </div>
       </div>
@@ -84,14 +87,18 @@ function ContentSection({ title, children }: { title: string; children: ReactNod
 
 // Prototype stand-in for a plain file in the page's folder that would hold the pinned list.
 const pinsKey = (projectId: string) => `braindrive.pinned-files.${projectId}`;
-function readPins(projectId: string): string[] | null {
+type PinState = { pinned: string[]; unpinned: string[] };
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+function readPins(projectId: string): PinState {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(pinsKey(projectId)) ?? "null");
-    return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
-  } catch { return null; }
+    if (isStringArray(value)) return { pinned: value, unpinned: [] };
+    if (value && typeof value === "object" && isStringArray((value as PinState).pinned) && isStringArray((value as PinState).unpinned)) return value as PinState;
+  } catch { /* fall back to defaults */ }
+  return { pinned: [], unpinned: [] };
 }
-function writePins(projectId: string, paths: string[]) {
-  try { localStorage.setItem(pinsKey(projectId), JSON.stringify(paths)); } catch { /* keep in memory only */ }
+function writePins(projectId: string, state: PinState) {
+  try { localStorage.setItem(pinsKey(projectId), JSON.stringify(state)); } catch { /* keep in memory only */ }
 }
 
 function FileList({ items, onOpenFile, empty, showPaths = false, onTogglePin, pinnedPaths = [] }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean; onTogglePin?: (path: string) => void; pinnedPaths?: string[] }) {
@@ -104,32 +111,6 @@ function FileList({ items, onOpenFile, empty, showPaths = false, onTogglePin, pi
     </button>
     {onTogglePin ? (() => { const isPinned = pinnedPaths.includes(item.file.path); const Icon = isPinned ? PinOff : Pin; return <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${item.label}`} aria-pressed={isPinned} onClick={() => onTogglePin(item.file.path)} className={`flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}><Icon size={16} aria-hidden="true" /></button>; })() : null}
   </div>)}</div>;
-}
-
-function StorageDetails({ projectId }: { projectId: string }) {
-  const folderPath = localPreviewFolder(projectId);
-  const path = folderPath ?? `documents/${projectId}/`;
-  const [notice, setNotice] = useState("");
-  async function copyPath() {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(path);
-      setNotice(folderPath ? "Folder path copied." : "Relative path copied.");
-    } catch {
-      setNotice("Copy is unavailable in this browser. You can select the path above and copy it manually.");
-    }
-  }
-  return <section aria-label="File location" className="border-t border-bd-border pt-5">
-    <h2 className="mb-3 font-heading text-base text-bd-text-heading">File location</h2>
-    <div className="space-y-3 text-sm leading-relaxed text-bd-text-secondary">
-      <p>{folderPath ? "These files are saved on this computer. You can open the folder in Finder." : "These files are stored by BrainDrive. A folder path for this computer is not available here."}</p>
-      {!folderPath ? <p>Path within BrainDrive storage</p> : null}
-      <code className="block select-text break-all rounded-md bg-bd-bg-secondary p-3 text-bd-text-primary">{path}</code>
-      <button type="button" onClick={() => void copyPath()} className={`flex min-h-11 items-center gap-2 rounded-md border border-bd-border px-3 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}><Copy size={15} aria-hidden="true" />{folderPath ? "Copy folder path" : "Copy relative path"}</button>
-      {folderPath ? <p>In Finder, choose <span className="text-bd-text-primary">Go &gt; Go to Folder…</span>, paste the folder path, then press Return.</p> : null}
-      {notice ? <p role="status" className="text-xs">{notice}</p> : null}
-    </div>
-  </section>;
 }
 
 const ACCESS_CHOICES = ["Yes", "Ask me each time", "Only this page"] as const;
