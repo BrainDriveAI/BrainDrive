@@ -1,0 +1,16 @@
+{
+  "schema": "paa-auth-route-action-map-v1",
+  "operations": [
+    {"path":"/health","method":"GET","public":true,"resource":"gateway","action":"request","caller_proof":"none","owner":"gateway"},
+    {"path":"/config","method":"GET","public":true,"resource":"gateway","action":"request","caller_proof":"none","owner":"gateway"},
+    {"path":"/auth/bootstrap-status","method":"GET","public":true,"resource":"auth","action":"whoami","caller_proof":"none","owner":"auth"},
+    {"path":"/auth/signup","method":"POST","public":true,"resource":"auth","action":"whoami","caller_proof":"bootstrap","owner":"auth"},
+    {"path":"/auth/login","method":"POST","public":true,"resource":"auth","action":"whoami","caller_proof":"credentials","owner":"auth"},
+    {"path":"/auth/refresh","method":"POST","public":true,"resource":"auth","action":"check","caller_proof":"refresh-cookie","owner":"auth"},
+    {"path":"/message","method":"POST","public":false,"resource":"conversation","action":"write","caller_proof":"gateway-auth","owner":"gateway"},
+    {"path":"/conversations","method":"GET","public":false,"resource":"conversation","action":"read","caller_proof":"gateway-auth","owner":"gateway"},
+    {"path":"/conversations/:id","method":"GET","public":false,"resource":"conversation","action":"read","caller_proof":"gateway-auth","owner":"gateway"},
+    {"path":"/tools/*","method":"*","public":false,"resource":"tool","action":"execute","caller_proof":"gateway-auth","owner":"tool-executor"},
+    {"path":"/*","method":"*","public":false,"resource":"gateway","action":"request","caller_proof":"gateway-auth","owner":"gateway"}
+  ]
+}

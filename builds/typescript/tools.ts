@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AuthContext, ToolContext, ToolDefinition } from "./contracts.js";
+import type { AuthContext, AuthService, PaaAuthContext, ToolContext, ToolDefinition } from "./contracts.js";
 import { readAuthState } from "./memory/auth-state.js";
 import { exportMemory } from "./memory/export.js";
 import { getMemoryHistory } from "./memory/history.js";
@@ -74,25 +74,48 @@ function authWhoamiTool(): ToolDefinition {
     requiresApproval: false,
     readOnly: true,
     inputSchema: { type: "object", properties: {} },
-    execute: async (context: ToolContext) => ({
-      actor_id: context.auth.actorId,
-      actor_type: context.auth.actorType,
-      mode: context.auth.mode,
-    }),
+    execute: async (context: ToolContext) => context.paaAuthContext
+      ? {
+          actor: context.paaAuthContext.actor,
+          authentication_id: context.paaAuthContext.authentication_id,
+          authenticated_at: context.paaAuthContext.authenticated_at,
+          correlation_id: context.paaAuthContext.correlation_id,
+        }
+      : {
+          actor_id: context.auth.actorId,
+          actor_type: context.auth.actorType,
+          mode: context.auth.mode,
+        },
   };
 }
 
 function authCheckTool(): ToolDefinition {
   return {
     name: "auth_check",
-    description: "Return permission data for the current actor",
+    description: "Ask Auth whether the current actor may perform a resource action",
     requiresApproval: false,
     readOnly: true,
-    inputSchema: { type: "object", properties: {} },
-    execute: async (context: ToolContext) => ({
-      allowed: true,
-      permissions: context.auth.permissions,
-    }),
+    inputSchema: {
+      type: "object",
+      properties: { resource: { type: "string" }, action: { type: "string" } },
+      required: ["resource", "action"],
+    },
+    execute: async (context: ToolContext, input) => {
+      const resource = String(input.resource ?? "");
+      const action = String(input.action ?? "");
+      if (!context.paaAuthContext) {
+        return { allowed: false, reason: "missing_auth_context", resource, action };
+      }
+      const decision = context.authService
+        ? await context.authService.authorize({
+            actor: context.paaAuthContext.actor,
+            resource,
+            action,
+            correlation_id: context.correlationId,
+          })
+        : { allowed: false, reason: "auth_unavailable" as const };
+      return { ...decision, resource, action };
+    },
   };
 }
 
@@ -103,7 +126,9 @@ function authExportTool(memoryRoot: string): ToolDefinition {
     requiresApproval: false,
     readOnly: true,
     inputSchema: { type: "object", properties: {} },
-    execute: async () => readAuthState(memoryRoot),
+    execute: async (context: ToolContext) => context.authService
+      ? context.authService.exportState()
+      : readAuthState(memoryRoot),
   };
 }
 
@@ -140,10 +165,13 @@ function memoryExportTool(memoryRoot: string): ToolDefinition {
   };
 }
 
-export function buildToolContext(memoryRoot: string, auth: AuthContext, correlationId: string): ToolContext {
+export function buildToolContext(memoryRoot: string, auth: AuthContext, correlationId: string,
+  paaAuthContext?: PaaAuthContext, authService?: AuthService): ToolContext {
   return {
     memoryRoot,
     auth,
     correlationId,
+    paaAuthContext,
+    authService,
   };
 }

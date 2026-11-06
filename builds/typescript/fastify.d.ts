@@ -1,9 +1,10 @@
 import "fastify";
 
-import type { AuthContext } from "./contracts.js";
+import type { AuthContext, PaaAuthContext } from "./contracts.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     authContext: AuthContext;
+    paaAuthContext: PaaAuthContext;
   }
 }

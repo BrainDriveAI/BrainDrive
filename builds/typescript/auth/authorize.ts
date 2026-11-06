@@ -1,4 +1,5 @@
-import type { AuthContext, ToolDefinition } from "../contracts.js";
+import type { AuthContext, AuthAuthorizationRequest, ToolDefinition } from "../contracts.js";
+import { evaluateAuthorization } from "./policy.js";
 
 export function authorize(auth: AuthContext, permission: keyof AuthContext["permissions"]): void {
   if (!auth.permissions[permission]) {
@@ -14,6 +15,13 @@ export function authorizeToolUse(auth: AuthContext, tool: ToolDefinition): void 
 
 export function authorizeApprovalDecision(auth: AuthContext): void {
   authorize(auth, "approval_authority");
+}
+
+export function authorizeResourceAction(request: AuthAuthorizationRequest): void {
+  const decision = evaluateAuthorization(request);
+  if (!decision.allowed) {
+    throw new Error(`Not permitted: ${decision.reason}`);
+  }
 }
 
 export function canUseTool(auth: AuthContext, tool: ToolDefinition): boolean {
