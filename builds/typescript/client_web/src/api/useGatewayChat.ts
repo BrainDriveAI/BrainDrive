@@ -441,6 +441,41 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       }
 
       const pendingToolCalls = new Map<string, string>();
+      let assistantResponseStarted = false;
+      let confirmedSavedWork = false;
+
+      function appendFailureRecoveryMessage() {
+        const recoveryMessage: Message = {
+          id: assistantMessageId,
+          role: "assistant",
+          content: buildFailureRecoveryMessage(confirmedSavedWork),
+        };
+
+        if (isActive()) {
+          setMessages((current) => {
+            const existing = current.find((message) => message.id === assistantMessageId);
+            if (existing) {
+              return current.map((message) =>
+                message.id === assistantMessageId ? { ...message, content: recoveryMessage.content } : message
+              );
+            }
+            return [...current, recoveryMessage];
+          });
+          return;
+        }
+
+        updateBackground((bg) => {
+          const existing = bg.messages.find((message) => message.id === assistantMessageId);
+          if (existing) {
+            return {
+              messages: bg.messages.map((message) =>
+                message.id === assistantMessageId ? { ...message, content: recoveryMessage.content } : message
+              ),
+            };
+          }
+          return { messages: [...bg.messages, recoveryMessage] };
+        });
+      }
 
       try {
         for await (const event of sendMessage(conversationIdRef.current, trimmed, {
@@ -477,6 +512,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
           switch (event.type) {
             case "text-delta":
+              if (event.delta.trim().length > 0) {
+                assistantResponseStarted = true;
+              }
               if (isActive()) {
                 setToolStatus(null);
                 setMessages((current) => {
@@ -539,6 +577,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               backgroundStreams.delete(activeCacheKey);
               return;
             case "error":
+              if (!assistantResponseStarted) {
+                appendFailureRecoveryMessage();
+              }
               if (isActive()) {
                 setToolStatus(null);
                 setError(new Error(event.message));
@@ -566,6 +607,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               });
               break;
             case "tool-result":
+              if (event.status === "ok" && ["memory_write", "memory_edit"].includes(pendingToolCalls.get(event.id) ?? "")) {
+                confirmedSavedWork = true;
+              }
               recordActivity({
                 type: "tool-result",
                 message: `${humanizeToolName(pendingToolCalls.get(event.id) ?? event.id)}: ${event.status}`,
@@ -637,6 +681,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           return;
         }
 
+        if (!assistantResponseStarted) {
+          appendFailureRecoveryMessage();
+        }
         setError(toError(caughtError));
         setErrorCode(null);
       } finally {
@@ -667,6 +714,14 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     stop,
     startNewConversation
   };
+}
+
+function buildFailureRecoveryMessage(confirmedSavedWork: boolean): string {
+  if (confirmedSavedWork) {
+    return "The requested preparation was saved successfully. The follow-up request did not complete, so I cannot confirm any changes from that failed request. Recovery action: retry the failed request or continue from the saved work.";
+  }
+
+  return "The request did not complete, and I could not confirm that the requested work was saved. Recovery action: retry the save request and wait for confirmation before continuing.";
 }
 
 function appendActivity(current: ActivityEvent[], next: ActivityEvent): ActivityEvent[] {
