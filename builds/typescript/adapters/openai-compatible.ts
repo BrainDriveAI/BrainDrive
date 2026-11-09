@@ -124,6 +124,10 @@ type ProviderErrorPayload = {
   };
 };
 
+const STREAM_INTERRUPTION_MAX_RETRIES = 1;
+
+class ProviderStreamResponseError extends Error {}
+
 export class OpenAICompatibleAdapter implements ModelAdapter {
   constructor(
     private readonly config: AdapterConfig,
@@ -240,195 +244,253 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       options.promptAudit.modelCall
     );
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    for (let attempt = 0; attempt <= STREAM_INTERRUPTION_MAX_RETRIES; attempt += 1) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
 
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!response.ok) {
-      const payload = await parseProviderPayload(response);
-      await options?.promptAudit?.recorder.append(
-        "prompt_audit.provider_response",
-        {
-          provider: this.config.provider_id ?? "openai-compatible",
-          model: payload.model ?? this.config.model,
-          status_code: response.status,
-          content_type: contentType,
-          finish_reason: payload.choices?.[0]?.finish_reason ?? null,
-          usage: normalizeUsage(payload.usage),
-          cost: normalizeCost(payload.usage),
-          ...(options.promptAudit.recorder.preferences.include_provider_response
-            ? { provider_response_body: payload }
-            : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
-        },
-        options.promptAudit.modelCall
-      );
-      throw new Error(formatProviderFailure(response.status, payload));
-    }
-
-    if (!contentType.includes("text/event-stream")) {
-      const payload = await parseProviderPayload(response);
-      const fallback = toModelResponse(payload);
-      await options?.promptAudit?.recorder.append(
-        "prompt_audit.provider_response",
-        {
-          provider: this.config.provider_id ?? "openai-compatible",
-          model: payload.model ?? this.config.model,
-          status_code: response.status,
-          content_type: contentType,
-          finish_reason: fallback.finishReason,
-          usage: fallback.usage ?? null,
-          cost: fallback.cost ?? { status: "unavailable" },
-          reconstructed_response: fallback,
-          ...(options.promptAudit.recorder.preferences.include_provider_response
-            ? { provider_response_body: payload }
-            : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
-        },
-        options.promptAudit.modelCall
-      );
-      yield {
-        type: "final",
-        response: fallback,
-      };
-      return;
-    }
-
-    let assistantText = "";
-    let finishReason = "completed";
-    let usage: TokenUsage | undefined;
-    let cost: CostMetadata | undefined;
-    let providerModel: string | undefined;
-    const rawStreamChunks: string[] = [];
-    const toolCallBuilders = new Map<number, { id: string; name: string; args: string }>();
-
-    for await (const data of parseProviderSSE(response)) {
-      if (data === "[DONE]") {
-        break;
-      }
-
-      if (options?.promptAudit?.recorder.detail === "verbose") {
-        rawStreamChunks.push(data);
-      }
-
-      let chunk: OpenAIStreamChunk;
-      try {
-        chunk = JSON.parse(data) as OpenAIStreamChunk;
-      } catch {
-        continue;
-      }
-
-      if (chunk.error?.message) {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!response.ok) {
+        const payload = await parseProviderPayload(response);
         await options?.promptAudit?.recorder.append(
           "prompt_audit.provider_response",
           {
             provider: this.config.provider_id ?? "openai-compatible",
-            model: chunk.model ?? this.config.model,
+            model: payload.model ?? this.config.model,
             status_code: response.status,
             content_type: contentType,
-            provider_error: chunk.error,
-            ...(rawStreamChunks.length > 0 ? { raw_stream_chunks: rawStreamChunks } : {}),
+            finish_reason: payload.choices?.[0]?.finish_reason ?? null,
+            usage: normalizeUsage(payload.usage),
+            cost: normalizeCost(payload.usage),
+            ...(options.promptAudit.recorder.preferences.include_provider_response
+              ? { provider_response_body: payload }
+              : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
           },
           options.promptAudit.modelCall
         );
-        throw new Error(formatProviderFailure(502, { error: chunk.error }));
+        throw new Error(formatProviderFailure(response.status, payload));
       }
 
-      if (chunk.model) {
-        providerModel = chunk.model;
+      if (!contentType.includes("text/event-stream")) {
+        const payload = await parseProviderPayload(response);
+        const fallback = toModelResponse(payload);
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_response",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: payload.model ?? this.config.model,
+            status_code: response.status,
+            content_type: contentType,
+            finish_reason: fallback.finishReason,
+            usage: fallback.usage ?? null,
+            cost: fallback.cost ?? { status: "unavailable" },
+            reconstructed_response: fallback,
+            ...(options.promptAudit.recorder.preferences.include_provider_response
+              ? { provider_response_body: payload }
+              : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
+          },
+          options.promptAudit.modelCall
+        );
+        yield {
+          type: "final",
+          response: fallback,
+        };
+        return;
       }
-      if (chunk.usage) {
-        usage = normalizeUsage(chunk.usage);
-        cost = normalizeCost(chunk.usage);
-      }
 
-      for (const choice of chunk.choices ?? []) {
-        if (choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
-
-        const delta = choice.delta;
-        if (!delta) {
-          continue;
-        }
-
-        const textDelta = normalizeAssistantText(delta.content);
-        if (textDelta.length > 0) {
-          assistantText += textDelta;
-          yield {
-            type: "text-delta",
-            delta: textDelta,
-          };
-        }
-
-        for (const toolCallDelta of delta.tool_calls ?? []) {
-          const index = typeof toolCallDelta.index === "number" ? toolCallDelta.index : 0;
-          const current = toolCallBuilders.get(index) ?? {
-            id: toolCallDelta.id ?? crypto.randomUUID(),
-            name: "",
-            args: "",
-          };
-
-          if (toolCallDelta.id) {
-            current.id = toolCallDelta.id;
-          }
-          if (toolCallDelta.function?.name) {
-            current.name = toolCallDelta.function.name;
-          }
-          if (toolCallDelta.function?.arguments) {
-            current.args += toolCallDelta.function.arguments;
-          }
-
-          toolCallBuilders.set(index, current);
-        }
-      }
-    }
-
-    yield {
-      type: "final",
-      response: {
-        assistantText,
-        toolCalls: [...toolCallBuilders.entries()]
-          .sort((left, right) => left[0] - right[0])
-          .map(([, toolCall]) => ({
-            id: toolCall.id,
-            name: toolCall.name.length > 0 ? toolCall.name : "unknown_tool",
-            input: parseToolArguments(toolCall.args),
-          })),
-        finishReason,
-        ...(usage ? { usage } : {}),
-        cost: cost ?? { status: "unavailable" },
-      },
-    };
-    await options?.promptAudit?.recorder.append(
-      "prompt_audit.provider_response",
-      {
-        provider: this.config.provider_id ?? "openai-compatible",
-        model: providerModel ?? this.config.model,
-        status_code: response.status,
-        content_type: contentType,
-        finish_reason: finishReason,
-        usage: usage ?? null,
-        cost: cost ?? { status: "unavailable" },
-        reconstructed_response: {
-          assistantText,
-          toolCalls: [...toolCallBuilders.entries()]
+      try {
+        const parsed = await readProviderStream(response, contentType, this.config.model, options);
+        const reconstructedResponse: ModelResponse = {
+          assistantText: parsed.assistantText,
+          toolCalls: parsed.toolCallBuilders
             .sort((left, right) => left[0] - right[0])
             .map(([, toolCall]) => ({
               id: toolCall.id,
               name: toolCall.name.length > 0 ? toolCall.name : "unknown_tool",
               input: parseToolArguments(toolCall.args),
             })),
-          finishReason,
-          ...(usage ? { usage } : {}),
-          cost: cost ?? { status: "unavailable" },
-        },
-        ...(rawStreamChunks.length > 0 ? { raw_stream_chunks: rawStreamChunks } : {}),
-      },
-      options?.promptAudit?.modelCall
-    );
+          finishReason: parsed.finishReason,
+          ...(parsed.usage ? { usage: parsed.usage } : {}),
+          cost: parsed.cost ?? { status: "unavailable" },
+        };
+
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_response",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: parsed.providerModel ?? this.config.model,
+            status_code: response.status,
+            content_type: contentType,
+            finish_reason: parsed.finishReason,
+            usage: parsed.usage ?? null,
+            cost: parsed.cost ?? { status: "unavailable" },
+            reconstructed_response: reconstructedResponse,
+            ...(parsed.rawStreamChunks.length > 0
+              ? { raw_stream_chunks: parsed.rawStreamChunks }
+              : {}),
+          },
+          options?.promptAudit?.modelCall
+        );
+
+        if (reconstructedResponse.assistantText.length > 0) {
+          yield {
+            type: "text-delta",
+            delta: reconstructedResponse.assistantText,
+          };
+        }
+        yield {
+          type: "final",
+          response: reconstructedResponse,
+        };
+        return;
+      } catch (error) {
+        if (attempt >= STREAM_INTERRUPTION_MAX_RETRIES || !isRetryableStreamInterruption(error)) {
+          throw error;
+        }
+
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.stream_retry",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: this.config.model,
+            reason: error instanceof Error ? error.message : "stream interruption",
+            attempt: attempt + 1,
+            max_retries: STREAM_INTERRUPTION_MAX_RETRIES,
+            buffered_text_discarded: true,
+          },
+          options?.promptAudit?.modelCall
+        );
+      }
+    }
   }
+}
+
+type ParsedProviderStream = {
+  assistantText: string;
+  finishReason: string;
+  usage?: TokenUsage;
+  cost?: CostMetadata;
+  providerModel?: string;
+  rawStreamChunks: string[];
+  toolCallBuilders: Array<[number, { id: string; name: string; args: string }] >;
+};
+
+async function readProviderStream(
+  response: Response,
+  contentType: string,
+  configuredModel: string,
+  options?: ModelAdapterCallOptions
+): Promise<ParsedProviderStream> {
+  let assistantText = "";
+  let finishReason = "completed";
+  let usage: TokenUsage | undefined;
+  let cost: CostMetadata | undefined;
+  let providerModel: string | undefined;
+  const rawStreamChunks: string[] = [];
+  const toolCallBuilders = new Map<number, { id: string; name: string; args: string }>();
+
+  for await (const data of parseProviderSSE(response)) {
+    if (data === "[DONE]") {
+      break;
+    }
+
+    if (options?.promptAudit?.recorder.detail === "verbose") {
+      rawStreamChunks.push(data);
+    }
+
+    let chunk: OpenAIStreamChunk;
+    try {
+      chunk = JSON.parse(data) as OpenAIStreamChunk;
+    } catch {
+      continue;
+    }
+
+    if (chunk.error?.message) {
+      await options?.promptAudit?.recorder.append(
+        "prompt_audit.provider_response",
+        {
+          provider: "openai-compatible",
+          model: chunk.model ?? configuredModel,
+          status_code: response.status,
+          content_type: contentType,
+          provider_error: chunk.error,
+          ...(rawStreamChunks.length > 0 ? { raw_stream_chunks: rawStreamChunks } : {}),
+        },
+        options.promptAudit.modelCall
+      );
+      throw new ProviderStreamResponseError(formatProviderFailure(502, { error: chunk.error }));
+    }
+
+    if (chunk.model) {
+      providerModel = chunk.model;
+    }
+    if (chunk.usage) {
+      usage = normalizeUsage(chunk.usage);
+      cost = normalizeCost(chunk.usage);
+    }
+
+    for (const choice of chunk.choices ?? []) {
+      if (choice.finish_reason) {
+        finishReason = choice.finish_reason;
+      }
+
+      const delta = choice.delta;
+      if (!delta) {
+        continue;
+      }
+
+      assistantText += normalizeAssistantText(delta.content);
+
+      for (const toolCallDelta of delta.tool_calls ?? []) {
+        const index = typeof toolCallDelta.index === "number" ? toolCallDelta.index : 0;
+        const current = toolCallBuilders.get(index) ?? {
+          id: toolCallDelta.id ?? crypto.randomUUID(),
+          name: "",
+          args: "",
+        };
+
+        if (toolCallDelta.id) {
+          current.id = toolCallDelta.id;
+        }
+        if (toolCallDelta.function?.name) {
+          current.name = toolCallDelta.function.name;
+        }
+        if (toolCallDelta.function?.arguments) {
+          current.args += toolCallDelta.function.arguments;
+        }
+
+        toolCallBuilders.set(index, current);
+      }
+    }
+  }
+
+  return {
+    assistantText,
+    finishReason,
+    ...(usage ? { usage } : {}),
+    ...(cost ? { cost } : {}),
+    ...(providerModel ? { providerModel } : {}),
+    rawStreamChunks,
+    toolCallBuilders: [...toolCallBuilders.entries()],
+  };
+}
+
+function isRetryableStreamInterruption(error: unknown): boolean {
+  if (error instanceof ProviderStreamResponseError || !(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return [
+    "terminated",
+    "premature",
+    "econnreset",
+    "socket",
+    "fetch failed",
+    "network",
+  ].some((marker) => message.includes(marker));
 }
 
 function buildChatCompletionBody(

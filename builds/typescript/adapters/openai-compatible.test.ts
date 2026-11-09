@@ -150,6 +150,79 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       },
     });
   });
+
+  it("retries a transient interrupted stream without exposing duplicate partial text", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                const encoder = new TextEncoder();
+                controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'));
+                controller.error(new Error("terminated"));
+              },
+            }),
+            { status: 200, headers: { "content-type": "text/event-stream" } }
+          );
+        }
+
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Recovered"}}]}\n\n'));
+              controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "test-provider",
+    });
+
+    const chunks = [];
+    for await (const chunk of adapter.completeStream!(request, tools, {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(calls).toBe(2);
+    expect(chunks).toEqual([
+      { type: "text-delta", delta: "Recovered" },
+      {
+        type: "final",
+        response: expect.objectContaining({
+          assistantText: "Recovered",
+          finishReason: "stop",
+        }),
+      },
+    ]);
+    expect(events.find((entry) => entry.event === "prompt_audit.stream_retry")?.details).toMatchObject({
+      reason: "terminated",
+      attempt: 1,
+      buffered_text_discarded: true,
+    });
+  });
 });
 
 function fakeRecorder(events: Array<{ event: string; details: Record<string, unknown> }>): PromptAuditRecorder {
