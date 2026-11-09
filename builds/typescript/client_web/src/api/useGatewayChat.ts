@@ -127,6 +127,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const conversationIdRef = useRef<string | null>(cached?.conversationId ?? externalConversationId);
   const projectIdRef = useRef<string | null>(externalProjectId);
   const cacheKeyRef = useRef(cacheKey);
+  const confirmedOwnerWorkRef = useRef(false);
 
   useEffect(() => {
     projectIdRef.current = externalProjectId;
@@ -181,6 +182,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     }
 
     cacheKeyRef.current = cacheKey;
+    confirmedOwnerWorkRef.current = false;
 
     // Restore from cache if available, otherwise use external props
     const restored = backgroundStates.get(cacheKey);
@@ -276,6 +278,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     setConversationId(null);
 
     conversationIdRef.current = null;
+    confirmedOwnerWorkRef.current = false;
     messageCounterRef.current = 0;
     activityCounterRef.current = 0;
   }
@@ -448,7 +451,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         const recoveryMessage: Message = {
           id: assistantMessageId,
           role: "assistant",
-          content: buildFailureRecoveryMessage(confirmedSavedWork),
+          content: buildFailureRecoveryMessage(confirmedSavedWork || confirmedOwnerWorkRef.current),
         };
 
         if (isActive()) {
@@ -609,6 +612,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
             case "tool-result":
               if (event.status === "ok" && ["memory_write", "memory_edit"].includes(pendingToolCalls.get(event.id) ?? "")) {
                 confirmedSavedWork = true;
+                confirmedOwnerWorkRef.current = true;
               }
               recordActivity({
                 type: "tool-result",

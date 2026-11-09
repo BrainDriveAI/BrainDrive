@@ -276,6 +276,50 @@ describe("useGatewayChat", () => {
     expect(result.current.error?.message).toBe("Failed to fetch");
   });
 
+  it("carries confirmed saved work into a later failed request", async () => {
+    sendMessageMock
+      .mockImplementationOnce(() =>
+        streamEvents([
+          {
+            type: "tool-call",
+            id: "save-call",
+            name: "memory_write",
+            input: { path: "current-conversation/owner-context.md" },
+          },
+          {
+            type: "tool-result",
+            id: "save-call",
+            status: "ok",
+            output: { path: "current-conversation/owner-context.md" },
+          },
+          { type: "done", finish_reason: "stop", conversation_id: "conv-1" },
+        ])
+      )
+      .mockImplementationOnce(() =>
+        (async function* failedFollowUp() {
+          throw new TypeError("Failed to fetch");
+        })()
+      );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Save the owner context.");
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.append("Continue after the next request fails.");
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.messages.at(-1)).toEqual({
+      id: "message-4",
+      role: "assistant",
+      content: "The requested preparation was saved successfully. The follow-up request did not complete, so I cannot confirm any changes from that failed request. Recovery action: retry the failed request or continue from the saved work.",
+    });
+  });
+
   it("stores context overflow error code for overflow-specific UI actions", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([

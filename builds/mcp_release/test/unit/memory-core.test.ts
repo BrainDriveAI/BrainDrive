@@ -4,7 +4,25 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { listProjects } from "../../src/memory-core.js";
+import { listProjects, readMemoryFile } from "../../src/memory-core.js";
+
+describe("memory-core file reads", () => {
+  it("returns a recoverable validation error when a directory is requested as a file", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "mcp-memory-read-directory-test-"));
+
+    try {
+      await mkdir(path.join(tempRoot, "current-conversation"), { recursive: true });
+
+      await expect(readMemoryFile(tempRoot, "current-conversation")).rejects.toMatchObject({
+        code: "invalid_input",
+        message: "Requested path is a directory; use memory_list to inspect it",
+        recoverable: true,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("memory-core project listing", () => {
   it("uses projects.json as the active project source of truth", async () => {

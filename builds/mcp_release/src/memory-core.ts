@@ -132,6 +132,13 @@ export function isReservedMemoryPath(memoryRoot: string, absolutePath: string): 
 export async function readMemoryFile(memoryRoot: string, requestedPath: string): Promise<{ path: string; content: string }> {
   try {
     const absolutePath = resolveMemoryPath(memoryRoot, requestedPath);
+    const details = await stat(absolutePath);
+    if (details.isDirectory()) {
+      throw new ToolFailure(
+        "invalid_input",
+        "Requested path is a directory; use memory_list to inspect it",
+      );
+    }
     const content = await readFile(absolutePath, "utf8");
     return { path: absolutePath, content };
   } catch (error) {
