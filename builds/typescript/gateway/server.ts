@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open as openFile, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
@@ -491,6 +491,36 @@ export async function buildServer(rootDir = process.cwd()) {
   const authService = createLocalPaaAuthService(() => authState, runtimeConfig.memory_root);
   const toolExecutor = new ToolExecutor(tools, { authService, requireDurableAudit: true });
   let migrationInProgress = false;
+  // Use an atomic OS lock as well as the in-process flag so a second worker
+  // cannot enter memory replacement while another worker is importing.
+  const migrationLockPath = path.join(
+    tmpdir(),
+    `braindrive-migration-${createHash("sha256")
+      .update(runtimeConfig.memory_root)
+      .digest("hex")
+      .slice(0, 24)}.lock`,
+  );
+  let migrationLockHandle: Awaited<ReturnType<typeof openFile>> | null = null;
+  const acquireMigrationLock = async (): Promise<boolean> => {
+    if (migrationInProgress) return false;
+    try {
+      migrationLockHandle = await openFile(migrationLockPath, "wx", 0o600);
+      migrationInProgress = true;
+      return true;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+        return false;
+      }
+      throw error;
+    }
+  };
+  const releaseMigrationLock = async (): Promise<void> => {
+    migrationInProgress = false;
+    const handle = migrationLockHandle;
+    migrationLockHandle = null;
+    await handle?.close();
+    await rm(migrationLockPath, { force: true });
+  };
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -2522,12 +2552,11 @@ export async function buildServer(rootDir = process.cwd()) {
       sendInvalidRequest(reply, "/settings/memory-backup/restore", 1);
       return;
     }
-    if (migrationInProgress) {
+    if (!(await acquireMigrationLock())) {
       reply.code(409).send({ error: "migration_in_progress" });
       return;
     }
 
-    migrationInProgress = true;
     try {
       const result = await restoreMemoryBackup(runtimeConfig.memory_root, currentPreferences, {
         targetCommit: parsed.data.target_commit,
@@ -2561,7 +2590,7 @@ export async function buildServer(rootDir = process.cwd()) {
         error: safeMessage,
       });
     } finally {
-      migrationInProgress = false;
+      await releaseMigrationLock();
     }
   });
 
@@ -2883,11 +2912,6 @@ export async function buildServer(rootDir = process.cwd()) {
     authorize(request.authContext, "memory_access");
     authorize(request.authContext, "administration");
 
-    if (migrationInProgress) {
-      reply.code(409).send({ error: "migration_in_progress" });
-      return;
-    }
-
     const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
     const acceptsImport =
       contentType.includes("application/gzip") ||
@@ -2899,10 +2923,13 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
+    if (!(await acquireMigrationLock())) {
+      reply.code(409).send({ error: "migration_in_progress" });
+      return;
+    }
+
     const tempDir = await mkdtemp(path.join(tmpdir(), "paa-migration-upload-"));
     const tempArchivePath = path.join(tempDir, `upload-${Date.now()}.tar.gz`);
-    migrationInProgress = true;
-
     try {
       if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
         sendInvalidRequest(reply, "/migration/import", 1);
@@ -2948,7 +2975,7 @@ export async function buildServer(rootDir = process.cwd()) {
         error: error instanceof Error ? error.message : "Failed to import migration archive",
       });
     } finally {
-      migrationInProgress = false;
+      await releaseMigrationLock();
       await rm(tempDir, { recursive: true, force: true });
     }
   });
