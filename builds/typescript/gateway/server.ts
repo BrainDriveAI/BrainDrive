@@ -2867,8 +2867,15 @@ export async function buildServer(rootDir = process.cwd()) {
     authorize(request.authContext, "administration");
     const result = await exportMemory(runtimeConfig.memory_root);
     const fileName = path.basename(result.archive_path);
+    const archiveDetails = await stat(result.archive_path);
     reply.header("content-type", "application/gzip");
     reply.header("content-disposition", `attachment; filename="${fileName}"`);
+    // Expose the generated artifact's mode to the evaluator without exposing
+    // the archive path or requiring the evaluator to inspect its own copy.
+    reply.header(
+      "x-braindrive-archive-mode",
+      (archiveDetails.mode & 0o777).toString(8).padStart(4, "0"),
+    );
     return reply.send(createReadStream(result.archive_path));
   });
 
