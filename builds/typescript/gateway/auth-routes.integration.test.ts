@@ -1512,6 +1512,42 @@ describe.sequential("gateway auth route integration", () => {
     );
   });
 
+  it("removes a stored provider credential from the vault and settings", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    const secretRef = "provider/openrouter/api_key";
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "default",
+      provider_credentials: {
+        openrouter: {
+          mode: "secret_ref",
+          secret_ref: secretRef,
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret(secretRef, "sk-test-remove-me");
+
+    const response = await context.app.inject({
+      method: "DELETE",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: { provider_profile: "default" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockPreferences.provider_credentials?.openrouter).toBeUndefined();
+    expect(await readVaultSecret(secretRef)).toBeUndefined();
+    const body = parseJson<{
+      settings: {
+        provider_profiles: Array<{ id: string; credential_mode: "secret_ref" | "plain" | "unset" }>;
+      };
+    }>(response.body);
+    expect(body.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "unset"
+    );
+  });
+
   it("does not activate a credential-save provider when preference persistence fails", async () => {
     context = await createTestServer({ authMode: "local-owner" });
     mockPreferences = {
