@@ -2,14 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
 
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
+import type { InterfaceDocumentState } from "@/api/interface-context";
 import { Button } from "@/components/ui/button";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import { projectDisplayLabel } from "@/components/layout/sidebar-labels";
 
 type DocumentViewProps = {
   projectId: string;
   projectName: string;
   file: { name: string; path: string };
   onBack: () => void;
+  onStateChange?: (state: InterfaceDocumentState) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
+  navigationGuardHandledByParent?: boolean;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -24,7 +29,10 @@ export default function DocumentView({
   projectId,
   projectName,
   file,
-  onBack
+  onBack,
+  onStateChange,
+  onDirtyChange,
+  navigationGuardHandledByParent = false
 }: DocumentViewProps) {
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
@@ -32,6 +40,9 @@ export default function DocumentView({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
+
+  const isDirty = isEditing && draft !== content;
 
   const loadContent = useCallback(async () => {
     setIsLoading(true);
@@ -41,12 +52,14 @@ export default function DocumentView({
       const nextContent = await readFileContent(projectId, file.path);
       setContent(nextContent);
       setDraft(nextContent);
+      onStateChange?.("viewing");
+      onDirtyChange?.(false);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
       setIsLoading(false);
     }
-  }, [file.path, projectId]);
+  }, [file.path, onDirtyChange, onStateChange, projectId]);
 
   useEffect(() => {
     setIsEditing(false);
@@ -63,9 +76,16 @@ export default function DocumentView({
     try {
       await writeFileContent(projectId, file.path, draft);
       setIsEditing(false);
+      onStateChange?.("viewing");
+      onDirtyChange?.(false);
       await loadContent();
     } catch (saveError) {
-      setError(getErrorMessage(saveError));
+      const message = getErrorMessage(saveError);
+      setError(
+        /401|403|auth|permission|session|unauthorized/i.test(message)
+          ? "Your session no longer allows this edit. Your changes are still here. Sign in again, then choose Save again."
+          : `We couldn't save this document. Your changes are still here. ${message}`
+      );
     } finally {
       setIsSaving(false);
     }
@@ -75,6 +95,25 @@ export default function DocumentView({
     setDraft(content);
     setError(null);
     setIsEditing(false);
+    onStateChange?.("viewing");
+    onDirtyChange?.(false);
+  }
+
+  function handleBack() {
+    if (isDirty && !navigationGuardHandledByParent) {
+      setShowDiscardConfirmation(true);
+      return;
+    }
+
+    onBack();
+  }
+
+  function startEditing() {
+    setDraft(content);
+    setError(null);
+    setIsEditing(true);
+    onStateChange?.("editing");
+    onDirtyChange?.(false);
   }
 
   return (
@@ -86,6 +125,9 @@ export default function DocumentView({
               {projectName}
             </div>
             <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.name}</h1>
+            <p className="truncate text-xs text-bd-text-muted" aria-label="Document source">
+              From {projectDisplayLabel(projectId, projectName)} · Source: {file.path}
+            </p>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -93,7 +135,7 @@ export default function DocumentView({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={onBack}
+              onClick={handleBack}
               disabled={isSaving}
               className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
             >
@@ -130,11 +172,7 @@ export default function DocumentView({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setDraft(content);
-                  setError(null);
-                  setIsEditing(true);
-                }}
+                onClick={startEditing}
                 disabled={isLoading}
                 className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
               >
@@ -146,13 +184,56 @@ export default function DocumentView({
         </div>
       </header>
 
+      {showDiscardConfirmation ? (
+        <div
+          className="border-b border-bd-amber/40 bg-bd-amber/10 px-4 py-3 sm:px-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discard-document-heading"
+        >
+          <div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h2 id="discard-document-heading" className="text-sm font-medium text-bd-text-heading">
+                Keep your unsaved changes?
+              </h2>
+              <p className="mt-1 text-xs text-bd-text-secondary">
+                Your changes are still here. Choose Keep editing or discard them before returning to chat.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowDiscardConfirmation(false)}
+                className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+              >
+                Keep editing
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowDiscardConfirmation(false);
+                  onBack();
+                }}
+                className="text-bd-danger hover:bg-bd-danger-bg"
+              >
+                Discard and go back
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div
         className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6"
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         <div className="mx-auto flex h-full w-full max-w-[780px] flex-col">
           {error && (
-            <div className="mb-4 flex items-start gap-3 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-danger">
+            <div role="alert" className="mb-4 flex items-start gap-3 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-danger">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div>{error}</div>
@@ -170,7 +251,10 @@ export default function DocumentView({
           ) : isEditing ? (
             <textarea
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                onDirtyChange?.(event.target.value !== content);
+              }}
               spellCheck={false}
               className="min-h-[420px] flex-1 resize-none rounded-2xl border border-bd-border bg-bd-bg-secondary px-5 py-4 font-mono text-[14px] leading-7 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
             />

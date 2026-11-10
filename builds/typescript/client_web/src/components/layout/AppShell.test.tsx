@@ -76,8 +76,10 @@ vi.mock("./Sidebar", () => ({
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
     onConversationComplete?: (conversationId: string) => void;
+    messageMetadata?: Record<string, unknown>;
   }) => (
     <div>
+      <div data-testid="message-metadata">{JSON.stringify(props.messageMetadata)}</div>
       <button type="button" onClick={() => props.onConversationComplete?.("conv-finance")}>
         Complete conversation
       </button>
@@ -118,6 +120,22 @@ describe("AppShell project file refresh", () => {
     });
     expect(screen.getByTestId("selected-project")).toHaveTextContent("finance");
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("passes the current page context to the conversation", () => {
+    render(<AppShell />);
+
+    expect(screen.getByTestId("message-metadata")).toHaveTextContent(
+      JSON.stringify({
+        client: "web",
+        project: "finance",
+        interface_context: {
+          location: "page",
+          screen: "conversation",
+          page: { id: "finance", name: "Your Finance" },
+        },
+      })
+    );
   });
 
   it("ignores stale legacy memory update notice state", () => {

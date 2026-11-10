@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 
 import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
+import { isRootAgentProjectId } from "@/lib/rootAgent";
+import { projectDisplayLabel } from "@/components/layout/sidebar-labels";
 import type { Message } from "@/types/ui";
 
 import Composer from "./Composer";
@@ -33,6 +35,7 @@ function formatToolStatus(toolName: string): string {
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
+  activeProjectName?: string | null;
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
@@ -57,6 +60,7 @@ function mapConversationMessages(conversation: ConversationDetail): Message[] {
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
+  activeProjectName,
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
@@ -256,6 +260,14 @@ export default function ChatPanel({
     "--mobile-composer-height": `${mobileComposerHeight}px`
   } as CSSProperties;
 
+  const isYourAgent = !activeProjectId || isRootAgentProjectId(activeProjectId);
+  const currentPlaceLabel = isYourAgent
+    ? "Your Agent"
+    : projectDisplayLabel(activeProjectId, activeProjectName ?? activeProjectId);
+  const currentPlaceDescription = isYourAgent
+    ? "Your general conversation with BrainDrive"
+    : "Your ongoing work in this page";
+
   return (
     <div
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-bd-bg-chat"
@@ -269,6 +281,16 @@ export default function ChatPanel({
           onRetry={() => setConnectionStatus("connected")}
         />
       )}
+
+      {contentOverride === undefined ? (
+        <div
+          aria-label="Current place"
+          className="flex shrink-0 items-center gap-3 border-b border-bd-border/70 bg-bd-bg-chat/80 px-4 py-2.5 sm:px-6"
+        >
+          <span className="font-heading text-sm text-bd-text-heading">{currentPlaceLabel}</span>
+          <span className="text-xs text-bd-text-muted">{currentPlaceDescription}</span>
+        </div>
+      ) : null}
 
       <div style={{ flex: '1 1 0%', minHeight: 0, position: 'relative' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>

@@ -178,6 +178,49 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByText(/Drop file here/)).not.toBeInTheDocument();
   });
 
+  it("shows the current page and sends the same interface context with a message", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        activeProjectName="Finance"
+        isEmpty={false}
+        messageMetadata={{
+          client: "web",
+          project: "finance",
+          interface_context: {
+            location: "page",
+            screen: "conversation",
+            page: { id: "finance", name: "Your Finance" },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByLabelText("Current place")).toHaveTextContent(
+      "Your FinanceYour ongoing work in this page"
+    );
+
+    await user.type(screen.getAllByPlaceholderText("Message your BrainDrive...")[0]!, "Keep me oriented.");
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    expect(hookState.append).toHaveBeenCalledWith("Keep me oriented.", {
+      metadata: {
+        client: "web",
+        project: "finance",
+        interface_context: {
+          location: "page",
+          screen: "conversation",
+          page: { id: "finance", name: "Your Finance" },
+        },
+      },
+    });
+  });
+
   it("ignores dropped files and sends only typed chat text", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();
