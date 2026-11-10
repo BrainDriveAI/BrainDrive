@@ -819,7 +819,7 @@ describe("SettingsModal", () => {
     expect(claimEmailCreditMock).toHaveBeenCalledTimes(1);
   });
 
-  it("silently continues the purchase flow when no email credit is available", async () => {
+  it("plainly says that no credit was added when no email credit is available", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
     getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
@@ -833,8 +833,7 @@ describe("SettingsModal", () => {
     });
 
     await waitFor(() => expect(claimEmailCreditMock).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.queryByText(/No available email credit/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("No credit was added.");
     expect(
       screen.getAllByRole("button", { name: /Continue to checkout/i }).some((button) => !button.hasAttribute("disabled"))
     ).toBe(true);

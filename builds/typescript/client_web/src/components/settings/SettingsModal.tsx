@@ -2300,7 +2300,7 @@ function BrainDriveModelsPanel({
           }
           if (code === "no_available_credit") {
             setClaimResult(null);
-            setClaimMessage(null);
+            setClaimMessage("No credit was added.");
             setClaimNeedsRepair(false);
             return;
           }
