@@ -1538,14 +1538,40 @@ describe.sequential("gateway auth route integration", () => {
     expect(response.statusCode).toBe(200);
     expect(mockPreferences.provider_credentials?.openrouter).toBeUndefined();
     expect(await readVaultSecret(secretRef)).toBeUndefined();
+    expect(response.body).not.toContain("sk-test-remove-me");
     const body = parseJson<{
       settings: {
+        active_provider_profile: string | null;
+        default_model: string;
         provider_profiles: Array<{ id: string; credential_mode: "secret_ref" | "plain" | "unset" }>;
       };
+      onboarding: {
+        onboarding_required: boolean;
+        active_provider_profile: string | null;
+        providers: Array<{
+          profile_id: string;
+          credential_mode: "secret_ref" | "plain" | "unset";
+          credential_resolved: boolean;
+          resolution_source: "env_ref" | "vault" | "none";
+          resolution_error: string | null;
+        }>;
+      };
     }>(response.body);
+    expect(body.settings.active_provider_profile).toBe("default");
+    expect(body.settings.default_model).toBe("openai/gpt-4o-mini");
     expect(body.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
       "unset"
     );
+    expect(body.onboarding).toMatchObject({
+      onboarding_required: true,
+      active_provider_profile: "default",
+    });
+    expect(body.onboarding.providers.find((provider) => provider.profile_id === "default")).toMatchObject({
+      credential_mode: "unset",
+      credential_resolved: false,
+      resolution_source: "none",
+      resolution_error: "Provider credential is not configured",
+    });
   });
 
   it("does not activate a credential-save provider when preference persistence fails", async () => {
