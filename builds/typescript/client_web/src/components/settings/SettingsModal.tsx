@@ -4471,6 +4471,10 @@ function ExportSection({
             <div className="text-xs text-bd-text-muted">
               Download a complete copy of your BrainDrive.
             </div>
+            <div className="mt-2 text-xs text-bd-text-secondary">
+              This file includes your saved provider keys. Anyone with the file
+              can use those keys, so store it securely and do not share it.
+            </div>
           </div>
         </div>
 

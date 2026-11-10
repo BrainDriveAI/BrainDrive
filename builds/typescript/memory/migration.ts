@@ -154,7 +154,11 @@ export async function importMigrationArchive(
 
   try {
     await mkdir(extractedRoot, { recursive: true });
-    await extractTarArchive(archivePath, extractedRoot);
+    try {
+      await extractTarArchive(archivePath, extractedRoot);
+    } catch {
+      throw new Error("Invalid migration archive: memory payload not found");
+    }
 
     const layout = await resolveImportLayout(extractedRoot);
     await copyDirectoryContents(layout.memoryRoot, stagedMemoryRoot, { skipGit: true });

@@ -59,7 +59,8 @@ async function runGit(args: string[], cwd: string): Promise<GitResult> {
 }
 
 export async function ensureGitReady(memoryRoot: string): Promise<void> {
-  if (!(await hasOwnGitDirectory(memoryRoot))) {
+  const ownsGitDirectory = await hasOwnGitDirectory(memoryRoot);
+  if (!ownsGitDirectory) {
     await runGit(["init"], memoryRoot);
   }
 
@@ -67,13 +68,28 @@ export async function ensureGitReady(memoryRoot: string): Promise<void> {
   await ensureGitIgnoreEntries(gitignorePath, MEMORY_GITIGNORE_ENTRIES);
 
   const status = await runGit(["status", "--porcelain"], memoryRoot);
-  if (status.stdout.trim().length > 0) {
+  // Only the first call is responsible for creating the baseline commit. Once
+  // the repository has a HEAD, pending changes belong to the operation that
+  // created them and must be committed by commitMemoryChange with its
+  // operation-specific message. Otherwise a history read or tool call can
+  // swallow a Write/Edit/Delete change under "Initialize memory root".
+  const hasHead = ownsGitDirectory && await hasGitHead(memoryRoot);
+  if (status.stdout.trim().length > 0 && !hasHead) {
     await runGit(["add", "."], memoryRoot);
     await runGit(["commit", "-m", "Initialize memory root"], memoryRoot).catch(async (error: Error) => {
       if (!error.message.includes("nothing to commit")) {
         throw error;
       }
     });
+  }
+}
+
+async function hasGitHead(memoryRoot: string): Promise<boolean> {
+  try {
+    await runGit(["rev-parse", "--verify", "HEAD"], memoryRoot);
+    return true;
+  } catch {
+    return false;
   }
 }
 
