@@ -14,7 +14,9 @@ type SettingsRequest = {
 type ModelsRuntimeScenario =
   | "post-claim-layout-shift"
   | "existing-credential-grant"
-  | "no-matching-grant";
+  | "no-matching-grant"
+  | "low-balance"
+  | "return-to-braindrive";
 
 const EXISTING_CREDENTIAL_REF = "provider/ai-gateway/e2e-existing-key";
 
@@ -29,11 +31,12 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 function initialSettings(scenario: ModelsRuntimeScenario = "post-claim-layout-shift"): GatewaySettings {
-  const hasExistingCredential = scenario === "existing-credential-grant";
+  const hasExistingCredential = ["existing-credential-grant", "low-balance", "return-to-braindrive"].includes(scenario);
+  const returningToBrainDrive = scenario === "return-to-braindrive";
   return {
     default_model: "braindrive-models-default",
     approval_mode: "ask-on-write",
-    active_provider_profile: "braindrive-models",
+    active_provider_profile: returningToBrainDrive ? "openrouter" : "braindrive-models",
     provider_activation_revision: 0,
     default_provider_profile: "braindrive-models",
     available_models: ["braindrive-models-default"],
@@ -180,12 +183,14 @@ async function installDeterministicGateway(
     if (path === "/api/settings" && method === "PUT") {
       const body = request.postDataJSON() as SettingsRequest;
       settingsRequests.push(body);
-      expect(body).toEqual({ active_provider_profile: "openrouter" });
+      expect(body).toEqual({
+        active_provider_profile: scenario === "return-to-braindrive" ? "braindrive-models" : "openrouter",
+      });
       settings = {
         ...settings,
-        default_model: "openrouter-test-model",
-        active_provider_profile: "openrouter",
-        provider_activation_revision: 2,
+        default_model: scenario === "return-to-braindrive" ? "braindrive-models-default" : "openrouter-test-model",
+        active_provider_profile: scenario === "return-to-braindrive" ? "braindrive-models" : "openrouter",
+        provider_activation_revision: scenario === "return-to-braindrive" ? 3 : 2,
       };
       await fulfillJson(route, settings);
       return;
@@ -246,6 +251,26 @@ async function installDeterministicGateway(
       return;
     }
     if (path === "/api/credits/status" && method === "GET") {
+      if (scenario === "low-balance") {
+        await fulfillJson(route, {
+          remaining_usd: 1.25,
+          total_purchased_usd: 12.5,
+          total_spent_usd: 11.25,
+          key_valid: true,
+          purchase_status: "ready",
+        });
+        return;
+      }
+      if (scenario === "return-to-braindrive") {
+        await fulfillJson(route, {
+          remaining_usd: 12.5,
+          total_purchased_usd: 25,
+          total_spent_usd: 12.5,
+          key_valid: true,
+          purchase_status: "ready",
+        });
+        return;
+      }
       if (scenario === "existing-credential-grant") {
         await fulfillJson(route, {
           remaining_usd: 0,
@@ -265,7 +290,6 @@ async function installDeterministicGateway(
       });
       return;
     }
-
     await fulfillJson(route, { error: "Unmocked API route", path, method }, 404);
   });
 
@@ -420,4 +444,32 @@ test("an unmatched grant email reports no credit without disclosing grant state"
   );
   await expect(page.getByText("$12.50", { exact: true }).filter({ visible: true })).not.toBeVisible();
   await expect(page.getByRole("status").filter({ visible: true })).not.toContainText(/grant|available/i);
+});
+
+test("low balance remains visible with a clear add-credits action", async ({ page }) => {
+  await installDeterministicGateway(page, "low-balance");
+
+  await page.goto("/");
+
+  await expect(page.getByText("$1.25", { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add credits" }).filter({ visible: true })).toBeVisible();
+});
+
+test("returning to BrainDrive Models preserves the existing balance and credential", async ({ page }) => {
+  const gateway = await installDeterministicGateway(page, "return-to-braindrive");
+
+  await page.goto("/");
+
+  const brainDriveCard = page.locator(
+    'button[aria-label^="BrainDrive Models provider settings"]:visible'
+  );
+  await expect(page.locator('button[aria-label^="OpenRouter provider settings"]:visible')).toHaveAttribute(
+    "aria-current",
+    "true"
+  );
+  await brainDriveCard.click();
+  await expect(brainDriveCard).toHaveAttribute("aria-current", "true");
+  await page.reload();
+  await expect(page.getByText("$12.50", { exact: true }).filter({ visible: true })).toBeVisible();
+  expect(gateway.settingsRequests).toEqual([{ active_provider_profile: "braindrive-models" }]);
 });
