@@ -57,6 +57,7 @@ export async function* runAgentLoop(
   const seenToolCallKeys = new Map<string, number>();
   const recentNonDestructiveMutationPaths: string[] = [];
   const repeatToolCallThreshold = options.repeatToolCallThreshold ?? 2;
+  let confirmedOwnerWork = false;
   let iteration = 0;
 
   while (true) {
@@ -169,6 +170,10 @@ export async function* runAgentLoop(
         auditLog("provider.error", {
           message: error instanceof Error ? error.message : "Unknown provider error",
         });
+        yield {
+          type: "text-delta",
+          delta: buildFailureRecoveryMessage(confirmedOwnerWork),
+        };
         yield classifyError(error);
         return;
       }
@@ -478,6 +483,10 @@ export async function* runAgentLoop(
 
       if (result.status === "error" && result.recoverable === false) {
         yield {
+          type: "text-delta",
+          delta: buildFailureRecoveryMessage(confirmedOwnerWork),
+        };
+        yield {
           type: "error",
           code: "tool_error",
           message: "Tool execution failed",
@@ -485,6 +494,9 @@ export async function* runAgentLoop(
         return;
       }
 
+      if (result.status === "ok" && isOwnerWorkMutation(tool.name)) {
+        confirmedOwnerWork = true;
+      }
       trackNonDestructiveMutationPath(tool.name, tool.readOnly, toolCall.input, result.status, recentNonDestructiveMutationPaths);
     }
   }
@@ -570,6 +582,25 @@ async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string
 
 function classifyError(error: unknown): StreamEvent {
   return classifyProviderError(error);
+}
+
+function buildFailureRecoveryMessage(confirmedOwnerWork: boolean): string {
+  if (confirmedOwnerWork) {
+    return [
+      "The requested preparation was saved successfully.",
+      "The follow-up request did not complete, so I cannot confirm any changes from that failed request.",
+      "Recovery action: retry the failed request or continue from the saved work.",
+    ].join(" ");
+  }
+
+  return [
+    "The request did not complete, and I could not confirm that the requested work was saved.",
+    "Recovery action: retry the save request and wait for confirmation before continuing.",
+  ].join(" ");
+}
+
+function isOwnerWorkMutation(toolName: string): boolean {
+  return toolName === "memory_write" || toolName === "memory_edit";
 }
 
 function stableToolInput(input: Record<string, unknown>): string {

@@ -17,6 +17,13 @@ async function readTool(context: ToolContext, input: Record<string, unknown>): P
   const targetPath = String(input.path ?? "");
   try {
     const absolutePath = resolveToolPath(context, targetPath);
+    const details = await stat(absolutePath);
+    if (details.isDirectory()) {
+      throw new ToolExecutionFailure(
+        "invalid_input",
+        "Requested path is a directory; use memory_list to inspect it",
+      );
+    }
     const content = await readFile(absolutePath, "utf8");
     return { path: absolutePath, content };
   } catch (error) {

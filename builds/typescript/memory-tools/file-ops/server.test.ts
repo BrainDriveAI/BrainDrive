@@ -126,6 +126,25 @@ describe("file ops memory_delete", () => {
   });
 });
 
+describe("file ops memory_read", () => {
+  it("returns a recoverable directory error instead of treating a directory as a file", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-read-directory-"));
+    const readTool = fileOpsTools().find((tool) => tool.name === "memory_read");
+
+    try {
+      await mkdir(path.join(memoryRoot, "current-conversation"), { recursive: true });
+
+      await expect(readTool?.execute(toolContext(memoryRoot), { path: "current-conversation" })).rejects.toMatchObject({
+        code: "invalid_input",
+        message: "Requested path is a directory; use memory_list to inspect it",
+        recoverable: true,
+      });
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("file ops memory_edit", () => {
   it("edits a uniquely matching target", async () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-edit-"));

@@ -466,6 +466,78 @@ describe("runAgentLoop", () => {
     expect(calls).toBe(2);
   });
 
+  it("reports confirmed saved work and recovery action after a later provider failure", async () => {
+    let calls = 0;
+    const adapter: ModelAdapter = {
+      async complete() {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            assistantText: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "save-call",
+                name: "memory_write",
+                input: { path: "current-conversation/owner-context.md", content: "Saved owner context" },
+              },
+            ],
+          };
+        }
+
+        throw new Error("provider connection reset");
+      },
+    };
+    const executor = new ToolExecutor([
+      {
+        name: "memory_write",
+        description: "Save memory",
+        requiresApproval: false,
+        readOnly: false,
+        inputSchema: { type: "object" },
+        execute: async () => ({ path: "current-conversation/owner-context.md", bytes_written: 20 }),
+      },
+    ]);
+
+    const events: StreamEvent[] = [];
+    for await (const event of runAgentLoop(
+      adapter,
+      executor,
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      { memoryRoot: "/tmp/brain", approvalMode: "auto-approve", safetyIterationLimit: 3 },
+    )) {
+      events.push(event);
+    }
+
+    expect(calls).toBe(2);
+    expect(events).toEqual([
+      {
+        type: "tool-call",
+        id: "save-call",
+        name: "memory_write",
+        input: { path: "current-conversation/owner-context.md", content: "Saved owner context" },
+      },
+      {
+        type: "tool-result",
+        id: "save-call",
+        status: "ok",
+        output: { path: "current-conversation/owner-context.md", bytes_written: 20 },
+      },
+      {
+        type: "text-delta",
+        delta: "The requested preparation was saved successfully. The follow-up request did not complete, so I cannot confirm any changes from that failed request. Recovery action: retry the failed request or continue from the saved work.",
+      },
+      {
+        type: "error",
+        code: "provider_error",
+        message: expect.any(String),
+      },
+    ]);
+    expect(events.some((event) => event.type === "done")).toBe(false);
+  });
+
   it("records every model request and response during a tool loop", async () => {
     const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
     let calls = 0;
