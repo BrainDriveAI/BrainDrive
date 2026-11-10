@@ -131,6 +131,30 @@ export async function login(credentials: AuthCredentials): Promise<void> {
   accessToken = await readAccessToken(response);
 }
 
+export async function resetPassword(password: string): Promise<void> {
+  await ensureBootstrapStatus();
+
+  if (currentAuthMode !== "local") {
+    throw new Error("Local password recovery is unavailable in the current auth mode.");
+  }
+
+  const response = await apiFetch("/api/auth/recover", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify({ password }),
+  });
+
+  if (!response.ok) {
+    throw await toAuthError(response);
+  }
+
+  accessToken = null;
+  refreshInFlight = null;
+}
+
 export async function logout(): Promise<void> {
   try {
     const authMode = await getAuthMode();

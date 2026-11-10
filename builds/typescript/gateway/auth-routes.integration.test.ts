@@ -538,6 +538,79 @@ describe.sequential("gateway auth route integration", () => {
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
+  it("resets only the local password, preserves memory, and invalidates prior sessions", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const oldAccessToken = parseJson<{ access_token: string }>(signupResponse.body).access_token;
+
+    const memoryMarker = path.join(context.tempRoot, "memory", "owner-memory-marker.txt");
+    await writeFile(memoryMarker, "must survive local recovery\n", "utf8");
+
+    const resetResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      payload: { password: "new-password123" },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(parseJson<{ ok: boolean }>(resetResponse.body)).toEqual({ ok: true });
+    expect(String(resetResponse.headers["set-cookie"] ?? "")).toContain("Max-Age=0");
+    await expect(readFile(memoryMarker, "utf8")).resolves.toBe("must survive local recovery\n");
+
+    const oldSessionResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: { authorization: `Bearer ${oldAccessToken}` },
+    });
+    expect(oldSessionResponse.statusCode).toBe(401);
+
+    const newLoginResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "new-password123" },
+    });
+    expect(newLoginResponse.statusCode).toBe(200);
+
+    const oldPasswordResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "password123" },
+    });
+    expect(oldPasswordResponse.statusCode).toBe(401);
+  });
+
+  it("rejects password recovery from a non-loopback device", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      remoteAddress: "10.0.0.5",
+      payload: { password: "new-password123" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("recovery_local_only");
+  });
+
   it("rejects retired project document uploads without memory writes", async () => {
     context = await createTestServer();
 
