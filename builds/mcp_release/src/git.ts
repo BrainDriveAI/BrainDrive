@@ -48,7 +48,8 @@ async function runGit(args: string[], cwd: string): Promise<GitResult> {
 export async function ensureGitReady(memoryRoot: string): Promise<void> {
   await mkdir(memoryRoot, { recursive: true });
 
-  if (!(await hasOwnGitDirectory(memoryRoot))) {
+  const ownsGitDirectory = await hasOwnGitDirectory(memoryRoot);
+  if (!ownsGitDirectory) {
     await runGit(["init"], memoryRoot);
   }
 
@@ -56,13 +57,25 @@ export async function ensureGitReady(memoryRoot: string): Promise<void> {
   await writeIfMissing(gitignorePath, "conversations/*.db-wal\nconversations/*.db-shm\nexports/*.tar.gz\n");
 
   const status = await runGit(["status", "--porcelain"], memoryRoot);
-  if (status.stdout.trim().length > 0) {
+  // Do not turn later operation changes into another baseline commit. The
+  // caller commits the write/edit/delete with its specific audit message.
+  const hasHead = ownsGitDirectory && await hasGitHead(memoryRoot);
+  if (status.stdout.trim().length > 0 && !hasHead) {
     await runGit(["add", "."], memoryRoot);
     await runGit(["commit", "-m", "Initialize memory root"], memoryRoot).catch(async (error: Error) => {
       if (!error.message.includes("nothing to commit")) {
         throw error;
       }
     });
+  }
+}
+
+async function hasGitHead(memoryRoot: string): Promise<boolean> {
+  try {
+    await runGit(["rev-parse", "--verify", "HEAD"], memoryRoot);
+    return true;
+  } catch {
+    return false;
   }
 }
 
