@@ -53,6 +53,7 @@ describe("DocumentView", () => {
         "# Updated\nPlain text remains plain."
       );
     });
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved");
     expect(onStateChange).toHaveBeenLastCalledWith("viewing");
   });
 
