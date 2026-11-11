@@ -107,6 +107,31 @@ describe("Sidebar", () => {
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 
+  it("keeps loading and empty file states clear inside the selected page", () => {
+    const { rerender } = render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        isLoadingFiles
+      />
+    );
+
+    expect(screen.getByText("Loading files...")).toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[]}
+        isLoadingFiles={false}
+      />
+    );
+
+    expect(screen.getByText("No files yet")).toBeInTheDocument();
+  });
+
   it("shows Finance project scope with owner labels and generic uploaded files", async () => {
     const user = userEvent.setup();
     const onFileClick = vi.fn();

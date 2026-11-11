@@ -33,7 +33,7 @@ async function readLatestRootAgentMigrationReport(memoryRoot: string): Promise<s
 }
 
 describe("memory init project scaffolding", () => {
-  it("scaffolds Draft 3 life-area layouts without legacy app or source folders", async () => {
+  it("scaffolds Draft 3 layouts, routes grounded profile facts, and explains Agent behavior to owners", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-index-test-"));
     const rootDir = path.resolve(".");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -60,6 +60,9 @@ describe("memory init project scaffolding", () => {
       ]);
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toContain("# Your Agent - Agent Context");
+      const yourAgent = await readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8");
+      expect(yourAgent).toContain("## Why BrainDrive Works This Way");
+      expect(yourAgent).toContain("These rules help you see what BrainDrive knows");
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "spec.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-interview.md"), "utf8"))
@@ -80,6 +83,17 @@ describe("memory init project scaffolding", () => {
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-interview.md"), "utf8"))
         .resolves.toContain("# Career Interview");
+      for (const page of ["career", "finance", "fitness", "new-project", "relationships"]) {
+        const interview = await readFile(
+          path.join(memoryRoot, "documents", page, "run-interview.md"),
+          "utf8"
+        );
+        expect(interview).toContain("without routine pre-write confirmation");
+        expect(interview).toContain("announcing the update in the same turn");
+        expect(interview).toContain("ask before treating them as profile memory");
+        expect(interview).not.toContain("ask them to approve before you add those");
+        expect(interview).not.toContain("only on the owner's clear approval");
+      }
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-planning.md"), "utf8"))
         .resolves.toContain("# Career Planning");
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "run-interview.md"), "utf8"))

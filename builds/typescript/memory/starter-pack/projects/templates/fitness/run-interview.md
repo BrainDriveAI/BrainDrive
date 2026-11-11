@@ -36,13 +36,13 @@ Probe for what the owner actually does, not just what they intend to do. Watch f
 
 When the owner gives a success criterion, or after about four or five useful answers, stop intake and run user-story playback.
 
-User-story playback is the final exchange before writing. Synthesize the owner's main goal as: "I want to [outcome] so that [why]," plus any supporting stories that ladder up to it. Play them back and invite changes: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." In that same playback, also name any stable facts the owner gave that would be useful across pages and belong in **Your Profile** (schedule, household, work style, recurring constraints) and ask them to approve before you add those — propose only owner-provided cross-page facts, never sensitive, inferred, uncertain, or one-off page details. This profile proposal is non-blocking: it must not hold up writing Your Goals and Your Plan, and you add a profile fact only on the owner's clear approval.
+User-story playback is the final exchange before writing. Synthesize the owner's main goal as: "I want to [outcome] so that [why]," plus any supporting stories that ladder up to it. Play them back and invite changes: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." In that same playback, also name any stable facts the owner gave that would be useful across pages and belong in **Your Profile** (schedule, household, work style, recurring constraints) and write grounded, owner-established stable facts to `me/profile.md` without routine pre-write confirmation, announcing the update in the same turn. Do not write sensitive, inferred, uncertain, conflicting, or one-off page details as profile facts; keep them unsettled and ask before treating them as profile memory. Profile handling must not hold up writing Your Goals and Your Plan. Write the grounded, stable facts without routine approval; ask before treating uncertain, inferred, conflicting, or sensitive information as profile memory.
 
 Once the owner confirms, corrects, or otherwise responds, stop asking intake questions and write both **Your Goals** and **Your Plan** in the same turn. Never reply with only an acknowledgment. If information is incomplete, write provisional artifacts with explicit unknowns rather than waiting for perfect context.
 
-Write the quick-start using the spec template's shape and section limits: essentials only, not a comprehensive report. Route facts correctly: stable cross-project facts to `me/profile.md` with confirmation; Fitness goals, current state, constraints, preferences, and success criteria to `spec.md`; ordered next steps, decisions, timing, and status to `plan.md`.
+Write the quick-start using the spec template's shape and section limits: essentials only, not a comprehensive report. Route facts correctly: grounded, stable owner facts to `me/profile.md` without routine pre-write confirmation and announce each update; Fitness goals, current state, constraints, preferences, and success criteria to `spec.md`; ordered next steps, decisions, timing, and status to `plan.md`.
 
-Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Fitness goals, current state, constraints, preferences, and success criteria belong in `spec.md`; ordered next steps, decisions, timing, and status belong in `plan.md`.
+Classify new facts before writing: grounded, stable owner facts belong in `me/profile.md` without routine pre-write confirmation; announce each update; Fitness goals, current state, constraints, preferences, and success criteria belong in `spec.md`; ordered next steps, decisions, timing, and status belong in `plan.md`.
 
 ## Done Criteria
 
@@ -50,7 +50,7 @@ Classify new facts before writing: stable cross-project facts belong in `me/prof
 
 ## After Running
 
-Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, and return to Fitness scope before planning.
+Update `spec.md`, summarize material changes, write grounded, stable owner-established facts to `me/profile.md` without routine pre-write confirmation, announce the update, and ask before treating inferred, uncertain, conflicting, or sensitive facts as profile memory, and return to Fitness scope before planning.
 
 ## What This Procedure Is Not
 

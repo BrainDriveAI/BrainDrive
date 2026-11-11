@@ -36,7 +36,7 @@ When the owner opens a project, orient before acting:
 - Read the project's `AGENT.md` and any `-user.md` overlay. Owner overlays customize how the project works and take precedence when present.
 - Read `me/profile.md` for cross-cutting context, such as work stress, sleep, budget, caregiving, travel, or health constraints.
 - Check whether the project is new, stale, or active. If there is no useful spec and plan yet, run the interview and create them; if they exist, get current before advising and refresh anything that has gone stale.
-- As reality changes, update the right files: this project's spec and plan, and `me/profile.md` only for confirmed stable cross-project facts. Ask before writing inferred, uncertain, sensitive, or preference-like facts as settled.
+- As reality changes, update the right files: this project's spec and plan, and `me/profile.md` only for confirmed stable cross-project facts. Write grounded, owner-established stable cross-project facts to `me/profile.md` without routine pre-write confirmation and announce the update in the same turn. Keep inferred, uncertain, conflicting, and sensitive facts unsettled and ask before treating them as profile memory.
 
 ## Interview, Spec, Plan
 
