@@ -538,6 +538,79 @@ describe.sequential("gateway auth route integration", () => {
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
+  it("resets only the local password, preserves memory, and invalidates prior sessions", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const oldAccessToken = parseJson<{ access_token: string }>(signupResponse.body).access_token;
+
+    const memoryMarker = path.join(context.tempRoot, "memory", "owner-memory-marker.txt");
+    await writeFile(memoryMarker, "must survive local recovery\n", "utf8");
+
+    const resetResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      payload: { password: "new-password123" },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(parseJson<{ ok: boolean }>(resetResponse.body)).toEqual({ ok: true });
+    expect(String(resetResponse.headers["set-cookie"] ?? "")).toContain("Max-Age=0");
+    await expect(readFile(memoryMarker, "utf8")).resolves.toBe("must survive local recovery\n");
+
+    const oldSessionResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: { authorization: `Bearer ${oldAccessToken}` },
+    });
+    expect(oldSessionResponse.statusCode).toBe(401);
+
+    const newLoginResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "new-password123" },
+    });
+    expect(newLoginResponse.statusCode).toBe(200);
+
+    const oldPasswordResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "password123" },
+    });
+    expect(oldPasswordResponse.statusCode).toBe(401);
+  });
+
+  it("rejects password recovery from a non-loopback device", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      remoteAddress: "10.0.0.5",
+      payload: { password: "new-password123" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("recovery_local_only");
+  });
+
   it("rejects retired project document uploads without memory writes", async () => {
     context = await createTestServer();
 
@@ -1510,6 +1583,68 @@ describe.sequential("gateway auth route integration", () => {
     expect(settingsBody.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
       "secret_ref"
     );
+  });
+
+  it("removes a stored provider credential from the vault and settings", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    const secretRef = "provider/openrouter/api_key";
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "default",
+      provider_credentials: {
+        openrouter: {
+          mode: "secret_ref",
+          secret_ref: secretRef,
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret(secretRef, "sk-test-remove-me");
+
+    const response = await context.app.inject({
+      method: "DELETE",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: { provider_profile: "default" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockPreferences.provider_credentials?.openrouter).toBeUndefined();
+    expect(await readVaultSecret(secretRef)).toBeUndefined();
+    expect(response.body).not.toContain("sk-test-remove-me");
+    const body = parseJson<{
+      settings: {
+        active_provider_profile: string | null;
+        default_model: string;
+        provider_profiles: Array<{ id: string; credential_mode: "secret_ref" | "plain" | "unset" }>;
+      };
+      onboarding: {
+        onboarding_required: boolean;
+        active_provider_profile: string | null;
+        providers: Array<{
+          profile_id: string;
+          credential_mode: "secret_ref" | "plain" | "unset";
+          credential_resolved: boolean;
+          resolution_source: "env_ref" | "vault" | "none";
+          resolution_error: string | null;
+        }>;
+      };
+    }>(response.body);
+    expect(body.settings.active_provider_profile).toBe("default");
+    expect(body.settings.default_model).toBe("openai/gpt-4o-mini");
+    expect(body.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "unset"
+    );
+    expect(body.onboarding).toMatchObject({
+      onboarding_required: true,
+      active_provider_profile: "default",
+    });
+    expect(body.onboarding.providers.find((provider) => provider.profile_id === "default")).toMatchObject({
+      credential_mode: "unset",
+      credential_resolved: false,
+      resolution_source: "none",
+      resolution_error: "Provider credential is not configured",
+    });
   });
 
   it("does not activate a credential-save provider when preference persistence fails", async () => {

@@ -30,7 +30,7 @@ import {
   InvalidRefreshTokenError,
   RefreshReplayDetectedError,
 } from "../auth/local-jwt-auth.js";
-import { evaluateSignupBootstrapAccess } from "../auth/signup-bootstrap.js";
+import { evaluateSignupBootstrapAccess, isLoopbackIp } from "../auth/signup-bootstrap.js";
 import {
   ensureSystemAppConfig,
   loadAdapterConfig,
@@ -74,7 +74,7 @@ import { ApprovalStore } from "../engine/approval-store.js";
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
-import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
+import { deleteVaultSecret, getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
   BRAINDRIVE_MODELS_PROVIDER_ID,
@@ -200,6 +200,12 @@ const settingsCredentialsUpdateSchema = z
     }
   });
 
+const settingsCredentialsDeleteSchema = z
+  .object({
+    provider_profile: z.string().trim().min(1),
+  })
+  .strict();
+
 const memoryBackupFrequencySchema = z.enum(["manual", "after_changes", "hourly", "daily"]);
 
 const settingsMemoryBackupUpdateSchema = z
@@ -251,6 +257,12 @@ const modelsSupportReplacementSchema = z
   })
   .strict();
 
+const localPasswordResetSchema = z
+  .object({
+    password: z.string().min(8),
+  })
+  .strict();
+
 const supportBundleCreateSchema = z
   .object({
     window_hours: z.number().int().min(1).max(24 * 30).optional(),
@@ -270,6 +282,7 @@ const BASE_PUBLIC_ROUTES = new Set([
   "/auth/bootstrap-status",
   "/auth/signup",
   "/auth/login",
+  "/auth/recover",
   "/auth/refresh",
 ]);
 
@@ -487,6 +500,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
+  const recoveryRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
   const signupBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN?.trim();
   const allowFirstSignupFromAnyIp = readBooleanEnv(process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP, false);
@@ -652,6 +666,47 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch (error) {
       if (error instanceof InvalidCredentialsError) {
         reply.code(401).send({ error: "invalid_credentials" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/auth/recover", async (request, reply) => {
+    if (!localJwtAuthService) {
+      reply.code(404).send({ error: "Not found" });
+      return;
+    }
+
+    const clientIp = clientIpForRequest(request, internalTransportToken);
+    if (!isLoopbackIp(clientIp)) {
+      auditLog("auth.password_reset.denied", {
+        reason: "recovery_local_only",
+        ip: clientIp,
+      });
+      reply.code(403).send({ error: "recovery_local_only" });
+      return;
+    }
+
+    if (!recoveryRateLimiter.allow(rateLimitKeyForRequest(request, internalTransportToken))) {
+      reply.code(429).send({ error: "too_many_attempts" });
+      return;
+    }
+
+    const parsed = localPasswordResetSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/auth/recover", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      await localJwtAuthService.resetPassword(parsed.data.password);
+      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+      reply.send({ ok: true });
+    } catch (error) {
+      if (error instanceof InvalidCredentialsError) {
+        reply.code(400).send({ error: "invalid_credentials" });
         return;
       }
 
@@ -2931,6 +2986,67 @@ export async function buildServer(rootDir = process.cwd()) {
     } finally {
       await releaseMigrationLock();
     }
+  });
+
+  app.delete("/settings/credentials", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = settingsCredentialsDeleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/credentials", parsed.error.issues.length);
+      return;
+    }
+
+    if (!isKnownProviderProfile(adapterConfig, parsed.data.provider_profile)) {
+      sendInvalidRequest(reply, "/settings/credentials", 1);
+      return;
+    }
+
+    const currentPreferences = await loadLivePreferences();
+    const selectedProfile = resolveAdapterProfile(adapterConfig, parsed.data.provider_profile);
+    const providerId = selectedProfile.provider_id ?? parsed.data.provider_profile;
+    const currentCredential = currentPreferences.provider_credentials?.[providerId];
+    const secretRef = currentCredential?.mode === "secret_ref" ? currentCredential.secret_ref : undefined;
+
+    // Remove the encrypted value before removing its preference reference. If
+    // persistence fails afterward, the provider remains unusable rather than
+    // leaving a readable credential behind.
+    if (secretRef) {
+      await deleteVaultSecret(secretRef);
+    }
+
+    const providerCredentials = { ...(currentPreferences.provider_credentials ?? {}) };
+    delete providerCredentials[providerId];
+    const savedPreferences: Preferences = {
+      ...currentPreferences,
+      provider_credentials: providerCredentials,
+    };
+    if (providerId === BRAINDRIVE_MODELS_PROVIDER_ID) {
+      delete savedPreferences.braindrive_models_key;
+    }
+
+    try {
+      await saveLivePreferences(savedPreferences);
+    } catch {
+      reply.code(500).send({
+        error: "Unable to remove provider credential",
+        code: "provider_credential_removal_failed",
+      });
+      return;
+    }
+
+    auditLog("settings.credentials_removed", {
+      actor_id: request.authContext.actorId,
+      provider_profile: parsed.data.provider_profile,
+      provider_id: providerId,
+      had_secret_ref: Boolean(secretRef),
+      active_provider: currentPreferences.active_provider_profile === parsed.data.provider_profile,
+    });
+
+    const onboardingStatus = await buildOnboardingStatusPayload(adapterConfig, savedPreferences);
+    reply.send({
+      settings: buildSettingsPayload(adapterConfig, savedPreferences),
+      onboarding: onboardingStatus,
+    });
   });
 
   app.put("/settings/credentials", async (request, reply) => {

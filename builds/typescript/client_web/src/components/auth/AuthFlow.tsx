@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { fetchBootstrapStatus, login, restoreSession, signup } from "@/api/auth-adapter";
+import { fetchBootstrapStatus, login, resetPassword, restoreSession, signup } from "@/api/auth-adapter";
 
 import ForgotPasswordPage from "./ForgotPasswordPage";
 import LoginPage from "./LoginPage";
@@ -135,6 +135,21 @@ export default function AuthFlow({
     }
   }
 
+  async function handlePasswordReset(password: string): Promise<void> {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await resetPassword(password);
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error ? submissionError.message : "Password recovery failed."
+      );
+      throw submissionError;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   if (isLoadingBootstrap) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bd-bg-primary px-4">
@@ -193,6 +208,9 @@ export default function AuthFlow({
       return (
         <ForgotPasswordPage
           mode={mode}
+          error={error}
+          isSubmitting={isSubmitting}
+          onRequestReset={mode === "local" ? handlePasswordReset : undefined}
           onNavigateToLogin={() => {
             setError(null);
             setScreen("login");

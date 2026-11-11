@@ -54,6 +54,7 @@ import {
   refreshEmailCreditStatus,
   getProviderModels,
   getSettings as getGatewaySettings,
+  removeProviderCredential as removeGatewayProviderCredential,
   restoreMemoryBackup as restoreGatewayMemoryBackup,
   runMemoryBackupNow,
   pullProviderModel,
@@ -393,6 +394,25 @@ export default function SettingsModal({
     }
   }
 
+  async function removeCredential(providerProfile: string): Promise<void> {
+    const changesProviderIntent = settingsRef.current?.active_provider_profile === providerProfile;
+    const requestEpoch = changesProviderIntent
+      ? ++providerIntentEpochRef.current
+      : providerIntentEpochRef.current;
+    try {
+      const updated = await removeGatewayProviderCredential(providerProfile);
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        return;
+      }
+      commitSettings(updated.settings);
+    } catch (error) {
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        return;
+      }
+      throw error;
+    }
+  }
+
   async function saveMemoryBackupSettings(
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ): Promise<GatewaySettings> {
@@ -539,6 +559,7 @@ export default function SettingsModal({
               modelCatalogError={modelCatalogError}
               onSaveSettings={saveSettings}
               onSaveCredential={saveCredential}
+              onRemoveCredential={removeCredential}
               onSaveMemoryBackupSettings={saveMemoryBackupSettings}
               onRunMemoryBackupNow={triggerMemoryBackupNow}
               onRestoreMemoryBackup={triggerMemoryBackupRestore}
@@ -613,6 +634,7 @@ export default function SettingsModal({
             onSaveSettings={saveSettings}
             onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
             onSaveCredential={saveCredential}
+            onRemoveCredential={removeCredential}
             onSaveMemoryBackupSettings={saveMemoryBackupSettings}
             onRunMemoryBackupNow={triggerMemoryBackupNow}
             onRestoreMemoryBackup={triggerMemoryBackupRestore}
@@ -734,6 +756,7 @@ type SettingsDataProps = {
     patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
+  onRemoveCredential: (providerProfile: string) => Promise<void>;
 };
 
 function TabContent({
@@ -747,6 +770,7 @@ function TabContent({
   modelCatalogError,
   onSaveSettings,
   onSaveCredential,
+  onRemoveCredential,
   onSaveMemoryBackupSettings,
   onRunMemoryBackupNow,
   onRestoreMemoryBackup,
@@ -778,6 +802,7 @@ function TabContent({
     patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
+  onRemoveCredential: (providerProfile: string) => Promise<void>;
   onSaveMemoryBackupSettings: (
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ) => Promise<GatewaySettings>;
@@ -817,6 +842,7 @@ function TabContent({
           modelCatalogError={modelCatalogError}
           onSaveSettings={onSaveSettings}
           onSaveCredential={onSaveCredential}
+          onRemoveCredential={onRemoveCredential}
           onRefreshCatalog={onRefreshCatalog}
           emailCreditClaimAttempts={emailCreditClaimAttempts}
           getProviderIntentEpoch={getProviderIntentEpoch}
@@ -2694,6 +2720,7 @@ function ProviderSection({
   settingsError,
   onSaveSettings,
   onSaveCredential,
+  onRemoveCredential,
   modelCatalog,
   isLoadingModelCatalog,
   modelCatalogError,
@@ -2724,6 +2751,7 @@ function ProviderSection({
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [pendingCredentialRemoval, setPendingCredentialRemoval] = useState<string | null>(null);
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -2880,6 +2908,7 @@ function ProviderSection({
                       );
                       setCredentialError(null);
                       setProviderApiKey("");
+                      setPendingCredentialRemoval(null);
                       setSaveError(null);
                       const hasDeliberateActivationIntent =
                         event.detail === 0 || activationIntentProfiles.has(profile.id);
@@ -3057,16 +3086,78 @@ function ProviderSection({
                               )}
                             </div>
                           )}
-                          {!showKeyForProfile ? (
-                            <button
-                              type="button"
-                              onClick={() => setShowApiKeyInput(true)}
-                              className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+                          {pendingCredentialRemoval === profile.id ? (
+                            <div
+                              role="alertdialog"
+                              aria-label={`Confirm remove ${profileLabel} API key`}
+                              className="space-y-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-3"
                             >
-                              {profileCanUsePlain
-                                ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
-                                : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
-                            </button>
+                              <div>
+                                <p className="text-sm font-medium text-bd-text-primary">
+                                  Remove the saved {profileLabel} API key?
+                                </p>
+                                <p className="mt-1 text-xs text-bd-text-secondary">
+                                  BrainDrive will delete this key from the secure vault. The {profileLabel} path will
+                                  need to be configured again before it can be used.
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingCredentialRemoval(null)}
+                                  className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSavingCredential}
+                                  onClick={() => {
+                                    setIsSavingCredential(true);
+                                    setCredentialError(null);
+                                    void onRemoveCredential(profile.id)
+                                      .then(() => setPendingCredentialRemoval(null))
+                                      .catch((error) => {
+                                        setCredentialError(error instanceof Error ? error.message : String(error));
+                                      })
+                                      .finally(() => {
+                                        setIsSavingCredential(false);
+                                      });
+                                  }}
+                                  className="rounded-lg bg-bd-danger px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSavingCredential ? "Removing key..." : "Confirm remove API key"}
+                                </button>
+                              </div>
+                              {credentialError && (
+                                <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                                  {credentialError}
+                                </div>
+                              )}
+                            </div>
+                          ) : !showKeyForProfile ? (
+                            <div className="flex flex-wrap items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setShowApiKeyInput(true)}
+                                className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+                              >
+                                {profileCanUsePlain
+                                  ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
+                                  : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
+                              </button>
+                              {profile.credential_mode === "secret_ref" && (
+                                <button
+                                  type="button"
+                                  disabled={isSavingCredential}
+                                  aria-label={`Ask to remove ${profileLabel} API key`}
+                                  onClick={() => setPendingCredentialRemoval(profile.id)}
+                                  className="text-xs text-bd-danger transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Remove API key
+                                </button>
+                              )}
+                            </div>
                           ) : (
                             <div className="space-y-3">
                               <div>
@@ -3137,6 +3228,16 @@ function ProviderSection({
                                 >
                                   Cancel
                                 </button>
+                                {profile.credential_mode === "secret_ref" && (
+                                  <button
+                                    type="button"
+                                    disabled={isSavingCredential}
+                                    onClick={() => setPendingCredentialRemoval(profile.id)}
+                                    className="text-xs text-bd-danger transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    Remove API key
+                                  </button>
+                                )}
                               </div>
 
                               {credentialError && (
