@@ -74,7 +74,7 @@ import { ApprovalStore } from "../engine/approval-store.js";
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
-import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
+import { deleteVaultSecret, getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
   BRAINDRIVE_MODELS_PROVIDER_ID,
@@ -197,6 +197,12 @@ const settingsCredentialsUpdateSchema = z
       });
     }
   });
+
+const settingsCredentialsDeleteSchema = z
+  .object({
+    provider_profile: z.string().trim().min(1),
+  })
+  .strict();
 
 const memoryBackupFrequencySchema = z.enum(["manual", "after_changes", "hourly", "daily"]);
 
@@ -2641,6 +2647,67 @@ export async function buildServer(rootDir = process.cwd()) {
     } finally {
       await releaseMigrationLock();
     }
+  });
+
+  app.delete("/settings/credentials", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = settingsCredentialsDeleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/credentials", parsed.error.issues.length);
+      return;
+    }
+
+    if (!isKnownProviderProfile(adapterConfig, parsed.data.provider_profile)) {
+      sendInvalidRequest(reply, "/settings/credentials", 1);
+      return;
+    }
+
+    const currentPreferences = await loadLivePreferences();
+    const selectedProfile = resolveAdapterProfile(adapterConfig, parsed.data.provider_profile);
+    const providerId = selectedProfile.provider_id ?? parsed.data.provider_profile;
+    const currentCredential = currentPreferences.provider_credentials?.[providerId];
+    const secretRef = currentCredential?.mode === "secret_ref" ? currentCredential.secret_ref : undefined;
+
+    // Remove the encrypted value before removing its preference reference. If
+    // persistence fails afterward, the provider remains unusable rather than
+    // leaving a readable credential behind.
+    if (secretRef) {
+      await deleteVaultSecret(secretRef);
+    }
+
+    const providerCredentials = { ...(currentPreferences.provider_credentials ?? {}) };
+    delete providerCredentials[providerId];
+    const savedPreferences: Preferences = {
+      ...currentPreferences,
+      provider_credentials: providerCredentials,
+    };
+    if (providerId === BRAINDRIVE_MODELS_PROVIDER_ID) {
+      delete savedPreferences.braindrive_models_key;
+    }
+
+    try {
+      await saveLivePreferences(savedPreferences);
+    } catch {
+      reply.code(500).send({
+        error: "Unable to remove provider credential",
+        code: "provider_credential_removal_failed",
+      });
+      return;
+    }
+
+    auditLog("settings.credentials_removed", {
+      actor_id: request.authContext.actorId,
+      provider_profile: parsed.data.provider_profile,
+      provider_id: providerId,
+      had_secret_ref: Boolean(secretRef),
+      active_provider: currentPreferences.active_provider_profile === parsed.data.provider_profile,
+    });
+
+    const onboardingStatus = await buildOnboardingStatusPayload(adapterConfig, savedPreferences);
+    reply.send({
+      settings: buildSettingsPayload(adapterConfig, savedPreferences),
+      onboarding: onboardingStatus,
+    });
   });
 
   app.put("/settings/credentials", async (request, reply) => {
