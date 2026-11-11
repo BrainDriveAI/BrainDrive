@@ -238,6 +238,20 @@ export type GatewayCreditsStatus = {
   purchase_status?: GatewayCreditsPurchaseStatus;
 };
 
+export type GatewayModelsDiagnostics = {
+  client_alias: string;
+  backing_route: string | null;
+  provider: string | null;
+  model?: string | null;
+  configuration_source: string | null;
+  process_start_time: string | null;
+  live_vs_disk_match: boolean | null;
+  verified: boolean;
+  verification_id?: string;
+  error_code?: string;
+  error?: string;
+};
+
 export type GatewayCreditsCheckoutResponse = {
   checkout_url: string;
   purchase_status?: GatewayCreditsPurchaseStatus;

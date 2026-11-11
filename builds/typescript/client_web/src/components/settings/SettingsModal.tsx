@@ -50,6 +50,7 @@ import {
   getRootAgent,
   getOwnerProfile,
   getCreditsStatus,
+  getModelsDiagnostics,
   refreshEmailCreditStatus,
   getProviderModels,
   getSettings as getGatewaySettings,
@@ -83,6 +84,7 @@ import type {
   GatewayMemoryBackupRestoreResult,
   GatewayMemoryBackupRunRequest,
   GatewayMemoryBackupRunResult,
+  GatewayModelsDiagnostics,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
   GatewayModelCatalogEntry,
@@ -2167,6 +2169,9 @@ function BrainDriveModelsPanel({
   const [claimResult, setClaimResult] = useState<GatewayEmailCreditResult | null>(null);
   const [claimMessage, setClaimMessage] = useState<string | null>(null);
   const [claimNeedsRepair, setClaimNeedsRepair] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<GatewayModelsDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const claimRequestId = useRef(0);
   const observedClaimEmails = useRef(new Set<string>());
   const {
@@ -2185,6 +2190,19 @@ function BrainDriveModelsPanel({
     retryActivation,
     startOverActivation,
   } = creditsController;
+
+  async function refreshDiagnostics() {
+    setDiagnosticsLoading(true);
+    setDiagnosticsError(null);
+    try {
+      setDiagnostics(await getModelsDiagnostics());
+    } catch (error) {
+      setDiagnostics(null);
+      setDiagnosticsError(error instanceof Error ? error.message : "Live route diagnostics are unavailable.");
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!billingEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
@@ -2326,7 +2344,7 @@ function BrainDriveModelsPanel({
           }
           if (code === "no_available_credit") {
             setClaimResult(null);
-            setClaimMessage(null);
+            setClaimMessage("No credit was added.");
             setClaimNeedsRepair(false);
             return;
           }
@@ -2487,6 +2505,33 @@ function BrainDriveModelsPanel({
           {claimMessage && <p>{claimMessage}</p>}
         </div>
       )}
+      <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/50 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-bd-text-primary">Live BrainDrive Models status</p>
+            <p className="text-xs text-bd-text-muted">Check the running service without exposing credentials.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void refreshDiagnostics(); }}
+            disabled={diagnosticsLoading}
+            className="rounded-lg border border-bd-border px-3 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {diagnosticsLoading ? "Checking..." : "View diagnostics"}
+          </button>
+        </div>
+        {diagnosticsError && <p role="alert" className="mt-2 text-xs text-red-400">{diagnosticsError}</p>}
+        {diagnostics && (
+          <dl className="mt-3 grid gap-1 text-xs text-bd-text-secondary sm:grid-cols-2">
+            <div><dt className="text-bd-text-muted">Client alias</dt><dd>{diagnostics.client_alias}</dd></div>
+            <div><dt className="text-bd-text-muted">Backing service</dt><dd>{diagnostics.backing_route ?? "Unavailable"}</dd></div>
+            <div><dt className="text-bd-text-muted">Configuration source</dt><dd>{diagnostics.configuration_source ?? "Unavailable"}</dd></div>
+            <div><dt className="text-bd-text-muted">Process started</dt><dd>{diagnostics.process_start_time ?? "Unavailable"}</dd></div>
+            <div><dt className="text-bd-text-muted">Live versus saved configuration</dt><dd>{diagnostics.live_vs_disk_match === true ? "Match" : diagnostics.live_vs_disk_match === false ? "Mismatch — unverified" : "Unable to verify"}</dd></div>
+            <div><dt className="text-bd-text-muted">Verification</dt><dd>{diagnostics.verified ? "Verified" : "Unverified"}</dd></div>
+          </dl>
+        )}
+      </div>
       {claimNeedsRepair && (
         <button
           type="button"

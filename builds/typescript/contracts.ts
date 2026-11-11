@@ -254,6 +254,9 @@ export type BrainDriveModelsKeyPreference = {
   expires_unfunded_at?: string;
   last_attempt_at?: string;
   last_error?: string | null;
+  purchase_email_total_usd?: number;
+  purchase_email_balance_usd?: number;
+  purchase_email_sent_at?: string;
 };
 
 export type BrainDriveModelsEntitlementPreference = {
