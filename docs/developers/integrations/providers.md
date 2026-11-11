@@ -30,6 +30,8 @@ The gateway resolves the effective profile and credential immediately before the
 
 Provider adapter requests are created only after the Gateway has authenticated the caller and established the PAA permission-free `auth_context`. The adapter request carries that verified context together with the matching correlation ID so the Agent Loop can reject forged, missing, expired, or mismatched handoffs before any provider call is attempted. Provider selection and credential resolution remain separate from authorization; the provider adapter does not receive a caller-supplied permission list.
 
+The web message request may also include a strict, optional `metadata.interface_context` describing whether the owner is in Your Agent or a page, which screen is open, and (when applicable) the page or document name, path, and edit state. The Gateway validates and forwards this as client context to help orient the Agent Loop. It is informational UI state, not authenticated identity, authorization, or proof of project isolation; only the Gateway-derived `auth_context` controls authorization.
+
 ## Verification boundary
 
 Safe Tier A checks are the adapter/config/resolver/provider-activation tests and runtime build. They use unit, mock, or in-process evidence, not live provider compatibility evidence. Any live provider call is Tier C: it needs explicit owner authority, a selected independent profile, sanitized evidence, and bounded resource use. Do not use a BrainDrive Models credential to claim OpenRouter or Ollama evidence, or vice versa.
