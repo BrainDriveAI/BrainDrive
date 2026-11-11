@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GatewayEngineRequest, ToolDefinition } from "../contracts.js";
 import type { PromptAuditRecorder } from "../memory/prompt-audit-store.js";
+import type { ModelStreamChunk } from "./base.js";
 import { OpenAICompatibleAdapter } from "./openai-compatible.js";
 
 const request: GatewayEngineRequest = {
@@ -151,7 +152,55 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     });
   });
 
-  it("retries a transient interrupted stream without exposing duplicate partial text", async () => {
+  it("yields provider text before the provider stream finishes", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    let finishProviderStream: (() => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"First"}}]}\n\n'));
+          finishProviderStream = () => {
+            controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          };
+        },
+      }),
+      {status: 200, headers: {"content-type": "text/event-stream"}},
+    )));
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+    const iterator = adapter.completeStream!(request, tools, {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {model_call_id: "model-call-stream", model_call_index: 1},
+      },
+    })[Symbol.asyncIterator]();
+    const firstChunkPromise = iterator.next();
+    const firstBeforeProviderFinish = await Promise.race([
+      firstChunkPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 100)),
+    ]);
+    finishProviderStream?.();
+    const firstChunk = firstBeforeProviderFinish ?? await firstChunkPromise;
+
+    expect(firstBeforeProviderFinish).not.toBeNull();
+    expect(firstChunk.value).toEqual({type: "text-delta", delta: "First"});
+    const remaining: ModelStreamChunk[] = [];
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) break;
+      remaining.push(next.value);
+    }
+    expect(remaining.at(-1)).toMatchObject({type: "final", response: {assistantText: "First"}});
+  });
+
+  it("retries a transient interrupted stream before exposing any text", async () => {
     const events: Array<{ event: string; details: Record<string, unknown> }> = [];
     let calls = 0;
     vi.stubGlobal(
@@ -162,8 +211,6 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
           return new Response(
             new ReadableStream({
               start(controller) {
-                const encoder = new TextEncoder();
-                controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'));
                 controller.error(new Error("terminated"));
               },
             }),
@@ -193,7 +240,7 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       provider_id: "test-provider",
     });
 
-    const chunks = [];
+    const chunks: ModelStreamChunk[] = [];
     for await (const chunk of adapter.completeStream!(request, tools, {
       promptAudit: {
         recorder: fakeRecorder(events),
@@ -222,6 +269,35 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       attempt: 1,
       buffered_text_discarded: true,
     });
+  });
+
+  it("does not retry an interrupted stream after exposing a text delta", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'));
+            setTimeout(() => controller.error(new Error("terminated")), 50);
+          },
+        }),
+        {status: 200, headers: {"content-type": "text/event-stream"}},
+      );
+    }));
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+    const chunks: ModelStreamChunk[] = [];
+    await expect(async () => {
+      for await (const chunk of adapter.completeStream!(request, tools)) chunks.push(chunk);
+    }).rejects.toThrow("terminated");
+
+    expect(calls).toBe(1);
+    expect(chunks).toEqual([{type: "text-delta", delta: "Partial"}]);
   });
 });
 
