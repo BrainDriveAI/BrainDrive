@@ -1922,6 +1922,7 @@ describe("SettingsModal", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
     expect(screen.getAllByText("Choose what to do").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/sign in with the username from the backup and this machine's password/i).length).toBeGreaterThan(0);
     expect(screen.queryByText("Backup needs attention")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Back Up This BrainDrive" })[0]!);
 
@@ -1941,6 +1942,7 @@ describe("SettingsModal", () => {
     });
 
     await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    expect(screen.getAllByText(/sign in with the username from the backup and this machine's password/i).length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: "Restore from Backup" })[0]!);
 
     await waitFor(() => {
