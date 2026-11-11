@@ -1,4 +1,5 @@
 import path from "node:path";
+import { request as httpRequest } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 
@@ -1300,6 +1301,94 @@ describe.sequential("gateway auth route integration", () => {
       content: expect.stringContaining("Today's date is 2026-07-03."),
     });
     expect(capturedProviderRequestBody.messages?.[0]?.content).not.toContain("2026-06-30");
+  });
+
+  it("flushes chat headers and records every timing phase before a delayed provider delta", async () => {
+    const previousTiming = process.env.BRAINDRIVE_CHAT_TIMING;
+    const previousAuditSink = process.env.PAA_AUDIT_FILE_SINK_ENABLED;
+    process.env.BRAINDRIVE_CHAT_TIMING = "1";
+    process.env.PAA_AUDIT_FILE_SINK_ENABLED = "true";
+    try {
+      context = await createTestServer({
+        authMode: "local-owner",
+        adapterConfig: {
+          base_url: "https://provider.example/v1",
+          model: "test-model",
+          api_key_env: "TEST_API_KEY",
+          provider_id: "test-provider",
+        },
+      });
+      let providerResponseReady = false;
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        providerResponseReady = true;
+        return streamingProviderResponse("Measured.");
+      }));
+      const origin = await context.app.listen({ host: "127.0.0.1", port: 0 });
+      const startedAt = performance.now();
+      const result = await new Promise<{
+        status: number;
+        headersAt: number;
+        firstBodyAt: number;
+        providerRespondedAtHeaders: boolean;
+      }>((resolve, reject) => {
+        const request = httpRequest(new URL("/message", origin), {
+          method: "POST",
+          headers: {
+            ...localOwnerAdminHeaders(),
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(JSON.stringify({ content: "Synthetic timing probe" }))),
+            "x-braindrive-chat-timing-id": "12345678-1234-1234-1234-123456789abc",
+          },
+        }, (response) => {
+          const headersAt = performance.now();
+          const providerRespondedAtHeaders = providerResponseReady;
+          let firstBodyAt = 0;
+          response.on("data", () => {
+            if (firstBodyAt === 0) firstBodyAt = performance.now();
+          });
+          response.on("end", () => resolve({
+            status: response.statusCode ?? 0,
+            headersAt,
+            firstBodyAt,
+            providerRespondedAtHeaders,
+          }));
+          response.on("error", reject);
+        });
+        request.on("error", reject);
+        request.end(JSON.stringify({ content: "Synthetic timing probe" }));
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.headersAt - startedAt).toBeGreaterThanOrEqual(0);
+      expect(result.providerRespondedAtHeaders,
+        `headers arrived after provider response at ${(result.headersAt - startedAt).toFixed(1)}ms`).toBe(false);
+      expect(result.firstBodyAt - result.headersAt).toBeGreaterThanOrEqual(140);
+      const timingEvents = await readAuditEvents(context, "chat_timing.gateway_entry");
+      const eventNames = [
+        "chat_timing.gateway_entry",
+        "chat_timing.gateway_pre_stream",
+        "chat_timing.gateway_headers_written",
+        "chat_timing.provider_request_started",
+        "chat_timing.provider_response_headers",
+        "chat_timing.provider_first_delta",
+        "chat_timing.gateway_first_delta",
+        "chat_timing.gateway_first_sse_write",
+      ];
+      const auditEvents = await Promise.all(eventNames.map((eventName) => readAuditEvents(context!, eventName)));
+      expect(timingEvents).toHaveLength(1);
+      const recordedNames = auditEvents.flat().map((event) => event.event);
+      expect([...recordedNames].sort()).toEqual([...eventNames].sort());
+      expect(recordedNames.indexOf("chat_timing.gateway_headers_written"))
+        .toBeLessThan(recordedNames.indexOf("chat_timing.provider_request_started"));
+      expect(recordedNames.indexOf("chat_timing.provider_first_delta"))
+        .toBeLessThan(recordedNames.indexOf("chat_timing.gateway_first_sse_write"));
+    } finally {
+      if (typeof previousTiming === "string") process.env.BRAINDRIVE_CHAT_TIMING = previousTiming;
+      else delete process.env.BRAINDRIVE_CHAT_TIMING;
+      if (typeof previousAuditSink === "string") process.env.PAA_AUDIT_FILE_SINK_ENABLED = previousAuditSink;
+      else delete process.env.PAA_AUDIT_FILE_SINK_ENABLED;
+    }
   });
 
   it("requires onboarding when active provider credential is unset", async () => {

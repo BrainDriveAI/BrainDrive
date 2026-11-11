@@ -956,6 +956,7 @@ export async function buildServer(rootDir = process.cwd()) {
       });
     }
     reply.raw.writeHead(200, streamHeaders);
+    reply.raw.flushHeaders();
     if (chatTimingEnabled) {
       auditLog("chat_timing.gateway_headers_written", {
         correlation_id: correlationId,
