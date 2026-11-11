@@ -18,6 +18,8 @@ Memory and secrets are separate authorities even when one workflow coordinates t
 
 A starter-pack default change is paired work: update the corresponding tracked default/test fixture and provide an explicit non-overwriting migration/update path for existing owners. Do not make startup overwrite a customized owner file merely to align it with a new default.
 
+The base project agent may use another project's context when it is relevant, but it names the source page, shares only the minimum useful detail, and asks before using sensitive cross-page information. Career planning guidance also treats an owner-requested follow-up as a handoff to Your Journal and a later conversation, rather than inventing a recurring manual checklist. These rules are seeded starter guidance; because existing owner files are preserved, they do not silently rewrite an initialized profile.
+
 ### Profile facts and starter-pack guidance
 
 Project interview templates may instruct the owner agent to retain a grounded, stable fact in the owner profile without asking for routine confirmation, then tell the owner in the same turn. This applies only when the owner stated the fact directly and it is suitable for durable profile memory. Sensitive details, uncertain or inferred claims, and conflicting information require a clarifying question before they are treated as profile facts. These instructions are starter-pack guidance; they do not create an automatic startup migration or overwrite existing customized owner files. The Your Agent orientation also explains to the owner why profile facts may be retained and how to correct them.
