@@ -93,6 +93,10 @@ describe("memory init project scaffolding", () => {
         expect(interview).toContain("ask before treating them as profile memory");
         expect(interview).not.toContain("ask them to approve before you add those");
         expect(interview).not.toContain("only on the owner's clear approval");
+        if (page === "career") {
+          expect(interview).toContain("do not ask the owner to approve the corrected playback before writing");
+          expect(interview).toContain("write both **Your Goals** and **Your Plan** in that same turn");
+        }
       }
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-planning.md"), "utf8"))
         .resolves.toContain("# Career Planning");
