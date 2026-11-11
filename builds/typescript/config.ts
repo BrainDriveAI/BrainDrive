@@ -217,6 +217,9 @@ const brainDriveModelsKeyPreferenceSchema = z
     expires_unfunded_at: z.string().datetime({ offset: true }).optional(),
     last_attempt_at: z.string().datetime({ offset: true }).optional(),
     last_error: z.string().optional().nullable(),
+    purchase_email_total_usd: z.number().nonnegative().optional(),
+    purchase_email_balance_usd: z.number().nonnegative().optional(),
+    purchase_email_sent_at: z.string().datetime({ offset: true }).optional(),
   })
   .strict();
 

@@ -56,7 +56,7 @@ import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
 import { commitMemoryChange, ensureGitReady } from "../git.js";
-import { auditLog, configureAuditFileSink, disableAuditFileSink } from "../logger.js";
+import { auditLog, auditLogRequired, configureAuditFileSink, disableAuditFileSink } from "../logger.js";
 import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
@@ -119,6 +119,8 @@ const rootAgentUpdateSchema = z
 const RETIRED_DOCUMENT_PROCESSING_MESSAGE =
   "Document processing has been retired in this build while BrainDrive redesigns file handling. No file was saved or processed.";
 const CREDITS_STATUS_TIMEOUT_MS = 10_000;
+const BRAINDRIVE_MODELS_DEFAULT_ALIAS = "braindrive-models-default";
+const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 
 const skillCreateSchema = z
   .object({
@@ -235,6 +237,17 @@ const authCredentialsSchema = z
   .object({
     identifier: z.string().trim().min(1),
     password: z.string().min(8),
+  })
+  .strict();
+
+const modelsRecoveryRestoreSchema = z
+  .object({ recovery_copy: z.string().trim().min(1).max(4096) })
+  .strict();
+
+const modelsSupportReplacementSchema = z
+  .object({
+    approval_id: z.string().trim().min(1).max(128),
+    reason: z.string().trim().min(1).max(1000),
   })
   .strict();
 
@@ -1127,6 +1140,11 @@ export async function buildServer(rootDir = process.cwd()) {
 
   // Credits API base: use managed gateway when available, otherwise production credits server
   const creditsApiBase = managedApiBase || "https://my.braindrive.ai";
+  const brainDriveModelsProfile =
+    adapterConfig.provider_profiles?.[BRAINDRIVE_MODELS_PROVIDER_ID] ??
+    (adapterConfig.provider_id === BRAINDRIVE_MODELS_PROVIDER_ID ? adapterConfig : undefined);
+  const configuredModelsAlias = brainDriveModelsProfile?.model?.trim() || BRAINDRIVE_MODELS_DEFAULT_ALIAS;
+  const configuredModelsProvider = brainDriveModelsProfile?.provider_id?.trim() || BRAINDRIVE_MODELS_PROVIDER_ID;
   const loadGatewayVaultSecret = async (secretRef: string): Promise<string | undefined> => {
     const paths = resolveSecretsPaths();
     try {
@@ -1174,6 +1192,69 @@ export async function buildServer(rootDir = process.cwd()) {
       };
       await saveLivePreferences(nextPreferences);
     });
+  };
+
+  const deliverBrainDriveModelsPurchaseEmail = async (input: {
+    preferences: Preferences;
+    apiKey: string;
+    totalPurchasedUsd: number;
+    remainingUsd: number;
+  }): Promise<{ status: "sent" | "deduplicated" | "unconfigured" | "failed"; amountUsd?: number }> => {
+    const sinkUrl = process.env.BRAINDRIVE_MODELS_EMAIL_SINK_URL?.trim();
+    if (!sinkUrl) {
+      return { status: "unconfigured" };
+    }
+
+    const metadata = input.preferences.braindrive_models_key ?? {};
+    const previousTotal = metadata.purchase_email_total_usd ?? 0;
+    const amountUsd = Number((input.totalPurchasedUsd - previousTotal).toFixed(2));
+    if (amountUsd <= 0 && metadata.purchase_email_sent_at) {
+      return { status: "deduplicated" };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(sinkUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "braindrive_models_purchase",
+          amount_usd: amountUsd,
+          balance_usd: input.remainingUsd,
+          first_purchase: previousTotal <= 0,
+          recovery_copy: previousTotal <= 0 ? input.apiKey : undefined,
+          recovery_copy_label: previousTotal <= 0 ? "BrainDrive Models recovery copy" : undefined,
+          recovery_copy_instructions: previousTotal <= 0
+            ? "Keep this private. Use it only if the local BrainDrive Models credential is lost."
+            : undefined,
+          event_id: `purchase-${input.totalPurchasedUsd.toFixed(2)}`,
+        }),
+      });
+    } catch {
+      auditLog("credits.purchase_email.failed", { status: "transport_error" });
+      return { status: "failed" };
+    }
+    if (!response.ok) {
+      auditLog("credits.purchase_email.failed", { status: response.status });
+      return { status: "failed" };
+    }
+
+    const sentAt = new Date().toISOString();
+    await saveBrainDriveModelsProvisioningPreferences({
+      ...input.preferences,
+      braindrive_models_key: {
+        ...metadata,
+        purchase_email_total_usd: input.totalPurchasedUsd,
+        purchase_email_balance_usd: input.remainingUsd,
+        purchase_email_sent_at: sentAt,
+      },
+    });
+    auditLog("credits.purchase_email.sent", {
+      amount_usd: amountUsd,
+      balance_usd: input.remainingUsd,
+      first_purchase: previousTotal <= 0,
+    });
+    return { status: "sent", amountUsd };
   };
 
   const resolveProviderActivationReadiness = async (
@@ -1287,11 +1368,25 @@ export async function buildServer(rootDir = process.cwd()) {
           ? "ready"
           : "zero_balance";
       const persistedStatus = purchaseStatus === "activating" ? "checkout_pending" : purchaseStatus;
-      if (metadata?.checkout_pending || metadata?.status !== persistedStatus) {
+      const totalPurchasedUsd = finiteNumberFromUnknown(data.total_purchased_usd) ?? 0;
+      let purchaseEmail: { status: "sent" | "deduplicated" | "unconfigured" | "failed"; amountUsd?: number } = {
+        status: "unconfigured",
+      };
+      if (totalPurchasedUsd > 0 && purchaseStatus !== "activating") {
+        purchaseEmail = await deliverBrainDriveModelsPurchaseEmail({
+          preferences: currentPreferences,
+          apiKey: dedicatedKey,
+          totalPurchasedUsd,
+          remainingUsd,
+        });
+      }
+      const latestPreferences = await loadLivePreferences();
+      const latestMetadata = latestPreferences.braindrive_models_key;
+      if (latestMetadata?.checkout_pending || latestMetadata?.status !== persistedStatus) {
         await saveBrainDriveModelsProvisioningPreferences({
-          ...currentPreferences,
+          ...latestPreferences,
           braindrive_models_key: {
-            ...(metadata ?? {}),
+            ...(latestMetadata ?? {}),
             status: persistedStatus,
             checkout_pending: purchaseStatus === "activating",
             last_attempt_at: new Date().toISOString(),
@@ -1299,9 +1394,253 @@ export async function buildServer(rootDir = process.cwd()) {
           },
         });
       }
-      return { ...data, key_valid: true, purchase_status: purchaseStatus };
+      return {
+        ...data,
+        key_valid: true,
+        purchase_status: purchaseStatus,
+        purchase_email: purchaseEmail,
+      };
     } catch {
       return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "unavailable" };
+    }
+  });
+
+  app.post("/credits/recovery/restore", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = modelsRecoveryRestoreSchema.safeParse(request.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: "A recovery copy is required" });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${creditsApiBase}/credits/recovery/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recovery_copy: parsed.data.recovery_copy }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok || typeof payload.api_key !== "string" || payload.api_key.trim().length === 0) {
+        reply.code(response.status === 404 ? 400 : 502).send({
+          error: response.status === 404 ? "The recovery copy could not be restored" : "Recovery service unavailable",
+          code: response.status === 404 ? "recovery_copy_invalid" : "recovery_service_unavailable",
+        });
+        return;
+      }
+
+      const currentPreferences = await loadLivePreferences();
+      const secretRef = resolveBrainDriveModelsSecretRef(currentPreferences);
+      await saveGatewayVaultSecret(secretRef, payload.api_key);
+      const now = new Date().toISOString();
+      await saveBrainDriveModelsProvisioningPreferences({
+        ...currentPreferences,
+        provider_credentials: {
+          ...(currentPreferences.provider_credentials ?? {}),
+          [BRAINDRIVE_MODELS_PROVIDER_ID]: {
+            mode: "secret_ref",
+            secret_ref: secretRef,
+            required: true,
+          },
+        },
+        braindrive_models_key: {
+          ...(currentPreferences.braindrive_models_key ?? {}),
+          ...(typeof payload.key_id === "string" ? { key_id: payload.key_id } : {}),
+          ...(typeof payload.key_hash === "string" ? { key_hash: payload.key_hash } : {}),
+          masked_key: `${payload.api_key.slice(0, 4)}…${payload.api_key.slice(-4)}`,
+          status: "ready",
+          checkout_pending: false,
+          last_attempt_at: now,
+          last_error: null,
+        },
+      });
+      auditLog("credits.recovery_restored", { restored: true });
+      reply.send({
+        restored: true,
+        balance: typeof payload.balance === "object" && payload.balance !== null ? payload.balance : null,
+      });
+    } catch {
+      reply.code(502).send({ error: "Recovery service unavailable", code: "recovery_service_unavailable" });
+    }
+  });
+
+  app.post("/credits/support/replace", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = modelsSupportReplacementSchema.safeParse(request.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: "An approval id and replacement reason are required" });
+      return;
+    }
+    const supportToken = process.env.BRAINDRIVE_MODELS_SUPPORT_TOKEN?.trim();
+    if (!supportToken) {
+      reply.code(503).send({ error: "Support replacement is unavailable", code: "support_replacement_unconfigured" });
+      return;
+    }
+
+    auditLogRequired("credits.support_replacement_requested", {
+      approval_id: parsed.data.approval_id,
+      reason: parsed.data.reason,
+    });
+    try {
+      const response = await fetch(`${creditsApiBase}/credits/support/replace`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-BrainDrive-Support-Token": supportToken,
+        },
+        body: JSON.stringify({
+          approval_id: parsed.data.approval_id,
+          reason: parsed.data.reason,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok || typeof payload.api_key !== "string" || payload.api_key.trim().length === 0) {
+        reply.code(response.status === 401 || response.status === 403 ? 403 : 502).send({
+          error: "Support replacement could not be completed",
+          code: response.status === 401 || response.status === 403
+            ? "support_replacement_denied"
+            : "support_replacement_unavailable",
+        });
+        return;
+      }
+
+      const currentPreferences = await loadLivePreferences();
+      const secretRef = resolveBrainDriveModelsSecretRef(currentPreferences);
+      await saveGatewayVaultSecret(secretRef, payload.api_key);
+      const now = new Date().toISOString();
+      await saveBrainDriveModelsProvisioningPreferences({
+        ...currentPreferences,
+        provider_credentials: {
+          ...(currentPreferences.provider_credentials ?? {}),
+          [BRAINDRIVE_MODELS_PROVIDER_ID]: {
+            mode: "secret_ref",
+            secret_ref: secretRef,
+            required: true,
+          },
+        },
+        braindrive_models_key: {
+          ...(currentPreferences.braindrive_models_key ?? {}),
+          ...(typeof payload.key_id === "string" ? { key_id: payload.key_id } : {}),
+          ...(typeof payload.key_hash === "string" ? { key_hash: payload.key_hash } : {}),
+          masked_key: `${payload.api_key.slice(0, 4)}…${payload.api_key.slice(-4)}`,
+          status: "ready",
+          checkout_pending: false,
+          last_attempt_at: now,
+          last_error: null,
+        },
+      });
+      auditLogRequired("credits.support_replacement_completed", {
+        approval_id: parsed.data.approval_id,
+        old_credential_revoked: payload.old_key_revoked === true,
+        audit_id: typeof payload.audit_id === "string" ? payload.audit_id : null,
+      });
+      reply.send({
+        replaced: true,
+        old_credential_revoked: payload.old_key_revoked === true,
+        balance: typeof payload.balance === "object" && payload.balance !== null ? payload.balance : null,
+        audit_id: typeof payload.audit_id === "string" ? payload.audit_id : null,
+      });
+    } catch {
+      reply.code(502).send({ error: "Support replacement unavailable", code: "support_replacement_unavailable" });
+    }
+  });
+
+  app.get("/credits/diagnostics", async (_request, reply) => {
+    const unavailable = (statusCode: number, errorCode: string, message: string) => {
+      reply.code(statusCode).send({
+        client_alias: configuredModelsAlias,
+        backing_route: null,
+        provider: configuredModelsProvider,
+        configuration_source: "adapter_config",
+        process_start_time: GATEWAY_PROCESS_STARTED_AT,
+        live_vs_disk_match: null,
+        verified: false,
+        error_code: errorCode,
+        error: message,
+      });
+    };
+
+    try {
+      const preferences = await loadLivePreferences();
+      const secretRef = resolveBrainDriveModelsSecretRef(preferences);
+      const apiKey = (await loadGatewayVaultSecret(secretRef))?.trim();
+      if (!apiKey) {
+        unavailable(404, "diagnostics_credential_unavailable", "Live BrainDrive Models diagnostics are unavailable");
+        return;
+      }
+
+      const response = await fetchCreditsStatus(`${creditsApiBase}/credits/diagnostics`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!response.ok) {
+        unavailable(
+          response.status === 404 ? 404 : 503,
+          "diagnostics_unavailable",
+          "Live BrainDrive Models diagnostics are unavailable"
+        );
+        return;
+      }
+
+      const payload = await parseModelsDiagnosticsResponse(response);
+      if (!payload) {
+        unavailable(503, "diagnostics_invalid", "Live diagnostics returned an incomplete response");
+        return;
+      }
+
+      const expected = {
+        clientAlias: configuredModelsAlias,
+        provider: configuredModelsProvider,
+        model: configuredModelsAlias,
+      };
+      const liveValuesPresent =
+        payload.clientAlias !== null && payload.provider !== null && payload.model !== null;
+      const computedMatch = liveValuesPresent
+        ? payload.clientAlias === expected.clientAlias &&
+          payload.provider === expected.provider &&
+          payload.model === expected.model
+        : null;
+      const liveVsDiskMatch =
+        payload.liveVsDiskMatch !== null ? payload.liveVsDiskMatch && computedMatch !== false : computedMatch;
+
+      reply.send({
+        client_alias: payload.clientAlias ?? configuredModelsAlias,
+        backing_route: payload.backingRoute,
+        provider: payload.provider,
+        model: payload.model,
+        configuration_source: payload.configurationSource,
+        process_start_time: payload.processStartTime,
+        live_vs_disk_match: liveVsDiskMatch,
+        verified: payload.verified === true && liveVsDiskMatch !== false,
+        ...(payload.verificationId ? { verification_id: payload.verificationId } : {}),
+        ...(payload.error ? { error: payload.error } : {}),
+      });
+    } catch {
+      unavailable(503, "diagnostics_unavailable", "Live BrainDrive Models diagnostics are unavailable");
+    }
+  });
+
+  app.get("/credits/deployment", async (_request, reply) => {
+    const configuredPath = process.env.BRAINDRIVE_MODELS_DEPLOYMENT_RECORD?.trim();
+    if (!configuredPath) {
+      reply.code(404).send({ verified: false, error_code: "deployment_record_unavailable" });
+      return;
+    }
+
+    const recordPath = path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.resolve(rootDir, configuredPath);
+    try {
+      const record = JSON.parse(await readFile(recordPath, "utf8")) as unknown;
+      const safeRecord = sanitizeModelsDeploymentRecord(record);
+      if (!safeRecord) {
+        reply.code(404).send({ verified: false, error_code: "deployment_record_invalid" });
+        return;
+      }
+      reply.send({
+        verified: safeRecord.verification_status === "verified",
+        record: safeRecord,
+      });
+    } catch {
+      reply.code(404).send({ verified: false, error_code: "deployment_record_unavailable" });
     }
   });
 
@@ -1896,12 +2235,12 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.post("/credits/checkout", async (request, reply) => {
     const bodySchema = z.object({
-      amount: z.number().min(1),
+      amount: z.number().min(5),
       email: z.string().email(),
     });
     const parsed = bodySchema.safeParse(request.body);
     if (!parsed.success) {
-      reply.code(400).send({ error: "Invalid request: amount must be >= 1 and a valid email is required" });
+      reply.code(400).send({ error: "Invalid request: amount must be >= 5 and a valid email is required" });
       return;
     }
     if (isSyntheticLocalEmail(parsed.data.email)) {
@@ -4257,6 +4596,139 @@ function finiteNumberFromUnknown(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+type ModelsDiagnosticsPayload = {
+  clientAlias: string | null;
+  backingRoute: string | null;
+  provider: string | null;
+  model: string | null;
+  configurationSource: string | null;
+  processStartTime: string | null;
+  liveVsDiskMatch: boolean | null;
+  verified: boolean;
+  verificationId: string | null;
+  error: string | null;
+};
+
+async function parseModelsDiagnosticsResponse(resp: Response): Promise<ModelsDiagnosticsPayload | null> {
+  let value: unknown;
+  try {
+    value = await resp.json();
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const stringValue = (...keys: string[]): string | null => {
+    for (const key of keys) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  };
+  const booleanValue = (key: string): boolean | null =>
+    typeof record[key] === "boolean" ? (record[key] as boolean) : null;
+
+  const parsed: ModelsDiagnosticsPayload = {
+    clientAlias: stringValue("client_alias", "alias", "model_alias"),
+    backingRoute: stringValue("backing_route", "route", "upstream_route"),
+    provider: stringValue("provider", "provider_id"),
+    model: stringValue("model", "model_id", "model_route", "modelRoute"),
+    configurationSource: stringValue("configuration_source", "config_source"),
+    processStartTime: stringValue("process_start_time", "container_start_time", "start_time"),
+    liveVsDiskMatch: booleanValue("live_vs_disk_match"),
+    verified: record.verified === true,
+    verificationId: stringValue("verification_id", "check_id"),
+    error: stringValue("error"),
+  };
+  if (
+    !parsed.clientAlias ||
+    !parsed.backingRoute ||
+    !parsed.provider ||
+    !parsed.model ||
+    !parsed.configurationSource ||
+    !parsed.processStartTime ||
+    parsed.liveVsDiskMatch === null
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
+type SafeModelsDeploymentRecord = {
+  deployment_id?: string;
+  approval_source?: string;
+  provider_route?: string;
+  model_route?: string;
+  configuration_target?: string;
+  pricing_assumptions?: string;
+  verification_steps?: string[];
+  rollback_path?: string;
+  reevaluation_trigger?: string;
+  verification_status?: "verified" | "failed" | "unverified";
+  verification_id?: string;
+  deployed_at?: string;
+  next_action?: string;
+};
+
+function sanitizeModelsDeploymentRecord(value: unknown): SafeModelsDeploymentRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const safe: SafeModelsDeploymentRecord = {};
+  const stringFields = [
+    "deployment_id",
+    "approval_source",
+    "provider_route",
+    "model_route",
+    "configuration_target",
+    "pricing_assumptions",
+    "rollback_path",
+    "reevaluation_trigger",
+    "verification_id",
+    "deployed_at",
+    "next_action",
+  ] as const;
+  for (const field of stringFields) {
+    if (typeof record[field] === "string" && record[field].trim().length > 0) {
+      safe[field] = record[field].trim();
+    }
+  }
+  if (Array.isArray(record.verification_steps)) {
+    const steps = record.verification_steps.filter(
+      (step): step is string => typeof step === "string" && step.trim().length > 0
+    );
+    if (steps.length > 0) {
+      safe.verification_steps = steps.map((step) => step.trim());
+    }
+  }
+  if (
+    record.verification_status === "verified" ||
+    record.verification_status === "failed" ||
+    record.verification_status === "unverified"
+  ) {
+    safe.verification_status = record.verification_status;
+  }
+  if (
+    !safe.approval_source ||
+    !safe.provider_route ||
+    !safe.model_route ||
+    !safe.configuration_target ||
+    !safe.pricing_assumptions ||
+    !safe.verification_steps?.length ||
+    !safe.rollback_path ||
+    !safe.reevaluation_trigger
+  ) {
+    return null;
+  }
+  return safe;
 }
 
 async function parseCreditsStatusResponse(resp: Response): Promise<

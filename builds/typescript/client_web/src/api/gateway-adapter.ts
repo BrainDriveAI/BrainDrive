@@ -22,6 +22,7 @@ import {
   type GatewayMemoryBackupRunResponse,
   type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
+  type GatewayModelsDiagnostics,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
   type GatewaySkillBinding,
@@ -888,6 +889,16 @@ export async function getCreditsStatus(): Promise<GatewayCreditsStatus> {
   }
 
   return (await response.json()) as GatewayCreditsStatus;
+}
+
+export async function getModelsDiagnostics(): Promise<GatewayModelsDiagnostics> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/diagnostics`, {
+    headers: withLocalOwnerHeaders(),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as GatewayModelsDiagnostics;
 }
 
 export async function createCreditsCheckout(input: {
