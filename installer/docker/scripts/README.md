@@ -63,6 +63,10 @@ Developer orientation: start with the [developer index](../../../docs/developers
 - `start.ps1`
 - `stop.sh`
 - `stop.ps1`
+- `uninstall.sh`
+- `uninstall.ps1`
+- `preserved-env.sh`
+- `preserved-env.ps1`
 - `support-bundle.sh`
 - `support-bundle.ps1`
 - `upgrade.sh`
@@ -165,6 +169,22 @@ Arguments:
 
 Key behavior:
 - Both the stop command and status query fail closed before completion output.
+
+### uninstall (`uninstall.sh`, `uninstall.ps1`)
+
+What it does:
+- Removes the selected Docker Compose stack, its images, and the installer folder.
+- Requires the owner to choose whether Docker volumes and installer settings are kept or removed; interactive use defaults to keeping data.
+- With keep-data, saves `.env` in the user config directory so a later install restores the settings. With remove-data, removes Docker volumes and the saved settings file.
+
+Usage:
+- Shell: `./installer/docker/scripts/uninstall.sh [local|prod|dev] [--keep-data|--remove-data] [--yes]`
+- PowerShell: `./installer/docker/scripts/uninstall.ps1 [-Mode local|prod|dev] [-KeepData|-RemoveData] [-Yes]`
+
+Safety:
+- `--yes` / `-Yes` skips only the typed uninstall confirmation; it does not choose a data policy. Specify `--keep-data` or `--remove-data` for non-interactive use.
+- A conflicting preexisting saved `.env` stops uninstall before the Docker stack is removed.
+- This Docker command does not uninstall the native desktop app or clean up its Tailscale connection.
 
 ### upgrade (`upgrade.sh`, `upgrade.ps1`)
 

@@ -45,6 +45,8 @@ describe("memory init project scaffolding", () => {
 
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
         .resolves.toContain("# Your Profile");
+      await expect(readFile(path.join(memoryRoot, "me", "todo.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
       const projectsManifest = await readProjectsManifest(memoryRoot);
       expect(projectsManifest[0]).toMatchObject({
         id: "your-agent",
