@@ -804,6 +804,7 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   app.post("/message", async (request, reply) => {
+    const messageRouteStartedAt = performance.now();
     const normalizedRequest = gatewayAdapter.normalizeMessageRequest(request.body, request.headers["x-conversation-id"]);
     if (!normalizedRequest.ok) {
       sendInvalidRequest(reply, "/message", normalizedRequest.failure.issueCount);
@@ -825,6 +826,20 @@ export async function buildServer(rootDir = process.cwd()) {
       });
       reply.code(404).send({ error: "Conversation not found" });
       return;
+    }
+
+    const correlationId = request.paaAuthContext?.correlation_id ?? crypto.randomUUID();
+    const chatTimingEnabled = process.env.BRAINDRIVE_CHAT_TIMING === "1";
+    const requestedTimingId = request.headers["x-braindrive-chat-timing-id"];
+    const browserTimingId = chatTimingEnabled && typeof requestedTimingId === "string" &&
+      /^[0-9a-f-]{36}$/i.test(requestedTimingId) ? requestedTimingId : undefined;
+    const browserTimingDetails = browserTimingId ? { browser_timing_id: browserTimingId } : {};
+    if (chatTimingEnabled) {
+      auditLog("chat_timing.gateway_entry", {
+        correlation_id: correlationId,
+        ...browserTimingDetails,
+        elapsed_ms: Number((performance.now() - messageRouteStartedAt).toFixed(2)),
+      });
     }
 
     const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
@@ -854,7 +869,6 @@ export async function buildServer(rootDir = process.cwd()) {
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
-    const correlationId = request.paaAuthContext?.correlation_id ?? crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
@@ -934,13 +948,29 @@ export async function buildServer(rootDir = process.cwd()) {
       streamHeaders["x-context-window-message"] = contextWindow.warning.message;
     }
 
+    if (chatTimingEnabled) {
+      auditLog("chat_timing.gateway_pre_stream", {
+        correlation_id: correlationId,
+        ...browserTimingDetails,
+        elapsed_ms: Number((performance.now() - messageRouteStartedAt).toFixed(2)),
+      });
+    }
     reply.raw.writeHead(200, streamHeaders);
+    if (chatTimingEnabled) {
+      auditLog("chat_timing.gateway_headers_written", {
+        correlation_id: correlationId,
+        ...browserTimingDetails,
+        elapsed_ms: Number((performance.now() - messageRouteStartedAt).toFixed(2)),
+      });
+    }
 
     let assistantBuffer = "";
     let currentAssistantMessageId = crypto.randomUUID();
     let lastPersistedAssistantMessageId: string | null = null;
     let traceStatus: "started" | "completed" | "error" = "started";
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
+    let gatewayFirstDeltaTimed = false;
+    let gatewayFirstSseWriteTimed = false;
 
     try {
       const liveAdapterConfig = resolveEffectiveAdapterConfig(adapterConfig, livePreferences);
@@ -994,6 +1024,14 @@ export async function buildServer(rootDir = process.cwd()) {
 
         if (event.type === "text-delta") {
           assistantBuffer += event.delta;
+          if (chatTimingEnabled && !gatewayFirstDeltaTimed) {
+            gatewayFirstDeltaTimed = true;
+            auditLog("chat_timing.gateway_first_delta", {
+              correlation_id: correlationId,
+              ...browserTimingDetails,
+              elapsed_ms: Number((performance.now() - messageRouteStartedAt).toFixed(2)),
+            });
+          }
         }
 
         if (event.type === "error") {
@@ -1031,6 +1069,14 @@ export async function buildServer(rootDir = process.cwd()) {
           messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
         });
         reply.raw.write(formatSseEvent(outgoingEvent));
+        if (chatTimingEnabled && event.type === "text-delta" && !gatewayFirstSseWriteTimed) {
+          gatewayFirstSseWriteTimed = true;
+          auditLog("chat_timing.gateway_first_sse_write", {
+            correlation_id: correlationId,
+            ...browserTimingDetails,
+            elapsed_ms: Number((performance.now() - messageRouteStartedAt).toFixed(2)),
+          });
+        }
       }
 
       if (assistantBuffer.trim().length > 0) {

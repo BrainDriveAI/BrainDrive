@@ -1,5 +1,6 @@
 import type { AdapterConfig, GatewayEngineRequest, ToolDefinition } from "../contracts.js";
 import type { AdapterRuntimeSecrets } from "./index.js";
+import { auditLog } from "../logger.js";
 import type {
   CostMetadata,
   ModelAdapter,
@@ -245,11 +246,26 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
     );
 
     for (let attempt = 0; attempt <= STREAM_INTERRUPTION_MAX_RETRIES; attempt += 1) {
+      const providerRequestStartedAt = performance.now();
+      if (process.env.BRAINDRIVE_CHAT_TIMING === "1") {
+        auditLog("chat_timing.provider_request_started", {
+          correlation_id: request.metadata.correlation_id,
+          attempt: attempt + 1,
+        });
+      }
       const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
       });
+      const providerResponseHeadersAt = performance.now();
+      if (process.env.BRAINDRIVE_CHAT_TIMING === "1") {
+        auditLog("chat_timing.provider_response_headers", {
+          correlation_id: request.metadata.correlation_id,
+          attempt: attempt + 1,
+          request_to_headers_ms: Number((providerResponseHeadersAt - providerRequestStartedAt).toFixed(2)),
+        });
+      }
 
       const contentType = response.headers.get("content-type") ?? "";
       if (!response.ok) {
@@ -303,7 +319,18 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       let streamedTextInAttempt = false;
       try {
         let parsed: ParsedProviderStream | undefined;
-        for await (const streamEvent of readProviderStream(response, contentType, this.config.model, options)) {
+        let providerFirstDeltaTimed = false;
+        for await (const streamEvent of readProviderStream(response, contentType, this.config.model, options, () => {
+          if (providerFirstDeltaTimed || process.env.BRAINDRIVE_CHAT_TIMING !== "1") return;
+          providerFirstDeltaTimed = true;
+          auditLog("chat_timing.provider_first_delta", {
+            correlation_id: request.metadata.correlation_id,
+            attempt: attempt + 1,
+            request_to_headers_ms: Number((providerResponseHeadersAt - providerRequestStartedAt).toFixed(2)),
+            headers_to_first_delta_ms: Number((performance.now() - providerResponseHeadersAt).toFixed(2)),
+            request_to_first_delta_ms: Number((performance.now() - providerRequestStartedAt).toFixed(2)),
+          });
+        })) {
           if (streamEvent.type === "text-delta") {
             streamedTextInAttempt = true;
             yield streamEvent;
@@ -391,7 +418,8 @@ async function* readProviderStream(
   response: Response,
   contentType: string,
   configuredModel: string,
-  options?: ModelAdapterCallOptions
+  options?: ModelAdapterCallOptions,
+  onFirstTextDelta?: () => void,
 ): AsyncGenerator<ProviderStreamEvent> {
   let assistantText = "";
   let finishReason = "completed";
@@ -454,6 +482,7 @@ async function* readProviderStream(
       const textDelta = normalizeAssistantText(delta.content);
       if (textDelta.length > 0) {
         assistantText += textDelta;
+        onFirstTextDelta?.();
         yield { type: "text-delta", delta: textDelta };
       }
 

@@ -4,6 +4,9 @@ import type { GatewayEngineRequest, ToolDefinition } from "../contracts.js";
 import type { PromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import type { ModelStreamChunk } from "./base.js";
 import { OpenAICompatibleAdapter } from "./openai-compatible.js";
+import { auditLog } from "../logger.js";
+
+vi.mock("../logger.js", () => ({auditLog: vi.fn()}));
 
 const request: GatewayEngineRequest = {
   messages: [
@@ -46,6 +49,8 @@ const tools: ToolDefinition[] = [
 describe("OpenAICompatibleAdapter prompt audit", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.mocked(auditLog).mockClear();
   });
 
   it("captures the exact non-streaming provider body passed to fetch", async () => {
@@ -298,6 +303,46 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
 
     expect(calls).toBe(1);
     expect(chunks).toEqual([{type: "text-delta", delta: "Partial"}]);
+  });
+
+  it("records content-free provider header and first-delta phases with a delayed local stream", async () => {
+    vi.stubEnv("BRAINDRIVE_CHAT_TIMING", "1");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 35));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            setTimeout(() => {
+              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"mock"}}]}\n\n'));
+              controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            }, 45);
+          },
+        }),
+        {status: 200, headers: {"content-type": "text/event-stream"}},
+      );
+    }));
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+    for await (const _chunk of adapter.completeStream!(request, tools)) {
+      // Consume the local mock stream to completion.
+    }
+
+    const timingLog = vi.mocked(auditLog).mock.calls.find(([event]) =>
+      event === "chat_timing.provider_first_delta");
+    expect(timingLog?.[1]).toMatchObject({correlation_id: "correlation-1", attempt: 1});
+    expect(timingLog?.[1].request_to_headers_ms).toBeGreaterThanOrEqual(25);
+    expect(timingLog?.[1].headers_to_first_delta_ms).toBeGreaterThanOrEqual(35);
+    expect(timingLog?.[1].request_to_first_delta_ms).toBeGreaterThanOrEqual(60);
+    expect(Object.keys(timingLog?.[1] ?? {}).sort()).toEqual([
+      "attempt", "correlation_id", "headers_to_first_delta_ms", "request_to_first_delta_ms",
+      "request_to_headers_ms",
+    ]);
   });
 });
 
