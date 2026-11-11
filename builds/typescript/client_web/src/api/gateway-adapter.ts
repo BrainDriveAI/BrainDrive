@@ -271,6 +271,8 @@ export async function* sendMessage(
   const headers: Record<string, string> = withLocalOwnerHeaders({
     "Content-Type": "application/json"
   });
+  const chatTimingId = resolveChatTimingId();
+  if (chatTimingId) headers["x-braindrive-chat-timing-id"] = chatTimingId;
   if (conversationId) {
     headers["x-conversation-id"] = conversationId;
   }
@@ -294,9 +296,35 @@ export async function* sendMessage(
     options.onContextWarning?.(contextWarning);
   }
 
+  let firstParsedTextDeltaMarked = false;
   for await (const event of parseSSE(response)) {
-    yield toChatEvent(event.event, event.data);
+    const chatEvent = toChatEvent(event.event, event.data);
+    if (chatEvent.type === "text-delta" && !firstParsedTextDeltaMarked) {
+      firstParsedTextDeltaMarked = true;
+      markFirstParsedTextDeltaForTiming(chatTimingId);
+    }
+    yield chatEvent;
   }
+}
+
+function resolveChatTimingId(): string | null {
+  if (typeof window === "undefined") return null;
+  const timingWindow = window as Window & {
+    __BRAINDRIVE_CHAT_TIMING__?: boolean;
+    __BRAINDRIVE_CHAT_TIMING_ID__?: string;
+  };
+  const value = timingWindow.__BRAINDRIVE_CHAT_TIMING_ID__;
+  return timingWindow.__BRAINDRIVE_CHAT_TIMING__ && typeof value === "string" &&
+    /^[0-9a-f-]{36}$/i.test(value) ? value : null;
+}
+
+function markFirstParsedTextDeltaForTiming(timingId: string | null): void {
+  if (typeof window === "undefined") return;
+  const timingWindow = window as Window & { __BRAINDRIVE_CHAT_TIMING__?: boolean };
+  if (!timingWindow.__BRAINDRIVE_CHAT_TIMING__) return;
+  window.dispatchEvent(new CustomEvent("braindrive:host-chat-timing", {
+    detail: { phase: "client_parsed_delta", at: performance.now(), timing_id: timingId },
+  }));
 }
 
 export async function listConversations(): Promise<Conversation[]> {

@@ -215,6 +215,40 @@ describe("gateway-adapter SSE parsing", () => {
     });
   });
 
+  it("emits one content-free timing event when the first text delta is parsed", async () => {
+    (window as Window & { __BRAINDRIVE_CHAT_TIMING__?: boolean }).__BRAINDRIVE_CHAT_TIMING__ = true;
+    (window as Window & { __BRAINDRIVE_CHAT_TIMING_ID__?: string }).__BRAINDRIVE_CHAT_TIMING_ID__ =
+      "12345678-1234-1234-1234-123456789abc";
+    const timingEvents: Array<Record<string, unknown>> = [];
+    const listener = (event: Event) => {
+      timingEvents.push((event as CustomEvent<Record<string, unknown>>).detail);
+    };
+    window.addEventListener("braindrive:host-chat-timing", listener);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => sseResponse([
+        "event: text-delta", 'data: {"delta":"first private text"}', "",
+        "event: text-delta", 'data: {"delta":"second private text"}', "",
+        "event: done", 'data: {"finish_reason":"stop"}', "",
+      ].join("\n")))
+    );
+
+    try {
+      const events = await collectEvents(sendMessage(null, "hi"));
+      expect(events).toHaveLength(3);
+      expect(timingEvents).toHaveLength(1);
+      expect(timingEvents[0]).toMatchObject({
+        phase: "client_parsed_delta", timing_id: "12345678-1234-1234-1234-123456789abc",
+      });
+      expect(typeof timingEvents[0]?.at).toBe("number");
+      expect(JSON.stringify(timingEvents)).not.toContain("private text");
+    } finally {
+      window.removeEventListener("braindrive:host-chat-timing", listener);
+      delete (window as Window & { __BRAINDRIVE_CHAT_TIMING__?: boolean }).__BRAINDRIVE_CHAT_TIMING__;
+      delete (window as Window & { __BRAINDRIVE_CHAT_TIMING_ID__?: string }).__BRAINDRIVE_CHAT_TIMING_ID__;
+    }
+  });
+
   it("exposes context-window warnings from response headers", async () => {
     const onContextWarning = vi.fn();
     vi.stubGlobal(
