@@ -4,8 +4,8 @@ import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucid
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import type { InterfaceDocumentState } from "@/api/interface-context";
 import { Button } from "@/components/ui/button";
-import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { projectDisplayLabel } from "@/components/layout/sidebar-labels";
+import DocumentSurface from "./DocumentSurface";
 
 type DocumentViewProps = {
   projectId: string;
@@ -41,6 +41,7 @@ export default function DocumentView({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
+  const [hasSavedChanges, setHasSavedChanges] = useState(false);
 
   const isDirty = isEditing && draft !== content;
 
@@ -75,6 +76,7 @@ export default function DocumentView({
 
     try {
       await writeFileContent(projectId, file.path, draft);
+      setHasSavedChanges(true);
       setIsEditing(false);
       onStateChange?.("viewing");
       onDirtyChange?.(false);
@@ -111,6 +113,7 @@ export default function DocumentView({
   function startEditing() {
     setDraft(content);
     setError(null);
+    setHasSavedChanges(false);
     setIsEditing(true);
     onStateChange?.("editing");
     onDirtyChange?.(false);
@@ -131,6 +134,9 @@ export default function DocumentView({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {hasSavedChanges && !isEditing ? (
+              <span role="status" className="text-xs text-bd-text-muted">Saved</span>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -249,21 +255,16 @@ export default function DocumentView({
               </div>
             </div>
           ) : isEditing ? (
-            <textarea
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                onDirtyChange?.(event.target.value !== content);
+            <DocumentSurface
+              mode="edit"
+              content={draft}
+              onChange={(nextDraft) => {
+                setDraft(nextDraft);
+                onDirtyChange?.(nextDraft !== content);
               }}
-              spellCheck={false}
-              className="min-h-[420px] flex-1 resize-none rounded-2xl border border-bd-border bg-bd-bg-secondary px-5 py-4 font-mono text-[14px] leading-7 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
             />
           ) : (
-            <article className="py-2">
-              <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
-                <MarkdownContent content={content} />
-              </div>
-            </article>
+            <DocumentSurface mode="read" content={content} />
           )}
         </div>
       </div>

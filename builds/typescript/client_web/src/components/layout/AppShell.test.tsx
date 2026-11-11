@@ -7,6 +7,7 @@ import type { Project, ProjectFile } from "@/types/ui";
 const refreshProjectsMock = vi.fn();
 const refreshSelectedProjectFilesMock = vi.fn<() => Promise<ProjectFile[]>>();
 const selectProjectMock = vi.fn();
+const getOnboardingStatusMock = vi.hoisted(() => vi.fn());
 
 const projects: Project[] = [
   {
@@ -31,12 +32,15 @@ const initialProjectFiles: ProjectFile[] = [
 ];
 
 vi.mock("@/api/gateway-adapter", () => ({
-  getOnboardingStatus: vi.fn(async () => ({
-    onboarding_required: false,
-    active_provider_profile: null,
-    default_provider_profile: null,
-    providers: [],
-  })),
+  getOnboardingStatus: getOnboardingStatusMock,
+}));
+
+vi.mock("@/components/settings/SettingsModal", () => ({
+  default: ({ mode }: { mode: string }) => (
+    <div role="dialog" aria-label="Model setup" data-mode={mode}>
+      Choose a model provider
+    </div>
+  ),
 }));
 
 vi.mock("@/hooks/useProjects", () => ({
@@ -93,6 +97,12 @@ describe("AppShell project file refresh", () => {
     refreshSelectedProjectFilesMock.mockReset();
     refreshSelectedProjectFilesMock.mockResolvedValue([]);
     selectProjectMock.mockReset();
+    getOnboardingStatusMock.mockResolvedValue({
+      onboarding_required: false,
+      active_provider_profile: null,
+      default_provider_profile: null,
+      providers: [],
+    });
 
     vi.stubGlobal(
       "ResizeObserver",
@@ -101,6 +111,20 @@ describe("AppShell project file refresh", () => {
         disconnect() {}
       }
     );
+  });
+
+  it("opens model setup after login when provider onboarding is required", async () => {
+    getOnboardingStatusMock.mockResolvedValueOnce({
+      onboarding_required: true,
+      active_provider_profile: null,
+      default_provider_profile: "braindrive-models",
+      providers: [],
+    });
+
+    render(<AppShell />);
+
+    expect(await screen.findByRole("dialog", { name: "Model setup" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Model setup" })).toHaveAttribute("data-mode", "local");
   });
 
   afterEach(() => {

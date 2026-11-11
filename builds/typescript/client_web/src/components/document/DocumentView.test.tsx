@@ -53,7 +53,36 @@ describe("DocumentView", () => {
         "# Updated\nPlain text remains plain."
       );
     });
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved");
     expect(onStateChange).toHaveBeenLastCalledWith("viewing");
+  });
+
+  it("renders an owner-facing explanation in the Agent orientation", async () => {
+    const guidance = [
+      "# Your Agent - Agent Context",
+      "",
+      "## Why BrainDrive Works This Way",
+      "",
+      "BrainDrive reads the pages that matter so you do not have to repeat yourself.",
+      "These rules help you see what BrainDrive knows and where it saves it.",
+    ].join("\n");
+    readFileContentMock.mockResolvedValueOnce(guidance);
+
+    render(
+      <DocumentView
+        projectId="your-agent"
+        projectName="Your Agent"
+        file={{ name: "AGENT.md", path: "memory/starter-pack/projects/templates/your-agent/AGENT.md" }}
+        onBack={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("heading", {
+      level: 2,
+      name: "Why BrainDrive Works This Way",
+    })).toBeInTheDocument();
+    expect(screen.getByText(/BrainDrive reads the pages that matter/)).toBeInTheDocument();
+    expect(screen.getByText(/These rules help you see what BrainDrive knows/)).toBeInTheDocument();
   });
 
   it("asks before leaving with unsaved changes", async () => {

@@ -502,6 +502,22 @@ describe("SettingsModal", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("preselects BrainDrive Models when onboarding has no active provider", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      active_provider_profile: null,
+      default_provider_profile: "braindrive-models",
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    expect(
+      screen.getAllByRole("button", { name: /BrainDrive Models provider settings/i })[0]
+    ).toHaveAttribute("aria-current", "true");
+  });
+
   it("removes a configured provider key from the provider card", async () => {
     const user = userEvent.setup();
     const removedSettings: GatewaySettings = {

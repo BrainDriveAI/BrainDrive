@@ -18,6 +18,10 @@ Memory and secrets are separate authorities even when one workflow coordinates t
 
 A starter-pack default change is paired work: update the corresponding tracked default/test fixture and provide an explicit non-overwriting migration/update path for existing owners. Do not make startup overwrite a customized owner file merely to align it with a new default.
 
+### Profile facts and starter-pack guidance
+
+Project interview templates may instruct the owner agent to retain a grounded, stable fact in the owner profile without asking for routine confirmation, then tell the owner in the same turn. This applies only when the owner stated the fact directly and it is suitable for durable profile memory. Sensitive details, uncertain or inferred claims, and conflicting information require a clarifying question before they are treated as profile facts. These instructions are starter-pack guidance; they do not create an automatic startup migration or overwrite existing customized owner files. The Your Agent orientation also explains to the owner why profile facts may be retained and how to correct them.
+
 Preferences may store `secret_ref` and optional environment-reference names, never provider secret values. At provider startup/request time the resolver checks an allowed environment reference, then the encrypted vault, then an optional one-time prompt according to policy. Missing required material fails closed.
 
 The BrainDrive Models credits credential is a dedicated provider secret reference, defaulting to `provider/ai-gateway/api_key`, and is used by checkout and credits status independently from the active chat provider. Gateway status reads that vault value server-side only. If prior BrainDrive Models metadata exists but the vault value is missing, status reports repair required instead of provisioning over or falling back to another provider credential.

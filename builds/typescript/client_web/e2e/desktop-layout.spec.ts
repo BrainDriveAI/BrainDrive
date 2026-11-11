@@ -39,4 +39,54 @@ test.describe("Desktop layout regression", () => {
     const sendButton = visibleSendButton(page);
     await expect(sendButton).toBeVisible();
   });
+
+  test("desktop page has no horizontal overflow and primary controls stay reachable", async ({ page }) => {
+    const viewport = page.viewportSize()!;
+    const profileButton = page.getByRole("button", { name: "Open profile menu" });
+    const composer = visibleComposer(page);
+    const sendButton = visibleSendButton(page);
+
+    await expect(profileButton).toBeVisible();
+    await expect(composer).toBeVisible();
+    await expect(sendButton).toBeVisible();
+    const dimensions = await page.evaluate(() => ({
+      viewportWidth: document.documentElement.clientWidth,
+      pageWidth: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+
+    for (const control of [profileButton, composer, sendButton]) {
+      const box = await control.boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    }
+  });
+
+  test("first Page screen shows a readable empty state with controls inside the viewport", async ({ page }) => {
+    const viewport = page.viewportSize()!;
+    const heading = page.getByRole("heading", { name: "Welcome to BrainDrive" });
+    const description = page.getByText(/Pick something on your mind right now/);
+    const composer = visibleComposer(page);
+    const sendButton = visibleSendButton(page);
+
+    await expect(heading).toBeVisible();
+    await expect(description).toBeVisible();
+    await expect(composer).toBeVisible();
+    await expect(sendButton).toBeVisible();
+    const dimensions = await page.evaluate(() => ({
+      viewportWidth: document.documentElement.clientWidth,
+      pageWidth: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+
+    for (const element of [heading, description, composer, sendButton]) {
+      const box = await element.boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    }
+  });
 });
