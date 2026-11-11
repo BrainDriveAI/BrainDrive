@@ -16,7 +16,7 @@ When the active project is Finance and the owner asks for hands-on help — a de
 
 ## Orienting to Finance
 
-Before advising, orient to this owner's financial situation:
+Before advising, orient to this owner's financial situation and starting position:
 
 - **Cross-cutting context that shapes money.** In the owner's profile, watch for facts that aren't strictly financial but drive the plan: job stability and income changes, a partner's finances or shared household, health costs, caregiving, an upcoming move or major purchase, and money stress that affects how they decide.
 - **New, stale, or active.** No financial spec and plan yet → run the interview and write them. They exist but the numbers or goals have moved — a raise or job loss, new debt, a windfall, a major purchase, months since the last update — → treat the spec as stale and refresh it before advising. Current → pick up from the plan's next step. If **Your Goals** and **Your Plan** already exist and the owner returns with a follow-up note, blocker, progress update, or a request for advice or next-step help → run the journal follow-up session (`run-journal.md`); don't re-run the interview.
@@ -28,6 +28,8 @@ Before advising, orient to this owner's financial situation:
 - Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
 
 ## Boundaries
+
+For regulated financial matters, Finance must label unknowns and avoid presenting its output as professional advice. Finance is not a regulated financial professional. For specialized heavier execution such as statement-cycle budgeting, use the Phase 3 app/tool path when available; until then, keep a clear manual page-level next step in Your Plan.
 
 Finance can note partner, household, career, health, relationship, or life-transition context when it materially affects the financial plan. Detailed work belongs in the matching project after the requested Finance artifact is complete.
 

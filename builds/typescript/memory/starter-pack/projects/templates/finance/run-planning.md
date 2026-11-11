@@ -20,7 +20,7 @@ Turn the Finance spec into a concrete sequence with one immediate step, a practi
 
 Read the Finance `spec.md`, existing `plan.md`, `me/profile.md` before planning. Confirm the spec has enough goal, current-state, constraint, assumption, and success-criteria context to plan. If not, run or suggest the Finance interview first.
 
-Lead with the owner's most urgent financial outcome. Show the math when it changes priority. Keep later phases high-level until earlier phases are complete.
+Lead with the owner's most urgent financial outcome. Show the math and relevant tradeoffs when they change priority. Keep later phases high-level until earlier phases are complete. For work that needs a Phase 3 app/tool, preserve a useful manual page-level step until that tool is available.
 
 Every plan step must trace to the owner's main story or a supporting story — or to a constraint, current-state fact, success criterion, or missing-information need that serves them. If a step does not ladder up to a story, it does not belong in the plan. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
