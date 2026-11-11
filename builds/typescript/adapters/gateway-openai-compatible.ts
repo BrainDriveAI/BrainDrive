@@ -9,6 +9,28 @@ const messageRequestSchema = z.object({
     .object({
       client: z.string().min(1).optional(),
       project: z.string().min(1).optional(),
+      interface_context: z
+        .object({
+          location: z.enum(["your-agent", "page"]),
+          screen: z.enum(["conversation", "document"]),
+          page: z
+            .object({
+              id: z.string().min(1),
+              name: z.string().min(1),
+            })
+            .strict()
+            .optional(),
+          document: z
+            .object({
+              name: z.string().min(1),
+              path: z.string(),
+              state: z.enum(["viewing", "editing"]),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),
