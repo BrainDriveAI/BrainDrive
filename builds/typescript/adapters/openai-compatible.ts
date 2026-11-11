@@ -300,8 +300,20 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         return;
       }
 
+      let streamedTextInAttempt = false;
       try {
-        const parsed = await readProviderStream(response, contentType, this.config.model, options);
+        let parsed: ParsedProviderStream | undefined;
+        for await (const streamEvent of readProviderStream(response, contentType, this.config.model, options)) {
+          if (streamEvent.type === "text-delta") {
+            streamedTextInAttempt = true;
+            yield streamEvent;
+            continue;
+          }
+          parsed = streamEvent.parsed;
+        }
+        if (!parsed) {
+          throw new Error("Provider stream ended without a completion result");
+        }
         const reconstructedResponse: ModelResponse = {
           assistantText: parsed.assistantText,
           toolCalls: parsed.toolCallBuilders
@@ -334,19 +346,13 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
           options?.promptAudit?.modelCall
         );
 
-        if (reconstructedResponse.assistantText.length > 0) {
-          yield {
-            type: "text-delta",
-            delta: reconstructedResponse.assistantText,
-          };
-        }
         yield {
           type: "final",
           response: reconstructedResponse,
         };
         return;
       } catch (error) {
-        if (attempt >= STREAM_INTERRUPTION_MAX_RETRIES || !isRetryableStreamInterruption(error)) {
+        if (streamedTextInAttempt || attempt >= STREAM_INTERRUPTION_MAX_RETRIES || !isRetryableStreamInterruption(error)) {
           throw error;
         }
 
@@ -377,12 +383,16 @@ type ParsedProviderStream = {
   toolCallBuilders: Array<[number, { id: string; name: string; args: string }] >;
 };
 
-async function readProviderStream(
+type ProviderStreamEvent =
+  | { type: "text-delta"; delta: string }
+  | { type: "complete"; parsed: ParsedProviderStream };
+
+async function* readProviderStream(
   response: Response,
   contentType: string,
   configuredModel: string,
   options?: ModelAdapterCallOptions
-): Promise<ParsedProviderStream> {
+): AsyncGenerator<ProviderStreamEvent> {
   let assistantText = "";
   let finishReason = "completed";
   let usage: TokenUsage | undefined;
@@ -441,7 +451,11 @@ async function readProviderStream(
         continue;
       }
 
-      assistantText += normalizeAssistantText(delta.content);
+      const textDelta = normalizeAssistantText(delta.content);
+      if (textDelta.length > 0) {
+        assistantText += textDelta;
+        yield { type: "text-delta", delta: textDelta };
+      }
 
       for (const toolCallDelta of delta.tool_calls ?? []) {
         const index = typeof toolCallDelta.index === "number" ? toolCallDelta.index : 0;
@@ -466,14 +480,17 @@ async function readProviderStream(
     }
   }
 
-  return {
-    assistantText,
-    finishReason,
-    ...(usage ? { usage } : {}),
-    ...(cost ? { cost } : {}),
-    ...(providerModel ? { providerModel } : {}),
-    rawStreamChunks,
-    toolCallBuilders: [...toolCallBuilders.entries()],
+  yield {
+    type: "complete",
+    parsed: {
+      assistantText,
+      finishReason,
+      ...(usage ? { usage } : {}),
+      ...(cost ? { cost } : {}),
+      ...(providerModel ? { providerModel } : {}),
+      rawStreamChunks,
+      toolCallBuilders: [...toolCallBuilders.entries()],
+    },
   };
 }
 

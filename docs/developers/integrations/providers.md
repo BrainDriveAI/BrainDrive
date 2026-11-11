@@ -26,6 +26,10 @@ Release evidence for BrainDrive Models credit changes must show the provider bou
 
 The gateway resolves the effective profile and credential immediately before the chat model adapter is created. Provider network errors are classified for the stream. Endpoint reachability, model availability, account entitlement, and provider-specific behavior are not established by config parsing.
 
+## Streaming behavior
+
+For a provider response using server-sent events, the OpenAI-compatible adapter forwards each non-empty text delta to the Agent Loop as it arrives while it assembles the complete response for tool handling, persistence, and prompt auditing. This lets the UI render assistant text during generation. If the upstream stream is interrupted before any text is exposed, the adapter retries once. After a delta has been exposed, it does not retry the request because replaying a full response would duplicate visible text; the interruption is reported through the chat stream instead. A non-streaming provider response remains available as a completed response, but cannot provide incremental first-word delivery.
+
 ## Authenticated request context
 
 Provider adapter requests are created only after the Gateway has authenticated the caller and established the PAA permission-free `auth_context`. The adapter request carries that verified context together with the matching correlation ID so the Agent Loop can reject forged, missing, expired, or mismatched handoffs before any provider call is attempted. Provider selection and credential resolution remain separate from authorization; the provider adapter does not receive a caller-supplied permission list.
