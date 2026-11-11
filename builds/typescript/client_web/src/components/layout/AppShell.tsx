@@ -3,6 +3,7 @@ import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { getOnboardingStatus } from "@/api/gateway-adapter";
+import { buildInterfaceContext, type InterfaceDocumentState } from "@/api/interface-context";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -21,6 +22,11 @@ type AppShellProps = {
   onLogout?: () => void;
 };
 
+type PendingDocumentNavigation =
+  | { kind: "back" }
+  | { kind: "file"; file: ProjectFile }
+  | null;
+
 export default function AppShell({
   children,
   deploymentMode = "local",
@@ -33,6 +39,9 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
+  const [activeDocumentState, setActiveDocumentState] = useState<InterfaceDocumentState>("viewing");
+  const [hasUnsavedDocumentChanges, setHasUnsavedDocumentChanges] = useState(false);
+  const [pendingDocumentNavigation, setPendingDocumentNavigation] = useState<PendingDocumentNavigation>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
   const mobileHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -53,13 +62,21 @@ export default function AppShell({
     renameProject
   } = useProjects();
 
-  const messageMetadata =
-    selectedProjectId !== null
-      ? {
-          client: "web",
-          project: selectedProjectId,
-        }
-      : { client: "web" };
+  const messageMetadata = {
+    client: "web",
+    ...(selectedProjectId !== null ? { project: selectedProjectId } : {}),
+    interface_context: buildInterfaceContext({
+      projectId: selectedProjectId,
+      projectName: selectedProject?.name,
+      document: activeFile
+        ? {
+            name: activeFile.name,
+            path: activeFile.path,
+            state: activeDocumentState,
+          }
+        : null,
+    }),
+  };
   const chatDraftKey = selectedProjectId ?? null;
 
   // Send heartbeat to gateway every 5 minutes in managed mode so the idle
@@ -102,6 +119,9 @@ export default function AppShell({
 
   useEffect(() => {
     setActiveFile(null);
+    setActiveDocumentState("viewing");
+    setHasUnsavedDocumentChanges(false);
+    setPendingDocumentNavigation(null);
   }, [selectedProjectId]);
 
   useEffect(() => {
@@ -180,11 +200,40 @@ export default function AppShell({
   }, []);
 
   function handleFileClick(file: ProjectFile) {
+    if (activeFile && activeFile.path !== file.path && hasUnsavedDocumentChanges) {
+      setPendingDocumentNavigation({ kind: "file", file });
+      return;
+    }
+
     setActiveFile(file);
+    setActiveDocumentState("viewing");
+    setHasUnsavedDocumentChanges(false);
   }
 
   function handleReturnToChat() {
+    if (hasUnsavedDocumentChanges) {
+      setPendingDocumentNavigation({ kind: "back" });
+      return;
+    }
+
     setActiveFile(null);
+    setActiveDocumentState("viewing");
+    setHasUnsavedDocumentChanges(false);
+  }
+
+  function discardDocumentChangesAndNavigate() {
+    const pending = pendingDocumentNavigation;
+    setPendingDocumentNavigation(null);
+    setHasUnsavedDocumentChanges(false);
+
+    if (!pending || pending.kind === "back") {
+      setActiveFile(null);
+      setActiveDocumentState("viewing");
+      return;
+    }
+
+    setActiveFile(pending.file);
+    setActiveDocumentState("viewing");
   }
 
   function handleConversationComplete() {
@@ -216,6 +265,9 @@ export default function AppShell({
       projectName={selectedProject.name}
       file={activeFile}
       onBack={handleReturnToChat}
+      onStateChange={setActiveDocumentState}
+      onDirtyChange={setHasUnsavedDocumentChanges}
+      navigationGuardHandledByParent
     />
   ) : undefined;
 
@@ -338,6 +390,7 @@ export default function AppShell({
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}
+              activeProjectName={selectedProject?.name ?? null}
               draftKey={chatDraftKey}
               isEmpty={activeConversationId === null}
               onConversationComplete={handleConversationComplete}
@@ -359,6 +412,39 @@ export default function AppShell({
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
+      {pendingDocumentNavigation ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="app-shell-discard-document-heading"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-bd-border bg-bd-bg-secondary p-5 shadow-2xl">
+            <h2 id="app-shell-discard-document-heading" className="text-base font-medium text-bd-text-heading">
+              Keep your unsaved changes?
+            </h2>
+            <p className="mt-2 text-sm text-bd-text-secondary">
+              Your changes are still here. Choose Keep editing or discard them before leaving this document.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDocumentNavigation(null)}
+                className="rounded-lg px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover hover:text-bd-text-heading"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={discardDocumentChangesAndNavigate}
+                className="rounded-lg bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary hover:bg-bd-amber-hover"
+              >
+                Discard and continue
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {mobileHeader}
     </div>
   );
