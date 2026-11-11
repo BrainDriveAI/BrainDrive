@@ -22,6 +22,7 @@ import {
   type GatewayMemoryBackupRunResponse,
   type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
+  type GatewayModelsDiagnostics,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
   type GatewaySkillBinding,
@@ -740,6 +741,22 @@ export async function updateProviderCredential(
   return (await response.json()) as GatewayCredentialUpdateResponse;
 }
 
+export async function removeProviderCredential(
+  providerProfile: string
+): Promise<GatewayCredentialUpdateResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/credentials`, {
+    method: "DELETE",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ provider_profile: providerProfile }),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayCredentialUpdateResponse;
+}
+
 export async function getProviderModels(
   providerProfile?: string
 ): Promise<GatewayModelCatalog> {
@@ -888,6 +905,16 @@ export async function getCreditsStatus(): Promise<GatewayCreditsStatus> {
   }
 
   return (await response.json()) as GatewayCreditsStatus;
+}
+
+export async function getModelsDiagnostics(): Promise<GatewayModelsDiagnostics> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/diagnostics`, {
+    headers: withLocalOwnerHeaders(),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as GatewayModelsDiagnostics;
 }
 
 export async function createCreditsCheckout(input: {

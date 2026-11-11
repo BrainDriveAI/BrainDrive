@@ -47,6 +47,9 @@ const importLibraryArchiveMock = vi.fn();
 const updateProviderCredentialMock = vi.fn<
   (payload?: unknown) => Promise<{ settings: GatewaySettings }>
 >();
+const removeProviderCredentialMock = vi.fn<
+  (providerProfile: string) => Promise<{ settings: GatewaySettings }>
+>();
 const updateMemoryBackupSettingsMock = vi.fn<
   (payload: GatewayMemoryBackupSettingsUpdateRequest) => Promise<GatewaySettings>
 >();
@@ -85,6 +88,7 @@ vi.mock("@/api/gateway-adapter", () => ({
   claimEmailCredit: (payload: { email: string }) => claimEmailCreditMock(payload),
   refreshEmailCreditStatus: () => refreshEmailCreditStatusMock(),
   updateProviderCredential: (payload: unknown) => updateProviderCredentialMock(payload),
+  removeProviderCredential: (providerProfile: string) => removeProviderCredentialMock(providerProfile),
   updateMemoryBackupSettings: (payload: GatewayMemoryBackupSettingsUpdateRequest) =>
     updateMemoryBackupSettingsMock(payload),
   runMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => runMemoryBackupNowMock(payload),
@@ -310,6 +314,7 @@ describe("SettingsModal", () => {
     downloadLibraryExportMock.mockReset();
     importLibraryArchiveMock.mockReset();
     updateProviderCredentialMock.mockReset();
+    removeProviderCredentialMock.mockReset();
     updateMemoryBackupSettingsMock.mockReset();
     runMemoryBackupNowMock.mockReset();
     restoreMemoryBackupMock.mockReset();
@@ -329,6 +334,16 @@ describe("SettingsModal", () => {
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
+    removeProviderCredentialMock.mockResolvedValue({
+      settings: {
+        ...baseSettings,
+        provider_profiles: baseSettings.provider_profiles.map((profile) =>
+          profile.id === "openrouter"
+            ? { ...profile, credential_mode: "unset", credential_ref: null }
+            : profile
+        ),
+      },
+    });
     updateMemoryBackupSettingsMock.mockResolvedValue(settingsWithBackup);
     runMemoryBackupNowMock.mockResolvedValue({
       result: { result: "success", message: "Backup saved successfully." },
@@ -484,6 +499,40 @@ describe("SettingsModal", () => {
     });
     expect(
       screen.queryByRole("button", { name: "Use BrainDrive Models" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes a configured provider key from the provider card", async () => {
+    const user = userEvent.setup();
+    const removedSettings: GatewaySettings = {
+      ...baseSettings,
+      provider_profiles: baseSettings.provider_profiles.map((profile) =>
+        profile.provider_id === "openrouter"
+          ? { ...profile, credential_mode: "unset", credential_ref: null }
+          : profile
+      ),
+    };
+    getSettingsMock.mockResolvedValueOnce(baseSettings);
+    removeProviderCredentialMock.mockResolvedValueOnce({ settings: removedSettings });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click((await screen.findAllByRole("button", { name: "Cancel" }))[0]!);
+    await user.click(
+      await screen.findByRole("button", { name: "Ask to remove OpenRouter API key" })
+    );
+
+    expect(removeProviderCredentialMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", { name: "Confirm remove OpenRouter API key" })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm remove API key" }));
+
+    await waitFor(() => {
+      expect(removeProviderCredentialMock).toHaveBeenCalledWith("openrouter");
+    });
+    expect(
+      screen.queryByRole("button", { name: "Ask to remove OpenRouter API key" })
     ).not.toBeInTheDocument();
   });
 
@@ -819,7 +868,7 @@ describe("SettingsModal", () => {
     expect(claimEmailCreditMock).toHaveBeenCalledTimes(1);
   });
 
-  it("silently continues the purchase flow when no email credit is available", async () => {
+  it("plainly says that no credit was added when no email credit is available", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
     getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
@@ -833,8 +882,7 @@ describe("SettingsModal", () => {
     });
 
     await waitFor(() => expect(claimEmailCreditMock).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.queryByText(/No available email credit/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("No credit was added.");
     expect(
       screen.getAllByRole("button", { name: /Continue to checkout/i }).some((button) => !button.hasAttribute("disabled"))
     ).toBe(true);

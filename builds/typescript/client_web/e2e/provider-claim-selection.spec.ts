@@ -11,6 +11,15 @@ type SettingsRequest = {
   active_provider_profile?: string | null;
 };
 
+type ModelsRuntimeScenario =
+  | "post-claim-layout-shift"
+  | "existing-credential-grant"
+  | "no-matching-grant"
+  | "low-balance"
+  | "return-to-braindrive";
+
+const EXISTING_CREDENTIAL_REF = "provider/ai-gateway/e2e-existing-key";
+
 const JSON_HEADERS = { "content-type": "application/json" };
 
 function createDeferred<T>(): Deferred<T> {
@@ -21,11 +30,13 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-function initialSettings(): GatewaySettings {
+function initialSettings(scenario: ModelsRuntimeScenario = "post-claim-layout-shift"): GatewaySettings {
+  const hasExistingCredential = ["existing-credential-grant", "low-balance", "return-to-braindrive"].includes(scenario);
+  const returningToBrainDrive = scenario === "return-to-braindrive";
   return {
     default_model: "braindrive-models-default",
     approval_mode: "ask-on-write",
-    active_provider_profile: "braindrive-models",
+    active_provider_profile: returningToBrainDrive ? "openrouter" : "braindrive-models",
     provider_activation_revision: 0,
     default_provider_profile: "braindrive-models",
     available_models: ["braindrive-models-default"],
@@ -35,8 +46,8 @@ function initialSettings(): GatewaySettings {
         provider_id: "braindrive-models",
         base_url: "https://models.invalid/v1",
         model: "braindrive-models-default",
-        credential_mode: "unset",
-        credential_ref: null,
+        credential_mode: hasExistingCredential ? "secret_ref" : "unset",
+        credential_ref: hasExistingCredential ? EXISTING_CREDENTIAL_REF : null,
       },
       {
         id: "openrouter",
@@ -55,7 +66,9 @@ function initialSettings(): GatewaySettings {
         credential_ref: null,
       },
     ],
-    braindrive_models_key: null,
+    braindrive_models_key: hasExistingCredential
+      ? { status: "zero_balance", checkout_pending: false }
+      : null,
     memory_backup: null,
   };
 }
@@ -70,7 +83,7 @@ function claimedSettings(settings: GatewaySettings): GatewaySettings {
         ? {
             ...profile,
             credential_mode: "secret_ref",
-            credential_ref: "provider/ai-gateway/e2e-placeholder",
+            credential_ref: profile.credential_ref ?? "provider/ai-gateway/e2e-placeholder",
           }
         : profile
     ),
@@ -85,13 +98,20 @@ async function fulfillJson(route: Route, json: unknown, status = 200): Promise<v
   await route.fulfill({ status, headers: JSON_HEADERS, json });
 }
 
-async function installDeterministicGateway(page: Page): Promise<{
+// Candidate-bound Models V1 runtime: every API request is intercepted and any
+// unlisted route fails, so these scenarios cannot contact a hosted or paid service.
+async function installDeterministicGateway(
+  page: Page,
+  scenario: ModelsRuntimeScenario = "post-claim-layout-shift"
+): Promise<{
   claimResponse: Deferred<void>;
   claimRequestCount: () => number;
   settingsRequests: SettingsRequest[];
+  claimedCredentialRef: () => string | null;
 }> {
-  let settings = initialSettings();
+  let settings = initialSettings(scenario);
   let claimRequestCount = 0;
+  let credentialRefAfterClaim: string | null = null;
   const claimResponse = createDeferred<void>();
   const settingsRequests: SettingsRequest[] = [];
 
@@ -163,12 +183,14 @@ async function installDeterministicGateway(page: Page): Promise<{
     if (path === "/api/settings" && method === "PUT") {
       const body = request.postDataJSON() as SettingsRequest;
       settingsRequests.push(body);
-      expect(body).toEqual({ active_provider_profile: "openrouter" });
+      expect(body).toEqual({
+        active_provider_profile: scenario === "return-to-braindrive" ? "braindrive-models" : "openrouter",
+      });
       settings = {
         ...settings,
-        default_model: "openrouter-test-model",
-        active_provider_profile: "openrouter",
-        provider_activation_revision: 2,
+        default_model: scenario === "return-to-braindrive" ? "braindrive-models-default" : "openrouter-test-model",
+        active_provider_profile: scenario === "return-to-braindrive" ? "braindrive-models" : "openrouter",
+        provider_activation_revision: scenario === "return-to-braindrive" ? 3 : 2,
       };
       await fulfillJson(route, settings);
       return;
@@ -200,8 +222,19 @@ async function installDeterministicGateway(page: Page): Promise<{
       expect(Object.keys(body)).toEqual(["email"]);
       expect(body.email).toMatch(/@example\.test$/);
       claimRequestCount += 1;
+      if (scenario === "no-matching-grant") {
+        await fulfillJson(
+          route,
+          { error: "No available email credit was found", code: "no_available_credit" },
+          404
+        );
+        return;
+      }
       await claimResponse.promise;
       settings = claimedSettings(settings);
+      credentialRefAfterClaim = settings.provider_profiles.find(
+        (profile) => profile.id === "braindrive-models"
+      )?.credential_ref ?? null;
       await fulfillJson(route, {
         state: "completed",
         operation_id: "operation-e2e-claim",
@@ -218,6 +251,36 @@ async function installDeterministicGateway(page: Page): Promise<{
       return;
     }
     if (path === "/api/credits/status" && method === "GET") {
+      if (scenario === "low-balance") {
+        await fulfillJson(route, {
+          remaining_usd: 1.25,
+          total_purchased_usd: 12.5,
+          total_spent_usd: 11.25,
+          key_valid: true,
+          purchase_status: "ready",
+        });
+        return;
+      }
+      if (scenario === "return-to-braindrive") {
+        await fulfillJson(route, {
+          remaining_usd: 12.5,
+          total_purchased_usd: 25,
+          total_spent_usd: 12.5,
+          key_valid: true,
+          purchase_status: "ready",
+        });
+        return;
+      }
+      if (scenario === "existing-credential-grant") {
+        await fulfillJson(route, {
+          remaining_usd: 0,
+          total_purchased_usd: 0,
+          total_spent_usd: 0,
+          key_valid: true,
+          purchase_status: "zero_balance",
+        });
+        return;
+      }
       await fulfillJson(route, {
         remaining_usd: 12.5,
         total_purchased_usd: 12.5,
@@ -227,7 +290,6 @@ async function installDeterministicGateway(page: Page): Promise<{
       });
       return;
     }
-
     await fulfillJson(route, { error: "Unmocked API route", path, method }, 404);
   });
 
@@ -235,6 +297,7 @@ async function installDeterministicGateway(page: Page): Promise<{
     claimResponse,
     claimRequestCount: () => claimRequestCount,
     settingsRequests,
+    claimedCredentialRef: () => credentialRefAfterClaim,
   };
 }
 
@@ -337,4 +400,76 @@ test("post-claim layout shift cannot activate OpenRouter without a second delibe
     body: await page.screenshot(),
     contentType: "image/png",
   });
+});
+
+test("email grant preserves an existing credential and reports the funded ready state", async ({
+  page,
+}) => {
+  const gateway = await installDeterministicGateway(page, "existing-credential-grant");
+
+  await page.goto("/");
+
+  const brainDriveCard = page.locator(
+    'button[aria-label^="BrainDrive Models provider settings"]:visible'
+  );
+  await expect(brainDriveCard).toHaveAttribute("aria-current", "true");
+
+  const emailInput = page.locator("#bd-models-billing-email:visible");
+  await expect(emailInput).toBeVisible();
+  await emailInput.fill("existing-recipient@example.test");
+  await expect.poll(gateway.claimRequestCount).toBe(1);
+
+  gateway.claimResponse.resolve(undefined);
+  await expect(page.getByRole("status").filter({ visible: true })).toHaveText(
+    "$12.50 email credit applied."
+  );
+  expect(gateway.claimedCredentialRef()).toBe(EXISTING_CREDENTIAL_REF);
+  expect(gateway.settingsRequests).toHaveLength(0);
+
+  const panelId = await brainDriveCard.getAttribute("aria-controls");
+  expect(panelId).not.toBeNull();
+  const panelText = await page.locator(`#${panelId}`).innerText();
+  expect(panelText).not.toMatch(/\b(API key|route|provider|token|LiteLLM|webhook)\b/i);
+});
+
+test("an unmatched grant email reports no credit without disclosing grant state", async ({ page }) => {
+  const gateway = await installDeterministicGateway(page, "no-matching-grant");
+
+  await page.goto("/");
+  await page.locator("#bd-models-billing-email:visible").fill("unmatched@example.test");
+  await expect.poll(gateway.claimRequestCount).toBe(1);
+
+  await expect(page.getByRole("status").filter({ visible: true })).toHaveText(
+    "No credit was added."
+  );
+  await expect(page.getByText("$12.50", { exact: true }).filter({ visible: true })).not.toBeVisible();
+  await expect(page.getByRole("status").filter({ visible: true })).not.toContainText(/grant|available/i);
+});
+
+test("low balance remains visible with a clear add-credits action", async ({ page }) => {
+  await installDeterministicGateway(page, "low-balance");
+
+  await page.goto("/");
+
+  await expect(page.getByText("$1.25", { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add credits" }).filter({ visible: true })).toBeVisible();
+});
+
+test("returning to BrainDrive Models preserves the existing balance and credential", async ({ page }) => {
+  const gateway = await installDeterministicGateway(page, "return-to-braindrive");
+
+  await page.goto("/");
+
+  const brainDriveCard = page.locator(
+    'button[aria-label^="BrainDrive Models provider settings"]:visible'
+  );
+  await expect(page.locator('button[aria-label^="OpenRouter provider settings"]:visible')).toHaveAttribute(
+    "aria-current",
+    "true"
+  );
+  await brainDriveCard.click();
+  await expect(brainDriveCard).toHaveAttribute("aria-current", "true");
+  await page.reload();
+  await expect(page.getByText("$12.50", { exact: true }).filter({ visible: true })).toBeVisible();
+  expect(gateway.settingsRequests).toEqual([{ active_provider_profile: "braindrive-models" }]);
 });

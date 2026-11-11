@@ -538,6 +538,79 @@ describe.sequential("gateway auth route integration", () => {
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
+  it("resets only the local password, preserves memory, and invalidates prior sessions", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const oldAccessToken = parseJson<{ access_token: string }>(signupResponse.body).access_token;
+
+    const memoryMarker = path.join(context.tempRoot, "memory", "owner-memory-marker.txt");
+    await writeFile(memoryMarker, "must survive local recovery\n", "utf8");
+
+    const resetResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      payload: { password: "new-password123" },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(parseJson<{ ok: boolean }>(resetResponse.body)).toEqual({ ok: true });
+    expect(String(resetResponse.headers["set-cookie"] ?? "")).toContain("Max-Age=0");
+    await expect(readFile(memoryMarker, "utf8")).resolves.toBe("must survive local recovery\n");
+
+    const oldSessionResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: { authorization: `Bearer ${oldAccessToken}` },
+    });
+    expect(oldSessionResponse.statusCode).toBe(401);
+
+    const newLoginResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "new-password123" },
+    });
+    expect(newLoginResponse.statusCode).toBe(200);
+
+    const oldPasswordResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { identifier: "owner", password: "password123" },
+    });
+    expect(oldPasswordResponse.statusCode).toBe(401);
+  });
+
+  it("rejects password recovery from a non-loopback device", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/auth/recover",
+      remoteAddress: "10.0.0.5",
+      payload: { password: "new-password123" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("recovery_local_only");
+  });
+
   it("rejects retired project document uploads without memory writes", async () => {
     context = await createTestServer();
 
@@ -1512,6 +1585,68 @@ describe.sequential("gateway auth route integration", () => {
     );
   });
 
+  it("removes a stored provider credential from the vault and settings", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    const secretRef = "provider/openrouter/api_key";
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "default",
+      provider_credentials: {
+        openrouter: {
+          mode: "secret_ref",
+          secret_ref: secretRef,
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret(secretRef, "sk-test-remove-me");
+
+    const response = await context.app.inject({
+      method: "DELETE",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: { provider_profile: "default" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockPreferences.provider_credentials?.openrouter).toBeUndefined();
+    expect(await readVaultSecret(secretRef)).toBeUndefined();
+    expect(response.body).not.toContain("sk-test-remove-me");
+    const body = parseJson<{
+      settings: {
+        active_provider_profile: string | null;
+        default_model: string;
+        provider_profiles: Array<{ id: string; credential_mode: "secret_ref" | "plain" | "unset" }>;
+      };
+      onboarding: {
+        onboarding_required: boolean;
+        active_provider_profile: string | null;
+        providers: Array<{
+          profile_id: string;
+          credential_mode: "secret_ref" | "plain" | "unset";
+          credential_resolved: boolean;
+          resolution_source: "env_ref" | "vault" | "none";
+          resolution_error: string | null;
+        }>;
+      };
+    }>(response.body);
+    expect(body.settings.active_provider_profile).toBe("default");
+    expect(body.settings.default_model).toBe("openai/gpt-4o-mini");
+    expect(body.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "unset"
+    );
+    expect(body.onboarding).toMatchObject({
+      onboarding_required: true,
+      active_provider_profile: "default",
+    });
+    expect(body.onboarding.providers.find((provider) => provider.profile_id === "default")).toMatchObject({
+      credential_mode: "unset",
+      credential_resolved: false,
+      resolution_source: "none",
+      resolution_error: "Provider credential is not configured",
+    });
+  });
+
   it("does not activate a credential-save provider when preference persistence fails", async () => {
     context = await createTestServer({ authMode: "local-owner" });
     mockPreferences = {
@@ -1701,6 +1836,204 @@ describe.sequential("gateway auth route integration", () => {
       status: "provisioned",
       checkout_pending: true,
     });
+  });
+
+  it("returns honest live Models diagnostics without exposing credentials", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-diagnostics-secret");
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      expect(String(url)).toBe("https://my.braindrive.ai/credits/diagnostics");
+      expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-diagnostics-secret" });
+      return new Response(
+        JSON.stringify({
+          client_alias: "braindrive-models-default",
+          backing_route: "credits/v1/chat/completions",
+          provider: "braindrive-models",
+          model: "braindrive-models-default",
+          configuration_source: "managed",
+          process_start_time: "2026-11-10T12:00:00.000Z",
+          live_vs_disk_match: true,
+          verified: true,
+          verification_id: "verification-1",
+          api_key: "sk-must-not-leak",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/diagnostics",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson(response.body)).toEqual({
+      client_alias: "braindrive-models-default",
+      backing_route: "credits/v1/chat/completions",
+      provider: "braindrive-models",
+      model: "braindrive-models-default",
+      configuration_source: "managed",
+      process_start_time: "2026-11-10T12:00:00.000Z",
+      live_vs_disk_match: true,
+      verified: true,
+      verification_id: "verification-1",
+    });
+    expect(response.body).not.toContain("sk-diagnostics-secret");
+    expect(response.body).not.toContain("sk-must-not-leak");
+  });
+
+  it("marks a live route mismatch unverified and reports missing diagnostics explicitly", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-diagnostics-mismatch");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            client_alias: "unexpected-alias",
+            backing_route: "credits/v1/chat/completions",
+            provider: "braindrive-models",
+            model: "braindrive-models-default",
+            configuration_source: "managed",
+            process_start_time: "2026-11-10T12:00:00.000Z",
+            verified: true,
+            live_vs_disk_match: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    const mismatchResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/diagnostics",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(mismatchResponse.statusCode).toBe(200);
+    expect(parseJson<{ verified: boolean; live_vs_disk_match: boolean }>(mismatchResponse.body)).toMatchObject({
+      verified: false,
+      live_vs_disk_match: false,
+    });
+
+    await rm(path.join(context.tempRoot, "secrets", "vault.json"), { force: true });
+    const unavailableResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/diagnostics",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(unavailableResponse.statusCode).toBe(404);
+    expect(parseJson<{ verified: boolean; error_code: string }>(unavailableResponse.body)).toMatchObject({
+      verified: false,
+      error_code: "diagnostics_credential_unavailable",
+    });
+  });
+
+  it("exposes only an explicitly configured safe deployment record", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const recordPath = path.join(context.tempRoot, "models-deployment.json");
+    await writeFile(
+      recordPath,
+      JSON.stringify({
+        deployment_id: "models-deployment-1",
+        approval_source: "model-evaluation-approval-1",
+        provider_route: "credits/v1/chat/completions",
+        model_route: "braindrive-models-default",
+        configuration_target: "credits-service",
+        pricing_assumptions: "prepaid USD budget",
+        verification_steps: ["GET /credits/diagnostics", "complete test chat"],
+        rollback_path: "restore last-known-good policy",
+        reevaluation_trigger: "provider or pricing policy change",
+        verification_status: "verified",
+        api_key: "sk-must-not-leak",
+      }),
+      "utf8"
+    );
+
+    const previousRecordPath = process.env.BRAINDRIVE_MODELS_DEPLOYMENT_RECORD;
+    process.env.BRAINDRIVE_MODELS_DEPLOYMENT_RECORD = recordPath;
+    try {
+      const response = await context.app.inject({
+        method: "GET",
+        url: "/credits/deployment",
+        headers: localOwnerAdminHeaders(),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(parseJson(response.body)).toEqual({
+        verified: true,
+        record: {
+          deployment_id: "models-deployment-1",
+          approval_source: "model-evaluation-approval-1",
+          provider_route: "credits/v1/chat/completions",
+          model_route: "braindrive-models-default",
+          configuration_target: "credits-service",
+          pricing_assumptions: "prepaid USD budget",
+          verification_steps: ["GET /credits/diagnostics", "complete test chat"],
+          rollback_path: "restore last-known-good policy",
+          reevaluation_trigger: "provider or pricing policy change",
+          verification_status: "verified",
+        },
+      });
+      expect(response.body).not.toContain("sk-must-not-leak");
+    } finally {
+      if (typeof previousRecordPath === "string") {
+        process.env.BRAINDRIVE_MODELS_DEPLOYMENT_RECORD = previousRecordPath;
+      } else {
+        delete process.env.BRAINDRIVE_MODELS_DEPLOYMENT_RECORD;
+      }
+    }
+  });
+
+  it("rejects checkout amounts below the $5 minimum before contacting billing", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 4.99, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain("amount must be >= 5");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("preserves a valid existing BrainDrive Models vault key during checkout", async () => {
