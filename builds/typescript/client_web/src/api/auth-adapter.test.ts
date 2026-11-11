@@ -1,4 +1,4 @@
-import { __resetAuthAdapterForTests, login, logout, signup } from "./auth-adapter";
+import { __resetAuthAdapterForTests, login, logout, resetPassword, signup } from "./auth-adapter";
 
 describe("auth-adapter security behavior", () => {
   beforeEach(() => {
@@ -110,6 +110,37 @@ describe("auth-adapter security behavior", () => {
     await logout();
 
     expect(observedAuthorizationHeaders).toEqual(["Bearer test-access-token"]);
+  });
+
+  it("sends local password recovery to the gateway and clears the client session", async () => {
+    let recoveryBody = "";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const requestUrl = typeof input === "string" ? input : input.toString();
+        if (requestUrl.includes("/api/auth/bootstrap-status")) {
+          return new Response(
+            JSON.stringify({ account_initialized: true, mode: "local" }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        if (requestUrl.includes("/api/auth/recover")) {
+          recoveryBody = String(init?.body ?? "");
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        return new Response(null, { status: 404 });
+      })
+    );
+
+    await resetPassword("new-password123");
+
+    expect(JSON.parse(recoveryBody)).toEqual({ password: "new-password123" });
   });
 
   it("surfaces signup bootstrap protection errors", async () => {

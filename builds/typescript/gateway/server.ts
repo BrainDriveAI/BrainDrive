@@ -30,7 +30,7 @@ import {
   InvalidRefreshTokenError,
   RefreshReplayDetectedError,
 } from "../auth/local-jwt-auth.js";
-import { evaluateSignupBootstrapAccess } from "../auth/signup-bootstrap.js";
+import { evaluateSignupBootstrapAccess, isLoopbackIp } from "../auth/signup-bootstrap.js";
 import {
   ensureSystemAppConfig,
   loadAdapterConfig,
@@ -238,6 +238,12 @@ const authCredentialsSchema = z
   })
   .strict();
 
+const localPasswordResetSchema = z
+  .object({
+    password: z.string().min(8),
+  })
+  .strict();
+
 const supportBundleCreateSchema = z
   .object({
     window_hours: z.number().int().min(1).max(24 * 30).optional(),
@@ -257,6 +263,7 @@ const BASE_PUBLIC_ROUTES = new Set([
   "/auth/bootstrap-status",
   "/auth/signup",
   "/auth/login",
+  "/auth/recover",
   "/auth/refresh",
 ]);
 
@@ -474,6 +481,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
+  const recoveryRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
   const signupBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN?.trim();
   const allowFirstSignupFromAnyIp = readBooleanEnv(process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP, false);
@@ -639,6 +647,47 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch (error) {
       if (error instanceof InvalidCredentialsError) {
         reply.code(401).send({ error: "invalid_credentials" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/auth/recover", async (request, reply) => {
+    if (!localJwtAuthService) {
+      reply.code(404).send({ error: "Not found" });
+      return;
+    }
+
+    const clientIp = clientIpForRequest(request, internalTransportToken);
+    if (!isLoopbackIp(clientIp)) {
+      auditLog("auth.password_reset.denied", {
+        reason: "recovery_local_only",
+        ip: clientIp,
+      });
+      reply.code(403).send({ error: "recovery_local_only" });
+      return;
+    }
+
+    if (!recoveryRateLimiter.allow(rateLimitKeyForRequest(request, internalTransportToken))) {
+      reply.code(429).send({ error: "too_many_attempts" });
+      return;
+    }
+
+    const parsed = localPasswordResetSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/auth/recover", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      await localJwtAuthService.resetPassword(parsed.data.password);
+      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+      reply.send({ ok: true });
+    } catch (error) {
+      if (error instanceof InvalidCredentialsError) {
+        reply.code(400).send({ error: "invalid_credentials" });
         return;
       }
 

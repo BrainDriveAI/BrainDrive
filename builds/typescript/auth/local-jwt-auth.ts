@@ -58,6 +58,7 @@ export type LocalJwtAuthTokenBundle = {
 export type LocalJwtAuthService = {
   signup: (input: { identifier: string; password: string }) => Promise<LocalJwtAuthTokenBundle>;
   login: (input: { identifier: string; password: string }) => Promise<LocalJwtAuthTokenBundle>;
+  resetPassword: (password: string) => Promise<void>;
   refresh: (refreshToken: string) => Promise<LocalJwtAuthTokenBundle>;
   logout: () => Promise<void>;
   authenticateAccessToken: (accessToken: string) => Promise<AuthContext>;
@@ -218,6 +219,24 @@ export function createLocalJwtAuthService(options: {
 
       auditLog("auth.login.success", { actor_id: authState.actor_id });
       return issueSessionTokens(authState);
+    },
+
+    async resetPassword(password) {
+      const authState = options.getAuthState();
+      if (!authState.account_initialized || password.length < 8) {
+        throw new InvalidCredentialsError();
+      }
+
+      const passwordHash = await hashPassword(password);
+      const masterKey = await getMasterKey(false);
+      await upsertVaultSecret(OWNER_PASSWORD_HASH_SECRET_REF, passwordHash, masterKey, secretsPaths);
+
+      // Rotate the signing key so access tokens issued before recovery cannot
+      // continue to authorize requests after the password has been replaced.
+      const signingKey = randomBytes(32).toString("base64url");
+      await upsertVaultSecret(JWT_SIGNING_KEY_SECRET_REF, signingKey, masterKey, secretsPaths);
+      await revokeAuthSession(options.memoryRoot);
+      auditLog("auth.password_reset.success", { actor_id: authState.actor_id, scope: "local-loopback" });
     },
 
     async refresh(refreshToken) {
