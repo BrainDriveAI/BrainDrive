@@ -96,6 +96,7 @@ describe("memory init project scaffolding", () => {
         if (page === "career") {
           expect(interview).toContain("do not ask the owner to approve the corrected playback before writing");
           expect(interview).toContain("write both **Your Goals** and **Your Plan** in that same turn");
+          expect(interview).toContain("or end with only a revised summary");
         }
       }
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-planning.md"), "utf8"))
