@@ -43,6 +43,10 @@ describe("memory init project scaffolding", () => {
         seedStarterSkills: false,
       });
 
+      const baseAgent = await readFile(path.join(memoryRoot, "AGENT.md"), "utf8");
+      expect(baseAgent).toContain("briefly name its source page in the same response");
+      expect(baseAgent).toContain("Do not use or reveal sensitive cross-page details without the owner's permission");
+
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
         .resolves.toContain("# Your Profile");
       await expect(readFile(path.join(memoryRoot, "me", "todo.md"), "utf8"))
@@ -95,9 +99,20 @@ describe("memory init project scaffolding", () => {
         expect(interview).toContain("ask before treating them as profile memory");
         expect(interview).not.toContain("ask them to approve before you add those");
         expect(interview).not.toContain("only on the owner's clear approval");
+        if (page === "career") {
+          expect(interview).toContain("do not ask the owner to approve the corrected playback before writing");
+          expect(interview).toContain("write both **Your Goals** and **Your Plan** in that same turn");
+          expect(interview).toContain("or end with only a revised summary");
+        }
       }
-      await expect(readFile(path.join(memoryRoot, "documents", "career", "run-planning.md"), "utf8"))
-        .resolves.toContain("# Career Planning");
+      const careerPlanning = await readFile(path.join(memoryRoot, "documents", "career", "run-planning.md"), "utf8");
+      expect(careerPlanning).toContain("# Career Planning");
+      expect(careerPlanning).toContain("translate it into the **Your Journal** conversation");
+      expect(careerPlanning).toContain("they can return when they have an update");
+      expect(careerPlanning).toContain("including wins or blockers");
+      expect(careerPlanning).toContain("summarize relevant journal signals");
+      expect(careerPlanning).toContain("**Your Goals** or **Your Plan**");
+      expect(careerPlanning).toContain("Do not invent a recurring manual checklist, tracking task, or schedule");
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "run-interview.md"), "utf8"))
         .resolves.toContain("# Relationships Interview");
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "run-planning.md"), "utf8"))

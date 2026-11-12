@@ -1729,6 +1729,9 @@ function MemoryBackupSection({
           <p className="mt-1 text-xs text-bd-text-muted">
             We found a BrainDrive backup in this GitHub repo. Pick which copy should be kept.
           </p>
+          <p className="mt-2 text-xs text-bd-text-muted">
+            On a new machine, sign in with the username from the backup and this machine's password.
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -1866,6 +1869,7 @@ function MemoryBackupSection({
           <div className="text-sm font-medium text-bd-text-heading">Restore</div>
           <p className="mt-1 text-xs text-bd-text-muted">
             Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
+            {" "}On a new machine, sign in with the username from the backup and this machine's password.
             {!backupSettings?.repository_url && !backupSettings?.token_configured && (
               <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
             )}

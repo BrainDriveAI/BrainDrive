@@ -48,5 +48,8 @@ When **Your Goals** (`spec.md`) and **Your Plan** (`plan.md`) are written and th
 - You keep **Your Journal** as the record of those conversations; the owner can read or edit it anytime, but they never have to write it themselves — the conversation is where updates happen.
 - Make sure `documents/career/journal.md` exists; if it does not, create it from the default template (the Preservation Rule in `run-journal.md` covers this).
 - Do not require a journal entry now, and do not ask the owner to log on a schedule. The journal is owner-driven follow-up — available, never mandatory.
+- Do not turn follow-up into a recurring manual self-tracking task, spreadsheet, or checklist. The owner can return to this Career conversation with an update; use **Your Journal** to keep the record conversationally.
+
+When the owner asks for a follow-up routine, translate it into the **Your Journal** conversation rather than inventing a separate manual routine. Tell them they can return when they have an update. In that next session, ask what changed — including wins or blockers — use `run-journal.md` to capture what they share in **Your Journal**, and summarize relevant journal signals into **Your Goals** or **Your Plan** when they may change the direction. Ask before making an agreed change to either artifact. Do not invent a recurring manual checklist, tracking task, or schedule; the owner chooses when to return.
 
 This handoff fires once, when the first plan is written. From then on, the journal follow-up procedure (`run-journal.md`) owns the follow-up sessions.
