@@ -308,7 +308,7 @@ if "enabled" not in updates:
 if "startup_check" not in updates:
   updates["startup_check"] = as_bool(os.environ.get("CFG_STARTUP_CHECK"), True)
 if "policy" not in updates:
-  updates["policy"] = os.environ.get("CFG_POLICY") or "auto-apply"
+  updates["policy"] = os.environ.get("CFG_POLICY") or "check-only"
 if "fail_mode" not in updates:
   updates["fail_mode"] = os.environ.get("CFG_FAIL_MODE") or "fail-open"
 if "min_check_interval_minutes" not in updates:
@@ -570,7 +570,7 @@ DEFAULT_STARTUP_CHECK="$(to_bool "${DEFAULT_STARTUP_CHECK_RAW}")"
 
 DEFAULT_POLICY="$(echo "${BRAINDRIVE_UPDATES_POLICY:-$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_POLICY)")}" | tr '[:upper:]' '[:lower:]')"
 if [[ -z "${DEFAULT_POLICY}" ]]; then
-  DEFAULT_POLICY="auto-apply"
+  DEFAULT_POLICY="check-only"
 fi
 DEFAULT_FAIL_MODE="$(echo "${BRAINDRIVE_UPDATES_FAIL_MODE:-$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_FAIL_MODE)")}" | tr '[:upper:]' '[:lower:]')"
 if [[ -z "${DEFAULT_FAIL_MODE}" ]]; then
@@ -641,7 +641,7 @@ fi
 
 UPDATES_ENABLED="$(to_bool "$(resolve_setting "${BRAINDRIVE_UPDATES_ENABLED:-}" "${CONFIG_UPDATES_ENABLED:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_ENABLED)")" "true")")"
 STARTUP_CHECK_ENABLED="$(to_bool "$(resolve_setting "${BRAINDRIVE_STARTUP_UPDATE_CHECK:-}" "${CONFIG_STARTUP_CHECK:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_STARTUP_UPDATE_CHECK)")" "true")")"
-UPDATES_POLICY="$(echo "$(resolve_setting "${BRAINDRIVE_UPDATES_POLICY:-}" "${CONFIG_POLICY:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_POLICY)")" "auto-apply")" | tr '[:upper:]' '[:lower:]')"
+UPDATES_POLICY="$(echo "$(resolve_setting "${BRAINDRIVE_UPDATES_POLICY:-}" "${CONFIG_POLICY:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_POLICY)")" "check-only")" | tr '[:upper:]' '[:lower:]')"
 UPDATES_FAIL_MODE="$(echo "$(resolve_setting "${BRAINDRIVE_UPDATES_FAIL_MODE:-}" "${CONFIG_FAIL_MODE:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_FAIL_MODE)")" "fail-open")" | tr '[:upper:]' '[:lower:]')"
 MIN_CHECK_INTERVAL="$(resolve_setting "${BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES:-}" "${CONFIG_MIN_CHECK_INTERVAL:-}" "$(trim_quotes "$(get_env_value BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES)")" "60")"
 

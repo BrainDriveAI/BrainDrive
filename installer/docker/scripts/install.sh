@@ -13,6 +13,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
 source "${SCRIPT_DIR}/auth-bootstrap.sh"
+source "${SCRIPT_DIR}/preserved-env.sh"
 
 COMPOSE_FILE="compose.local.yml"
 if [[ "${MODE}" == "prod" ]]; then
@@ -40,6 +41,8 @@ get_env_value() {
 }
 
 source "${SCRIPT_DIR}/release-resolution.sh"
+
+braindrive_restore_env "${ROOT_DIR}/.env"
 
 configure_docker_platform() {
   if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
@@ -140,7 +143,7 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -f .env ]]; then
+if [[ -f .env && "$BRAINDRIVE_ENV_RESTORED" != "true" ]]; then
   echo "Install stopped: .env already exists at ${ROOT_DIR}/.env" >&2
   echo "This installer is first-run only to protect existing account/secrets state." >&2
   echo "Use one of these instead:" >&2
@@ -150,9 +153,11 @@ if [[ -f .env ]]; then
   exit 1
 fi
 
-cp .env.example .env
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+  echo "Created .env from .env.example"
+fi
 chmod 600 .env
-echo "Created .env from .env.example"
 
 MASTER_KEY="$(get_env_value PAA_SECRETS_MASTER_KEY_B64 | tr -d '"')"
 if [[ -z "${MASTER_KEY}" ]]; then

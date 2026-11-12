@@ -184,6 +184,9 @@ The relative commands in this section use `installer/docker/` as their working d
 - Start (local): `./scripts/start.sh local`
   - Runs startup update check first (policy-driven), then starts containers.
 - Stop (local): `./scripts/stop.sh local`
+- Uninstall (keep data by default when prompted): `./scripts/uninstall.sh local`
+  - Choose explicitly: `./scripts/uninstall.sh local --keep-data` or `./scripts/uninstall.sh local --remove-data`
+  - Windows equivalents: `./scripts/uninstall.ps1 -Mode local -KeepData` or `-RemoveData`
 - Upgrade (local): `./scripts/upgrade.sh local`
 - Start (developer hot reload): `./scripts/start.sh dev`
 - Stop (developer hot reload): `./scripts/stop.sh dev`

@@ -11,6 +11,7 @@ Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
 . "$scriptDir/auth-bootstrap.ps1"
 . "$scriptDir/native-command.ps1"
+. "$scriptDir/preserved-env.ps1"
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -41,6 +42,8 @@ function Get-EnvValue {
 }
 
 . "$scriptDir/release-resolution.ps1"
+
+$restoredEnv = Restore-BrainDriveEnv -TargetPath (Join-Path $rootDir ".env")
 
 function Set-EnvValue {
   param(
@@ -113,7 +116,7 @@ try {
   throw "Docker Compose plugin is required (docker compose)."
 }
 
-if (Test-Path ".env") {
+if ((Test-Path ".env") -and -not $restoredEnv) {
   throw @"
 Install stopped: .env already exists at $rootDir/.env
 This installer is first-run only to protect existing account/secrets state.
@@ -124,8 +127,10 @@ Use one of these instead:
 "@
 }
 
-Copy-Item .env.example .env
-Write-Host "Created .env from .env.example"
+if (-not (Test-Path ".env")) {
+  Copy-Item .env.example .env
+  Write-Host "Created .env from .env.example"
+}
 
 $masterKey = Get-EnvValue -Key "PAA_SECRETS_MASTER_KEY_B64"
 if (-not $masterKey) {

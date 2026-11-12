@@ -450,7 +450,7 @@ try {
   $seedStartupCheckRaw = if ($env:BRAINDRIVE_STARTUP_UPDATE_CHECK) { $env:BRAINDRIVE_STARTUP_UPDATE_CHECK.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_STARTUP_UPDATE_CHECK" }
   if (-not $seedStartupCheckRaw) { $seedStartupCheckRaw = "true" }
   $seedPolicy = if ($env:BRAINDRIVE_UPDATES_POLICY) { $env:BRAINDRIVE_UPDATES_POLICY.Trim('"').ToLowerInvariant() } else { (Get-EnvValue -Key "BRAINDRIVE_UPDATES_POLICY").ToLowerInvariant() }
-  if (-not $seedPolicy) { $seedPolicy = "auto-apply" }
+  if (-not $seedPolicy) { $seedPolicy = "check-only" }
   $seedFailMode = if ($env:BRAINDRIVE_UPDATES_FAIL_MODE) { $env:BRAINDRIVE_UPDATES_FAIL_MODE.Trim('"').ToLowerInvariant() } else { (Get-EnvValue -Key "BRAINDRIVE_UPDATES_FAIL_MODE").ToLowerInvariant() }
   if (-not $seedFailMode) { $seedFailMode = "fail-open" }
   $seedMinIntervalRaw = if ($env:BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES) { $env:BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES" }
@@ -493,7 +493,7 @@ try {
 
   $updatesEnabledRaw = Resolve-Setting -RuntimeValue $env:BRAINDRIVE_UPDATES_ENABLED -ConfigValue $config.enabled -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_UPDATES_ENABLED") -DefaultValue "true"
   $startupCheckRaw = Resolve-Setting -RuntimeValue $env:BRAINDRIVE_STARTUP_UPDATE_CHECK -ConfigValue $config.startup_check -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_STARTUP_UPDATE_CHECK") -DefaultValue "true"
-  $updatesPolicy = (Resolve-Setting -RuntimeValue $env:BRAINDRIVE_UPDATES_POLICY -ConfigValue $config.policy -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_UPDATES_POLICY") -DefaultValue "auto-apply").ToLowerInvariant()
+  $updatesPolicy = (Resolve-Setting -RuntimeValue $env:BRAINDRIVE_UPDATES_POLICY -ConfigValue $config.policy -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_UPDATES_POLICY") -DefaultValue "check-only").ToLowerInvariant()
   $updatesFailMode = (Resolve-Setting -RuntimeValue $env:BRAINDRIVE_UPDATES_FAIL_MODE -ConfigValue $config.fail_mode -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_UPDATES_FAIL_MODE") -DefaultValue "fail-open").ToLowerInvariant()
 
   $minCheckIntervalRaw = Resolve-Setting -RuntimeValue $env:BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES -ConfigValue $config.min_check_interval_minutes -EnvFileValue (Get-EnvValue -Key "BRAINDRIVE_UPDATES_MIN_CHECK_INTERVAL_MINUTES") -DefaultValue "60"

@@ -11,7 +11,6 @@
   "required_files": [
     "AGENT.md",
     "me/profile.md",
-    "me/todo.md",
     "preferences/default.json",
     "documents/projects.json",
     "skills/registry.json"
