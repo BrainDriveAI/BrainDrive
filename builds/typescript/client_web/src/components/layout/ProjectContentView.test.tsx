@@ -115,7 +115,8 @@ it("edits and saves a built Expert's instructions from the Behavior entry", asyn
 it("shows no Behavior entry on a page without an Expert, and how to start one", async () => {
   const onStart = vi.fn();
   render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onInstallExpert={vi.fn()} />);
-  expect(screen.queryByText("Origin:")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("About this Expert")).not.toBeInTheDocument();
+  expect(screen.queryByText("Advanced")).not.toBeInTheDocument();
   expect(screen.getByText("This page has no Expert yet.")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Create an Expert" }));
   expect(onStart).toHaveBeenCalled();
@@ -145,8 +146,10 @@ it("lists installed template files as a Templates card, matching the default-pag
 
 it("shows where an Expert came from and no access setting", () => {
   render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "Finance", files: {}, backend: true } })} />);
-  expect(screen.getByText("Origin:")).toBeVisible();
-  expect(screen.getByText("Included with BrainDrive", { exact: false })).toBeVisible();
+  const about = screen.getByLabelText("About this Expert");
+  expect(about).toHaveTextContent("OriginIncluded with BrainDrive");
+  expect(about).toHaveTextContent("Creatorby BrainDrive");
+  expect(about).toHaveTextContent("LicenseMIT");
   expect(screen.queryByRole("heading", { name: "Access" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Change" })).not.toBeInTheDocument();
   expect(screen.queryByRole("radio")).not.toBeInTheDocument();
@@ -284,4 +287,42 @@ it("lists every file a default Expert comes with in Page Settings, methods and r
   expect(screen.queryByRole("button", { name: "Your Goals" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Planning" }));
   expect(onOpenFile).toHaveBeenCalledWith(files[2]);
+});
+
+describe("About this Expert and Advanced (AC-4.1, AC-8.8)", () => {
+  const installed = (over: Partial<PageSetup["plugins"][number]> = {}) => setup({
+    expert: { name: "Garden Planner", files: { "SKILL.md": "---\nname: garden-plan\ndescription: Plans a garden.\n---\nHelp.", "templates/spec.md": "# Spec" } },
+    plugins: [{ id: "behavior", name: "Garden Planner", source: "installed from a plugin file", skills: [], route: "forum", creator: "Sample Author", license: "MIT", fileName: "garden-planner-expert.zip", version: "1.0.0", installedAt: "2026-11-16T12:00:00Z", ...over }],
+  });
+
+  it("shows creator, license, version, install date and skills for an installed Expert", () => {
+    render(<ProjectContentView {...props} view="plugins" setup={installed()} />);
+    const about = screen.getByLabelText("About this Expert");
+    expect(about).toHaveTextContent("Creatorby Sample Author");
+    expect(about).toHaveTextContent("LicenseMIT");
+    expect(about).toHaveTextContent("Version1.0.0");
+    expect(about).toHaveTextContent("InstalledNovember 16, 2026");
+    expect(about).toHaveTextContent("Skillsgarden-plan");
+  });
+
+  it("says by unknown when the plugin names no creator", () => {
+    render(<ProjectContentView {...props} view="plugins" setup={installed({ creator: "" })} />);
+    expect(screen.getByLabelText("About this Expert")).toHaveTextContent("Creatorby unknown");
+  });
+
+  it("says made by you, with no license, version or install date, for an owner-made Expert", () => {
+    render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "My Expert", files: { "instructions.md": "Be helpful." } } })} />);
+    const about = screen.getByLabelText("About this Expert");
+    expect(about).toHaveTextContent("Creatormade by you");
+    expect(about).not.toHaveTextContent(/License|Version|Installed/);
+  });
+
+  it("keeps the install record under a closed Advanced section", async () => {
+    render(<ProjectContentView {...props} view="plugins" setup={installed()} />);
+    const record = screen.getByText("Install record");
+    expect(record).not.toBeVisible();
+    await userEvent.click(screen.getByText("Advanced"));
+    expect(record).toBeVisible();
+    expect(screen.getByText("installed from a plugin file (garden-planner-expert.zip)")).toBeVisible();
+  });
 });

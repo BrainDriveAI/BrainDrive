@@ -28,12 +28,18 @@ export type PluginSource = "made by you" | "included with BrainDrive" | "install
 // and a file from anywhere else look the same. "forum" files have been reviewed by the BrainDrive team;
 // "elsewhere" files have not, and need the owner's "at my own risk" tick before a file can be chosen.
 export type InstallRoute = "forum" | "elsewhere";
-export type PagePlugin = { id: string; name: string; source: PluginSource; skills: PluginSkill[]; route?: InstallRoute; creator?: string; license?: string };
+export type PagePlugin = {
+  id: string; name: string; source: PluginSource; skills: PluginSkill[]; route?: InstallRoute; creator?: string; license?: string;
+  /** For an installed Expert: the plugin file's name, its version label and when it was installed (display only). */
+  fileName?: string; version?: string; installedAt?: string;
+};
 export type PluginReview = {
   kind: "expert" | "plugin"; name: string; creator: string; license: string; adds: string;
   fileName: string; files: Record<string, string>; warnings: string[]; route?: InstallRoute;
   /** SHA-256 of the chosen file, 64 hex characters (AC-8.3). Missing when the browser could not read the file. */
   fingerprint?: string;
+  /** The version label from the plugin, shown as written. BrainDrive does not compare versions in Phase 1. */
+  version?: string;
 };
 export type HostEvent =
   | { id: string; type: "choose" }
@@ -182,7 +188,7 @@ export function checkPluginFile(fileName: string, mode: "expert" | "plugin"): { 
   if (mode === "expert") {
     const name = lower.includes("business") || lower.includes("starter") ? "Start a Business" : readableName(fileName);
     return { review: {
-      kind: "expert", name, creator: "Sample Author", license: "MIT",
+      kind: "expert", name, creator: "Sample Author", license: "MIT", version: "1.0.0",
       adds: "An Expert with instructions and a spec template.", fileName,
       files: {
         "SKILL.md": "---\nname: instructions\ndescription: How this Expert works with you. Sample text while the real package format is built.\n---\nHelp the owner explore the job step by step. Ask one question at a time.",
@@ -238,7 +244,7 @@ export function applyInstall(id: string, eventId: string, pageName: string) {
     events.push({ id: nextId(), type: "result", text: review.kind === "expert" ? `Installed ${pageName}. This page is now set up as ${pageName}.` : `Added ${review.name} to this page.` });
     if (review.kind === "expert") {
       return { events, installStep: null, installRoute: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
-        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator, license: review.license }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
+        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator, license: review.license, fileName: review.fileName, version: review.version, installedAt: new Date().toISOString() }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
     }
     return { events, installStep: null, installRoute: null, plugins: [...setup.plugins, { id: `plugin-${eventId}`, name: review.name, source: "installed from a plugin file", route: review.route, skills: skills.map((skill) => ({ ...skill, needs: "Needs web search (not available yet)" })) }] };
   });

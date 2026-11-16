@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowUpRight, FilePlus, FileText, Trash2 } from "lucide-react";
 
-import { saveExpertFile, type PageSetup } from "@/api/experts";
+import { reviewSkills, saveExpertFile, type PagePlugin, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
 import { buildProjectSidebarModel, type SidebarFileItem } from "./sidebar-categorize";
 import { projectRelativePath } from "./sidebar-labels";
@@ -57,7 +57,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "plugins" ? <><PluginsList project={project} setup={setup} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
+          {view === "plugins" ? <><PluginsList project={project} setup={setup} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} backendSkills={[...interview, ...otherExpertFiles].map((item) => item.label)} behaviorFiles={<>
             <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
             {otherExpertFiles.length ? <div className="mt-3"><FileList items={otherExpertFiles} onOpenFile={onOpenFile} /></div> : null}
@@ -146,10 +146,6 @@ function FileList({ items, onOpenFile, empty, showPaths = false }: { items: Disp
 }
 
 // Where the Expert came from. Shown for information only; it has no effect on what the Expert can read.
-function OriginLine({ origin }: { origin: string }) {
-  return <p className="text-sm text-bd-text-secondary"><span className="text-bd-text-primary">Origin:</span> {origin}</p>;
-}
-
 function originOf(plugin: { source: string; route?: "forum" | "elsewhere" } | undefined): string {
   if (plugin?.source !== "installed from a plugin file") return "Made by you";
   if (plugin.route === "elsewhere") return "Installed from a plugin file. Not reviewed by BrainDrive.";
@@ -157,14 +153,57 @@ function originOf(plugin: { source: string; route?: "forum" | "elsewhere" } | un
   return "Installed from a plugin file";
 }
 
-function PluginsList({ project, setup, onStartExpert, onInstallExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode }) {
+type ExpertFacts = { origin: string; creator: string; license?: string; version?: string; installed?: string; skills: string[]; record: [string, string][] };
+
+// What Settings says about an Expert (AC-4.1): where it came from, who made it, its license, version
+// label and install date (display only), and the skills it holds. The install record (AC-8.8) is
+// kept for Advanced. Defaults that came with BrainDrive are shown as BrainDrive's, under MIT.
+function expertFacts(expert: NonNullable<PageSetup["expert"]>, plugin: PagePlugin | undefined, backendSkills: string[]): ExpertFacts {
+  if (expert.backend) return { origin: "Included with BrainDrive", creator: "by BrainDrive", license: "MIT", skills: backendSkills,
+    record: [["Type", "Expert"], ["Name", expert.name], ["Source", "came with BrainDrive"]] };
+  const installed = plugin?.source === "installed from a plugin file";
+  const skills = reviewSkills(expert.files).map((skill) => skill.name);
+  if (!installed) return { origin: "Made by you", creator: "made by you", skills,
+    record: [["Type", "Expert"], ["Name", expert.name], ["Source", "made by you"]] };
+  return {
+    origin: originOf(plugin), creator: `by ${plugin.creator || "unknown"}`, license: plugin.license || "not stated", version: plugin.version || "none given",
+    installed: plugin.installedAt ? new Date(plugin.installedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : undefined,
+    skills, record: [["Type", "Expert"], ["Name", expert.name], ["Source", `installed from a plugin file (${plugin.fileName ?? "file name not kept"})`]],
+  };
+}
+
+function AboutExpert({ facts }: { facts: ExpertFacts }) {
+  const rows: [string, ReactNode][] = [
+    ["Origin", facts.origin], ["Creator", facts.creator],
+    ...(facts.license ? [["License", facts.license] as [string, ReactNode]] : []),
+    ...(facts.version ? [["Version", facts.version] as [string, ReactNode]] : []),
+    ...(facts.installed ? [["Installed", facts.installed] as [string, ReactNode]] : []),
+    ["Skills", facts.skills.length ? facts.skills.join(", ") : "None. It works from its instructions."],
+  ];
+  return <dl aria-label="About this Expert" className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-bd-border p-4 text-sm">
+    {rows.map(([label, value]) => <div key={label} className="contents"><dt className="text-bd-text-secondary">{label}</dt><dd className="text-bd-text-primary">{value}</dd></div>)}
+  </dl>;
+}
+
+function Advanced({ record }: { record: [string, string][] }) {
+  return <details className="rounded-lg border border-bd-border p-4 text-sm">
+    <summary className={`cursor-pointer text-bd-text-secondary ${focusStyle}`}>Advanced</summary>
+    <p className="mt-3 text-bd-text-primary">Install record</p>
+    <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">{record.map(([label, value]) => <div key={label} className="contents"><dt className="text-bd-text-secondary">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
+    <p className="mt-2 text-xs text-bd-text-secondary">Kept in Your Memory with this Expert. It is not part of the Expert and has no effect on what it can read.</p>
+  </details>;
+}
+
+function PluginsList({ project, setup, onStartExpert, onInstallExpert, behaviorFiles, backendSkills }: { project: Project; setup?: PageSetup; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode; backendSkills: string[] }) {
   const expert = setup?.expert ?? null;
+  const facts = expert ? expertFacts(expert, setup?.plugins.find((plugin) => plugin.id === "behavior"), backendSkills) : null;
   return <>
     <p className="text-sm text-bd-text-secondary">What shapes this page.</p>
-    {expert ? <OriginLine origin={expert.backend ? "Included with BrainDrive" : originOf(setup?.plugins.find((plugin) => plugin.id === "behavior"))} /> : null}
+    {facts ? <AboutExpert facts={facts} /> : null}
     {expert ? <ContentSection title={`What ${expert.name} comes with`}>
       {expert.backend ? behaviorFiles : <MockBehavior projectId={project.id} files={expert.files} />}
     </ContentSection> : <ContentSection title="What this Expert comes with"><div className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary"><p>This page has no Expert yet.</p>{onStartExpert ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onStartExpert} className={`min-h-11 rounded-lg border border-bd-amber bg-bd-amber px-4 py-2 text-bd-bg-primary hover:bg-bd-amber-hover ${focusStyle}`}>Create an Expert</button><button type="button" onClick={onInstallExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Install an Expert</button></div> : null}</div></ContentSection>}
+    {facts ? <Advanced record={facts.record} /> : null}
   </>;
 }
 
