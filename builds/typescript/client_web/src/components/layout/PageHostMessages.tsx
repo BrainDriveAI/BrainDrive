@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Info, ShieldCheck } from "lucide-react";
 
 import {
-  AI_NOTICE, MEMORY_NOTICE, applyInstall, applyInstructionChange, keepInstructions, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, fileFingerprint, pluginSlug, reviewInstructions, reviewSkills, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
+  AI_NOTICE, MEMORY_NOTICE, applyInstall, claimsBrainDriveFalsely, applyInstructionChange, keepInstructions, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, fileFingerprint, pluginSlug, reviewInstructions, reviewSkills, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
   type ExportChoices, type ExportDraft, type HostEvent, type InstallRoute, type PageSetup, type PluginReview,
 } from "@/api/experts";
 import { downloadPluginZip } from "@/prototype/pluginZip";
@@ -18,7 +18,9 @@ function Card({ label = "From BrainDrive", children, tone = "plain" }: { label?:
   </section>;
 }
 
-function Fingerprint({ value }: { value?: string }) {
+const FINGERPRINT_CHECK = "If you got this file from the forum, check that these first 12 characters match the fingerprint in the post. If they don't, don't install it.";
+
+function Fingerprint({ value, checkHint }: { value?: string; checkHint?: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return <>Not available. BrainDrive could not read this file.</>;
   async function copy() {
@@ -30,7 +32,7 @@ function Fingerprint({ value }: { value?: string }) {
       <button type="button" onClick={() => void copy()} className="rounded-md border border-bd-border px-2 py-0.5 text-xs hover:bg-bd-bg-hover">{copied ? "Copied" : "Copy"}</button>
     </div>
     <p className="mt-1 break-all font-mono text-xs text-bd-text-secondary">{value}</p>
-    <p className="mt-1 text-xs text-bd-text-secondary">If you got this file from the forum, this should match the fingerprint shown in the post.</p>
+    {checkHint ? <p className="mt-1 text-xs text-bd-text-secondary">{checkHint}</p> : null}
   </div>;
 }
 
@@ -46,13 +48,14 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
       <pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{instructions || "(This package has no instructions file.)"}</pre>
     </section>
     <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-      <dt className="text-bd-text-secondary">Creator</dt><dd>by {review.creator || "unknown"} <span className="text-bd-text-secondary">(unverified)</span></dd>
+      <dt className="text-bd-text-secondary">Creator</dt><dd>{review.creator && review.creator !== "unknown" ? `The file says it's by ${review.creator}. BrainDrive can't check this.` : "The file doesn't say who made it."}</dd>
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
-      <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} /></dd>
+      <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} checkHint={FINGERPRINT_CHECK} /></dd>
       <dt className="text-bd-text-secondary">Skills</dt><dd>{skills.length ? <ul className="space-y-1">{skills.map((skill) => <li key={skill.name}><span className="font-semibold">{skill.name}</span>{skill.description ? `: ${skill.description}` : ""}</li>)}</ul> : "None"}</dd>
       {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>
     <p className="mt-3">{MEMORY_NOTICE}</p>
+    {claimsBrainDriveFalsely(review) ? <p role="alert" className="mt-3 font-semibold text-bd-amber">Warning: this file says it's by BrainDrive, but it isn't one of the Experts BrainDrive made. Someone may be using BrainDrive's name. Don't install it.</p> : null}
     {review.route === "elsewhere" ? <p className="mt-3 text-bd-amber">Warning: BrainDrive has not reviewed this. Install it only if you trust who made it.</p> : null}
     {review.warnings.map((warning) => <p key={warning} className="mt-2 text-bd-amber">Warning: {warning}</p>)}
     <p className="mt-3">{`Installing sets this page up as ${review.name} and renames it to that name (numbered if the name is taken).`}</p>
@@ -86,7 +89,7 @@ export const FORUM_URL = "https://community.braindrive.ai";
 // The export card (ES-5). BrainDrive draws it, not the model. It lists every file that will be in the
 // plugin file, each opening in full. There is nothing to tick: the file is everything in the plugin.
 // Save as a plugin saves the file to the owner's computer and sends nothing anywhere.
-export function ExportCard({ draft, status, savedAs, onSave, onCancel }: { draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; onSave: (fileName: string, files: [string, string][]) => void; onCancel: () => void }) {
+export function ExportCard({ draft, status, savedAs, fingerprint, onSave, onCancel }: { draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; fingerprint?: string; onSave: (fileName: string, files: [string, string][]) => void; onCancel: () => void }) {
   const [choices, setChoices] = useState<ExportChoices>({ creator: "", license: "MIT", otherLicense: "" });
   const [open, setOpen] = useState<string | null>(null);
   const [licenseHelp, setLicenseHelp] = useState(false);
@@ -137,8 +140,10 @@ export function ExportCard({ draft, status, savedAs, onSave, onCancel }: { draft
         <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>Open the forum's sharing category.</li>
           <li>Start a new post and attach {savedAs}.</li>
+          <li>Paste this file's fingerprint into the post, so people who install it can check they have your file.</li>
           <li>Your post is held until a moderator has checked it. Only you and the moderators can see it until then.</li>
         </ol>
+        <div className="mt-3"><p className="text-xs font-semibold uppercase tracking-wide text-bd-text-secondary">Fingerprint</p><Fingerprint value={fingerprint} /></div>
         <a href={FORUM_URL} target="_blank" rel="noopener noreferrer" className={`${expertButton} mt-3 inline-flex items-center`}>Share on the forum</a>
         <p className="mt-2 text-xs text-bd-text-secondary">If the forum does not open, go to community.braindrive.ai.</p>
       </div>
@@ -223,8 +228,8 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "install-help": return <InstallHelp key={event.id} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId && !reviewPending} />;
       case "refused": return <Card key={event.id}><p role="alert">{event.reason}</p></Card>;
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
-      case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs}
-        onSave={(fileName, files) => { downloadPluginZip(fileName, files); saveExport(project.id, event.id, fileName); }} onCancel={() => cancelExport(project.id, event.id)} />;
+      case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs} fingerprint={event.fingerprint}
+        onSave={(fileName, files) => { const saved = downloadPluginZip(fileName, files); void fileFingerprint(saved).then((value) => saveExport(project.id, event.id, fileName, value)); }} onCancel={() => cancelExport(project.id, event.id)} />;
       case "change": return <ChangeCard key={event.id} event={event} onApply={() => applyInstructionChange(project.id, event.id)} onKeep={() => keepInstructions(project.id, event.id)} />;
       case "result": return <Card key={event.id}><p>{event.text}</p></Card>;
       case "notice": return <Card key={event.id} label="From BrainDrive: about AI"><p>{AI_NOTICE}</p></Card>;

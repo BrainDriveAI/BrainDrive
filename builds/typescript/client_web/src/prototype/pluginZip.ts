@@ -52,13 +52,16 @@ export function buildPluginZip(files: [path: string, text: string][]): Uint8Arra
   return zip;
 }
 
-/** Hands the ZIP to the browser as a download. Does nothing where the browser cannot (tests). */
-export function downloadPluginZip(fileName: string, files: [path: string, text: string][]) {
-  if (typeof URL.createObjectURL !== "function") return;
-  const url = URL.createObjectURL(new Blob([buildPluginZip(files) as BlobPart], { type: "application/zip" }));
+/** Hands the ZIP to the browser as a download and returns it, so its fingerprint is taken from the
+ * exact bytes saved. The download does nothing where the browser cannot (tests). */
+export function downloadPluginZip(fileName: string, files: [path: string, text: string][]): Blob {
+  const blob = new Blob([buildPluginZip(files) as BlobPart], { type: "application/zip" });
+  if (typeof URL.createObjectURL !== "function") return blob;
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
+  return blob;
 }

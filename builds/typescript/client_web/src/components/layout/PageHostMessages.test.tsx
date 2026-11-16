@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
 import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
@@ -139,6 +139,17 @@ it("takes a chosen file from the button into the check", async () => {
   expect(card).toHaveTextContent("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
   expect(screen.getByText("2d711642b726")).toBeVisible();
   expect(screen.getByRole("button", { name: "Copy" })).toBeVisible();
+  expect(card).toHaveTextContent("check that these first 12 characters match the fingerprint in the post");
+});
+
+it("warns when a file claims BrainDrive as its creator but is not one of BrainDrive's own Experts", async () => {
+  const user = userEvent.setup();
+  render(<Harness />); await addPage();
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+  await submit("braindrive-finance.zip");
+  const card = await screen.findByLabelText("From BrainDrive: review before installing");
+  expect(card).toHaveTextContent("The file says it's by BrainDrive. BrainDrive can't check this.");
+  expect(within(card).getByRole("alert")).toHaveTextContent("this file says it's by BrainDrive, but it isn't one of the Experts BrainDrive made. Someone may be using BrainDrive's name. Don't install it.");
 });
 
 it("shows a BrainDrive review card with summary first and every file in full, then installs on THIS page", async () => {
@@ -147,7 +158,8 @@ it("shows a BrainDrive review card with summary first and every file in full, th
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   await submit("start-a-business.zip");
   const card = await screen.findByLabelText("From BrainDrive: review before installing");
-  expect(card).toHaveTextContent("by Sample Author (unverified)");
+  expect(card).toHaveTextContent("The file says it's by Sample Author. BrainDrive can't check this.");
+  expect(screen.queryByText(/Someone may be using BrainDrive's name/)).not.toBeInTheDocument();
   expect(card).toHaveTextContent("MIT");
   expect(card).toHaveTextContent("An Expert with instructions and a spec template.");
   // The full instructions are shown up front, before anything is expanded (AC-8.3).
@@ -270,6 +282,9 @@ describe("Share this Expert", () => {
     expect(card()).toHaveTextContent("held until a moderator has checked it");
     expect(screen.getByRole("link", { name: "Share on the forum" })).toHaveAttribute("href", "https://community.braindrive.ai");
     expect(screen.queryByRole("button", { name: "Save as a plugin" })).not.toBeInTheDocument();
+    // The saved file's fingerprint is shown so the creator can paste it into the forum post.
+    expect(card()).toHaveTextContent("Paste this file's fingerprint into the post");
+    await waitFor(() => expect(within(card()).getByRole("button", { name: "Copy" })).toBeVisible());
   });
 
   it("Cancel saves nothing", async () => {

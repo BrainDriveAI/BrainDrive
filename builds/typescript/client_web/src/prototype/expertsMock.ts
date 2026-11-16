@@ -47,7 +47,7 @@ export type HostEvent =
   | { id: string; type: "install-help" }
   | { id: string; type: "refused"; reason: string }
   | { id: string; type: "review"; review: PluginReview; status: "pending" | "installed" | "cancelled" }
-  | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string }
+  | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; fingerprint?: string }
   | { id: string; type: "result"; text: string }
   // A change to the Expert's own instructions, proposed from the owner's message and drawn by BrainDrive.
   // It shows the exact wording going in or coming out; nothing is saved until the owner presses Change it.
@@ -169,6 +169,16 @@ export function reviewInstructions(files: Record<string, string>): string | unde
   return entry?.[1].replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 }
 
+// Fingerprints of the exact default packages this BrainDrive version ships. BrainDrive made these, so a
+// file that claims BrainDrive as its creator can be checked against them. Empty in the prototype: the
+// default Experts are not built as plugin files here, so every "by BrainDrive" file gets the warning.
+export const BRAINDRIVE_PACKAGE_FINGERPRINTS: ReadonlySet<string> = new Set();
+
+/** True when a file names BrainDrive as its creator but is not one of BrainDrive's own packages. */
+export function claimsBrainDriveFalsely(review: Pick<PluginReview, "creator" | "fingerprint">): boolean {
+  return /brain\s*drive/i.test(review.creator) && !(review.fingerprint && BRAINDRIVE_PACKAGE_FINGERPRINTS.has(review.fingerprint));
+}
+
 export const NO_ROUTE_NOTICE = "First choose where this file came from: the BrainDrive forum, or somewhere else.";
 
 /** Puts the two starting buttons back on a page that still has no Expert. */
@@ -189,7 +199,8 @@ export function checkPluginFile(fileName: string): { reason: string } | { review
   if (lower.includes("big")) return { reason: "A file in this package is over 256 KiB." };
   const name = lower.includes("business") || lower.includes("starter") ? "Start a Business" : readableName(fileName);
     return { review: {
-      kind: "expert", name, creator: "Sample Author", license: "MIT", version: "1.0.0",
+      // A file named with "braindrive" claims BrainDrive as its creator, to show the impersonation warning.
+      kind: "expert", name, creator: lower.includes("braindrive") ? "BrainDrive" : "Sample Author", license: "MIT", version: "1.0.0",
       adds: "An Expert with instructions and a spec template.", fileName,
       files: {
         "SKILL.md": "---\nname: instructions\ndescription: How this Expert works with you. Sample text while the real package format is built.\n---\nHelp the owner explore the job step by step. Ask one question at a time.",
@@ -310,8 +321,9 @@ export function startExport(id: string, backendFiles?: Record<string, string>) {
   });
 }
 
-export function saveExport(id: string, eventId: string, savedAs: string) {
-  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "saved" as const, savedAs } : item) }));
+/** Marks the export saved. The fingerprint of the saved file goes in the forum post so owners can check it (AC-8.3). */
+export function saveExport(id: string, eventId: string, savedAs: string, fingerprint?: string) {
+  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "saved" as const, savedAs, fingerprint } : item) }));
 }
 
 export function cancelExport(id: string, eventId: string) {
