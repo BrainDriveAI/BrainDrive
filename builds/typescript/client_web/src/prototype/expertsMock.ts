@@ -32,6 +32,8 @@ export type PagePlugin = { id: string; name: string; source: PluginSource; skill
 export type PluginReview = {
   kind: "expert" | "plugin"; name: string; creator: string; license: string; adds: string;
   fileName: string; files: Record<string, string>; warnings: string[]; route?: InstallRoute;
+  /** SHA-256 of the chosen file, 64 hex characters (AC-8.3). Missing when the browser could not read the file. */
+  fingerprint?: string;
 };
 export type HostEvent =
   | { id: string; type: "choose" }
@@ -132,6 +134,32 @@ export function startInstallStep(id: string, mode: "expert" | "plugin") {
 export function chooseInstallRoute(id: string, route: InstallRoute | null) {
   update(id, nameOf(id), (setup) => setup.installStep ? { installRoute: route } : {});
 }
+export const MEMORY_NOTICE = "Like every Expert, this one can read all of your Memory through Your Agent, and the AI model you chose sees whatever is sent to it. It has no web search or other outside tools. It can add notes, plans and what it learns. It cannot change your preferences, instructions or other Experts without your approval.";
+
+/** SHA-256 of a chosen file's bytes, as 64 hex characters, or undefined if the browser cannot read it. */
+export async function fileFingerprint(file: Blob): Promise<string | undefined> {
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(await file.arrayBuffer()));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return undefined;
+  }
+}
+
+/** The skills a package holds, read from each SKILL.md's name and description. */
+export function reviewSkills(files: Record<string, string>): { name: string; description: string }[] {
+  return Object.entries(files).filter(([file]) => /(^|\/)SKILL\.md$/.test(file)).map(([file, text]) => {
+    const field = (key: string) => text.match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1]?.trim() ?? "";
+    return { name: field("name") || file.replace(/\/?SKILL\.md$/, "") || "skill", description: field("description") };
+  });
+}
+
+/** The Expert's main instructions file text, without its front matter. */
+export function reviewInstructions(files: Record<string, string>): string | undefined {
+  const entry = Object.entries(files).find(([file]) => /(^|\/)(instructions|SKILL)\.md$/.test(file) && !file.startsWith("templates/"));
+  return entry?.[1].replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+}
+
 export const NO_ROUTE_NOTICE = "First choose where this file came from: the BrainDrive forum, or somewhere else.";
 
 /** Puts the two starting buttons back on a page that still has no Expert. */
@@ -154,7 +182,7 @@ export function checkPluginFile(fileName: string, mode: "expert" | "plugin"): { 
   if (mode === "expert") {
     const name = lower.includes("business") || lower.includes("starter") ? "Start a Business" : readableName(fileName);
     return { review: {
-      kind: "expert", name, creator: "unverified (Sample Author)", license: "MIT",
+      kind: "expert", name, creator: "Sample Author", license: "MIT",
       adds: "An Expert with instructions and a spec template.", fileName,
       files: {
         "SKILL.md": "---\nname: instructions\ndescription: How this Expert works with you. Sample text while the real package format is built.\n---\nHelp the owner explore the job step by step. Ask one question at a time.",
@@ -174,7 +202,7 @@ export function checkPluginFile(fileName: string, mode: "expert" | "plugin"): { 
 }
 
 /** The chosen or dropped file goes to the BrainDrive check, never to the model. */
-export async function submitPluginFile(id: string, fileName: string, chosenRoute?: InstallRoute) {
+export async function submitPluginFile(id: string, fileName: string, chosenRoute?: InstallRoute, fingerprint?: string) {
   const { installStep: mode, installRoute } = current(id, nameOf(id));
   if (!mode) return;
   // A file that arrives before the owner has said where it came from (a dropped file, say) is not checked.
@@ -186,7 +214,7 @@ export async function submitPluginFile(id: string, fileName: string, chosenRoute
   await pause();
   const result = checkPluginFile(fileName, mode);
   update(id, nameOf(id), (setup) => ({
-    events: [...setup.events, "reason" in result ? { id: nextId(), type: "refused", reason: result.reason } : { id: nextId(), type: "review", review: { ...result.review, route }, status: "pending" }],
+    events: [...setup.events, "reason" in result ? { id: nextId(), type: "refused", reason: result.reason } : { id: nextId(), type: "review", review: { ...result.review, route, fingerprint }, status: "pending" }],
   }));
 }
 
@@ -210,7 +238,7 @@ export function applyInstall(id: string, eventId: string, pageName: string) {
     events.push({ id: nextId(), type: "result", text: review.kind === "expert" ? `Installed ${pageName}. This page is now set up as ${pageName}.` : `Added ${review.name} to this page.` });
     if (review.kind === "expert") {
       return { events, installStep: null, installRoute: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
-        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator.replace(/^unverified \((.*)\)$/, "$1"), license: review.license }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
+        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator, license: review.license }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
     }
     return { events, installStep: null, installRoute: null, plugins: [...setup.plugins, { id: `plugin-${eventId}`, name: review.name, source: "installed from a plugin file", route: review.route, skills: skills.map((skill) => ({ ...skill, needs: "Needs web search (not available yet)" })) }] };
   });

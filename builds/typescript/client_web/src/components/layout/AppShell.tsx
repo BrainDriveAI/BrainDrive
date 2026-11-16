@@ -13,7 +13,7 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startBuild, startExport, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startBuild, startExport, startInstallStep, submitPluginFile, fileFingerprint, usePageSetup } from "@/api/experts";
 import { buildProjectSidebarModel } from "./sidebar-categorize";
 import { canonicalFileName, projectRelativePath } from "./sidebar-labels";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
@@ -463,7 +463,7 @@ export default function AppShell({
               ) : undefined}
               fileDrop={expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id) ? {
                 installStep: pageSetup?.installStep != null,
-                onInstallFile: (file) => { void submitPluginFile(selectedProject.id, file.name); }
+                onInstallFile: (file) => { const id = selectedProject.id; void fileFingerprint(file).then((fingerprint) => submitPluginFile(id, file.name, undefined, fingerprint)); }
               } : undefined}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />

@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Info, ShieldCheck } from "lucide-react";
 
 import {
-  AI_NOTICE, applyInstall, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, pluginSlug, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
+  AI_NOTICE, MEMORY_NOTICE, applyInstall, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, fileFingerprint, pluginSlug, reviewInstructions, reviewSkills, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
   type ExportChoices, type ExportDraft, type HostEvent, type InstallRoute, type PageSetup, type PluginReview,
 } from "@/api/experts";
 import { downloadPluginZip } from "@/prototype/pluginZip";
@@ -18,21 +18,45 @@ function Card({ label = "From BrainDrive", children, tone = "plain" }: { label?:
   </section>;
 }
 
+function Fingerprint({ value }: { value?: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <>Not available. BrainDrive could not read this file.</>;
+  async function copy() {
+    try { await navigator.clipboard.writeText(value!); setCopied(true); } catch { setCopied(false); }
+  }
+  return <div>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="font-mono font-semibold">{value.slice(0, 12)}</span>
+      <button type="button" onClick={() => void copy()} className="rounded-md border border-bd-border px-2 py-0.5 text-xs hover:bg-bd-bg-hover">{copied ? "Copied" : "Copy"}</button>
+    </div>
+    <p className="mt-1 break-all font-mono text-xs text-bd-text-secondary">{value}</p>
+    <p className="mt-1 text-xs text-bd-text-secondary">If you got this file from the forum, this should match the fingerprint shown in the post.</p>
+  </div>;
+}
+
 export function ReviewCard({ review, status, busy, onInstall, onCancel }: { review: PluginReview; status: "pending" | "installed" | "cancelled"; busy: boolean; onInstall: () => void; onCancel: () => void }) {
   const [showFiles, setShowFiles] = useState(false);
   const isExpert = review.kind === "expert";
+  const instructions = isExpert ? reviewInstructions(review.files) : undefined;
+  const skills = reviewSkills(review.files);
   return <Card label="From BrainDrive: review before installing" tone="review">
     <h2 className="font-heading text-lg text-bd-text-heading">{review.name}</h2>
-    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-      <dt className="text-bd-text-secondary">Creator</dt><dd>{review.creator}</dd>
+    <p className="mt-1">{review.adds}</p>
+    {isExpert ? <section aria-label="Instructions" className="mt-3">
+      <p className="font-semibold text-bd-text-heading">These instructions will guide this page's Expert.</p>
+      <pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{instructions || "(This package has no instructions file.)"}</pre>
+    </section> : null}
+    <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+      <dt className="text-bd-text-secondary">Creator</dt><dd>by {review.creator || "unknown"} <span className="text-bd-text-secondary">(unverified)</span></dd>
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
-      <dt className="text-bd-text-secondary">What it adds</dt><dd>{review.adds}</dd>
-      <dt className="text-bd-text-secondary">Page</dt><dd>{isExpert ? `This page will be set up as ${review.name}.` : "This page only."}</dd>
+      <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} /></dd>
+      <dt className="text-bd-text-secondary">Skills</dt><dd>{skills.length ? <ul className="space-y-1">{skills.map((skill) => <li key={skill.name}><span className="font-semibold">{skill.name}</span>{skill.description ? `: ${skill.description}` : ""}</li>)}</ul> : "None"}</dd>
       {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>
-    {review.route === "elsewhere" ? <p className="mt-3 text-bd-amber">Warning: BrainDrive has not reviewed this. It can read all of Your Memory and shape what the AI tells you. Install it only if you trust who made it.</p> : null}
-    {isExpert ? <p className="mt-3">These instructions will become this page's instructions.</p> : null}
+    {isExpert ? <p className="mt-3">{MEMORY_NOTICE}</p> : null}
+    {review.route === "elsewhere" ? <p className="mt-3 text-bd-amber">Warning: BrainDrive has not reviewed this. Install it only if you trust who made it.</p> : null}
     {review.warnings.map((warning) => <p key={warning} className="mt-2 text-bd-amber">Warning: {warning}</p>)}
+    <p className="mt-3">{isExpert ? `Installing sets this page up as ${review.name} and renames it to that name (numbered if the name is taken).` : "Installing adds this to this page only."}</p>
     <p className="mt-3 text-bd-text-secondary">Reading does not run anything. The AI has not seen this package.</p>
     <button type="button" aria-expanded={showFiles} onClick={() => setShowFiles((open) => !open)} className={`${expertButton} mt-3`}>{showFiles ? "Hide files" : "See every file"}</button>
     {showFiles ? <div className="mt-3 space-y-3">{Object.entries(review.files).map(([name, text]) => <div key={name}><p className="break-all text-xs font-semibold text-bd-text-heading">{name}</p><pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{text}</pre></div>)}</div> : null}
@@ -126,7 +150,7 @@ function InstallHelp({ mode, projectId, active }: { mode: "expert" | "plugin"; p
     <p>{mode === "expert" ? "Install an Expert from the BrainDrive community forum." : "Add a plugin from the BrainDrive community forum."}</p>
     <p className="mt-2 text-bd-text-secondary">{thing}s posted on the forum (community.braindrive.ai) have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
     {active ? <div className="mt-3">
-      <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) void submitPluginFile(projectId, file.name, route.current); }} />
+      <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) { const from = route.current; void fileFingerprint(file).then((fingerprint) => submitPluginFile(projectId, file.name, from, fingerprint)); } }} />
       <div className="flex flex-wrap gap-2">
         <button type="button" className={expertPrimaryButton} onClick={() => choose("forum")}>Choose file from the forum</button>
         <button type="button" className={expertButton} onClick={() => cancelInstallStep(projectId)}>Cancel</button>

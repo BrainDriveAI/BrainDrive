@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
-import { AI_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
+import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
 import PageHostMessages from "./PageHostMessages";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
@@ -73,7 +73,8 @@ it("installing from somewhere else needs the warning read and the at-my-own-risk
   fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "garden-helper.zip")] } });
   const card = await screen.findByLabelText("From BrainDrive: review before installing");
   expect(card).toHaveTextContent("Somewhere else. Not reviewed by BrainDrive.");
-  expect(card).toHaveTextContent("Warning: BrainDrive has not reviewed this.");
+  expect(card).toHaveTextContent("Warning: BrainDrive has not reviewed this. Install it only if you trust who made it.");
+  expect(card).not.toHaveTextContent("shape what the AI tells you");
 });
 
 it("says a forum file's source is the owner's word, and keeps the source on the installed Expert", async () => {
@@ -144,6 +145,11 @@ it("takes a chosen file from the button into the check", async () => {
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "start-a-business.zip")] } });
   expect(await screen.findByRole("heading", { name: "Start a Business" })).toBeVisible();
+  // The fingerprint is the SHA-256 of the chosen file's bytes, with its first 12 characters as the label (AC-8.3).
+  const card = screen.getByLabelText("From BrainDrive: review before installing");
+  expect(card).toHaveTextContent("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
+  expect(screen.getByText("2d711642b726")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Copy" })).toBeVisible();
 });
 
 it("shows a BrainDrive review card with summary first and every file in full, then installs on THIS page", async () => {
@@ -152,14 +158,22 @@ it("shows a BrainDrive review card with summary first and every file in full, th
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   await submit("start-a-business.zip");
   const card = await screen.findByLabelText("From BrainDrive: review before installing");
-  expect(card).toHaveTextContent("unverified");
+  expect(card).toHaveTextContent("by Sample Author (unverified)");
   expect(card).toHaveTextContent("MIT");
-  expect(card).toHaveTextContent("What it adds");
-  expect(card).toHaveTextContent("These instructions will become this page's instructions.");
+  expect(card).toHaveTextContent("An Expert with instructions and a spec template.");
+  // The full instructions are shown up front, before anything is expanded (AC-8.3).
+  const instructions = screen.getByRole("region", { name: "Instructions" });
+  expect(instructions).toHaveTextContent("These instructions will guide this page's Expert.");
+  expect(instructions).toHaveTextContent("Ask one question at a time.");
+  expect(instructions).not.toHaveTextContent("description:");
+  expect(card).toHaveTextContent("instructions: How this Expert works with you.");
+  expect(card).toHaveTextContent(MEMORY_NOTICE);
+  expect(card).toHaveTextContent("renames it to that name (numbered if the name is taken)");
+  expect(card).toHaveTextContent("Fingerprint");
   expect(screen.queryByText("templates/spec.md")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "See every file" }));
   expect(screen.getByText("templates/spec.md")).toBeVisible();
-  expect(screen.getByText(/Ask one question at a time/)).toBeVisible();
+  expect(screen.getAllByText(/Ask one question at a time/)).toHaveLength(2);
   await user.click(screen.getByRole("button", { name: "Install" }));
   await waitFor(() => expect(renamePage).toHaveBeenCalledWith("p1", "Start a Business 2"));
   expect(gateway.createProject).toHaveBeenCalledTimes(1); // no new page
