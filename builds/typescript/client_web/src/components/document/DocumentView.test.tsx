@@ -2,12 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
 import DocumentView from "./DocumentView";
+import { resetFileHistoryMock } from "@/prototype/fileHistoryMock";
 
 vi.mock("@/api/gateway-adapter", () => ({ readFileContent: vi.fn(), writeFileContent: vi.fn(), deleteFileContent: vi.fn() }));
 
 const props = { projectId: "finance", projectName: "Finance", file: { name: "notes.md", path: "documents/finance/added/notes.md" }, onBack: vi.fn() };
 
 beforeEach(() => {
+  resetFileHistoryMock();
+  vi.mocked(gateway.writeFileContent).mockReset().mockResolvedValue(undefined);
   vi.mocked(gateway.readFileContent).mockReset().mockResolvedValue("# Notes");
   vi.mocked(gateway.deleteFileContent).mockReset().mockResolvedValue(undefined);
 });
@@ -98,5 +101,58 @@ describe("Put inside the Expert (AC-3.7)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Put it inside" }));
     expect(await screen.findByText(/over 256 KiB/)).toBeVisible();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+describe("last-saved time and Earlier versions (PC-7.1, PC-7.2, prototype)", () => {
+  const text = "# Plan\nStep one\nStep two\nStep three\nStep four";
+
+  it("shows nothing about history unless asked", async () => {
+    render(<DocumentView {...props} />);
+    await screen.findByText("Notes");
+    expect(screen.queryByRole("button", { name: "Earlier versions" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last saved/)).not.toBeInTheDocument();
+  });
+
+  it("opens an earlier version read-only and makes it current by saving its text", async () => {
+    vi.mocked(gateway.readFileContent).mockResolvedValue(text);
+    render(<DocumentView {...props} showHistory />);
+    await screen.findByText(/Step four/);
+    expect(screen.getByText(/^Last saved /)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Earlier versions" }));
+    const list = screen.getByRole("region", { name: "Earlier versions" });
+    const versions = list.querySelectorAll("li button");
+    expect(versions.length).toBeGreaterThan(0);
+    await userEvent.click(versions[0] as HTMLElement);
+    expect(screen.getByRole("region", { name: "Earlier version" })).toHaveTextContent("It is read-only.");
+    expect(screen.queryByText(/Step four/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Make this the current version" }));
+    await waitFor(() => expect(gateway.writeFileContent).toHaveBeenCalledWith("finance", props.file.path, expect.not.stringContaining("Step four")));
+    expect(await screen.findByRole("status")).toHaveTextContent("The text it replaced is now an earlier version.");
+  });
+
+  it("keeps the replaced text as an earlier version, so a restore can be undone", async () => {
+    vi.mocked(gateway.readFileContent).mockResolvedValue(text);
+    render(<DocumentView {...props} showHistory />);
+    await screen.findByText(/Step four/);
+    await userEvent.click(screen.getByRole("button", { name: "Earlier versions" }));
+    await userEvent.click(screen.getByRole("region", { name: "Earlier versions" }).querySelector("li button") as HTMLElement);
+    await userEvent.click(screen.getByRole("button", { name: "Make this the current version" }));
+    await screen.findByRole("status");
+    await userEvent.click(screen.getByRole("button", { name: "Earlier versions" }));
+    await userEvent.click(screen.getByRole("region", { name: "Earlier versions" }).querySelector("li button") as HTMLElement);
+    expect(screen.getByText(/Step four/)).toBeVisible();
+  });
+
+  it("Back to the current version changes nothing", async () => {
+    vi.mocked(gateway.readFileContent).mockResolvedValue(text);
+    render(<DocumentView {...props} showHistory />);
+    await screen.findByText(/Step four/);
+    await userEvent.click(screen.getByRole("button", { name: "Earlier versions" }));
+    await userEvent.click(screen.getByRole("region", { name: "Earlier versions" }).querySelector("li button") as HTMLElement);
+    await userEvent.click(screen.getByRole("button", { name: "Back to the current version" }));
+    expect(screen.getByText(/Step four/)).toBeVisible();
+    expect(gateway.writeFileContent).not.toHaveBeenCalled();
   });
 });

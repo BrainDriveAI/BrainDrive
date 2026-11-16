@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowUpRight, FilePlus, FileText, Trash2 } from "lucide-react";
 
-import { reviewSkills, saveExpertFile, type PagePlugin, type PageSetup } from "@/api/experts";
+import { expertPreviewEnabled, reviewSkills, saveExpertFile, type PagePlugin, type PageSetup } from "@/api/experts";
+import { formatSavedTime, sampleLastSaved } from "@/prototype/fileHistoryMock";
 import type { Project, ProjectFile } from "@/types/ui";
 import { buildProjectSidebarModel, type SidebarFileItem } from "./sidebar-categorize";
 import { projectRelativePath } from "./sidebar-labels";
@@ -64,10 +65,10 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
           </>} />{onShareExpert && setup?.expert ? <ContentSection title="Share this Expert"><div className="rounded-lg border border-bd-border p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Save this Expert as one plugin file you can give to someone else or post on the BrainDrive forum. You see every file in it before anything is saved. Your Memory and this page's files are never included.</p><button type="button" onClick={onShareExpert} className={`mt-3 min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Share this Expert</button></div></ContentSection> : null}{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
-            {shortcuts.length ? <section aria-label="Goals, Plan and Journal"><FileList items={shortcuts} onOpenFile={onOpenFile} /></section> : null}
+            {shortcuts.length ? <section aria-label="Goals, Plan and Journal"><FileList items={shortcuts} onOpenFile={onOpenFile} showSavedTime={expertPreviewEnabled} /></section> : null}
             <ContentSection title="Your work" action={onCreateFile && !addingFile ? <button type="button" onClick={() => setAddingFile(true)} className={`flex min-h-11 items-center gap-2 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}><FilePlus size={16} aria-hidden="true" />New file</button> : null}>
               {onCreateFile && addingFile ? <NewFileForm projectId={project.id} files={files} onCreateFile={onCreateFile} onClose={() => setAddingFile(false)} /> : null}
-              <FileList items={work} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
+              <FileList items={work} onOpenFile={onOpenFile} showSavedTime={expertPreviewEnabled} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
           </>}
         </div>
       </div>
@@ -134,12 +135,13 @@ function NewFileForm({ projectId, files, onCreateFile, onClose }: { projectId: s
   </form>;
 }
 
-function FileList({ items, onOpenFile, empty, showPaths = false }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean }) {
+// showSavedTime (PROTOTYPE): the last-saved time under each file, from the mock history (Page changes PC-7.1).
+function FileList({ items, onOpenFile, empty, showPaths = false, showSavedTime = false }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean; showSavedTime?: boolean }) {
   if (items.length === 0) return empty ? <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">{empty}</p> : null;
   return <div className="divide-y divide-bd-border rounded-lg border border-bd-border">{items.map((item) => <div key={item.file.path} className="flex items-center gap-2 rounded-lg px-3 hover:bg-bd-bg-secondary">
     <button type="button" aria-label={item.label} title={item.canonicalPath} onClick={() => onOpenFile(item.file)} className={`flex min-w-0 flex-1 items-center gap-3 rounded-md py-4 text-left ${focusStyle}`}>
       <FileText size={18} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
-      <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{item.label}</span>{item.description || showPaths ? <span className="mt-1 block break-words text-xs text-bd-text-secondary">{showPaths ? item.canonicalPath : item.description}</span> : null}</span>
+      <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{item.label}</span>{item.description || showPaths ? <span className="mt-1 block break-words text-xs text-bd-text-secondary">{showPaths ? item.canonicalPath : item.description}</span> : null}{showSavedTime ? <span className="mt-0.5 block text-xs text-bd-text-muted">Saved {formatSavedTime(sampleLastSaved(item.file.path))}</span> : null}</span>
       {item.badge ? <span className="text-xs text-bd-text-secondary">{item.badge}</span> : null}<ArrowUpRight size={16} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
     </button>
   </div>)}</div>;

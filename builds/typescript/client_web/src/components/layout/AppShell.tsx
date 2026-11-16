@@ -318,6 +318,7 @@ export default function AppShell({
       backLabel={isCollectionFile ? `Back to ${PROJECT_VIEW_LABELS[activeView!]}` : undefined}
       onDeleted={canDeleteDisplayedFile ? () => { setActiveFile(null); void refreshSelectedProjectFiles(); } : undefined}
       onPutInside={canPutInside ? handlePutInside : undefined}
+      showHistory={expertPreviewEnabled}
     />
   ) : activeView && selectedProject ? (
     <ProjectContentView

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, LoaderCircle, PackagePlus, PencilLine, Save, Trash2, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, History, LoaderCircle, PackagePlus, PencilLine, Save, Trash2, X } from "lucide-react";
 
 import { deleteFileContent, readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import { Button } from "@/components/ui/button";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import { earlierVersions, formatSavedTime, keepReplacedVersion, sampleLastSaved, type FileVersion } from "@/prototype/fileHistoryMock";
 
 type DocumentViewProps = {
   projectId: string;
@@ -17,6 +18,8 @@ type DocumentViewProps = {
   // When given, the owner can put a copy of this file inside the page's Expert (AC-3.7). Throws with a
   // plain reason when it cannot be done.
   onPutInside?: (content: string) => Promise<void>;
+  // PROTOTYPE: show the last-saved time and Earlier versions (Page changes PC-7.1, PC-7.2), from the mock history.
+  showHistory?: boolean;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -35,8 +38,13 @@ export default function DocumentView({
   onBack,
   backLabel = "Back to chat",
   onDeleted,
-  onPutInside
+  onPutInside,
+  showHistory = false
 }: DocumentViewProps) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewing, setViewing] = useState<FileVersion | null>(null);
+  const [restoreNote, setRestoreNote] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState(() => sampleLastSaved(file.path));
   const [confirmingPut, setConfirmingPut] = useState(false);
   const [isPutting, setIsPutting] = useState(false);
   const [putDone, setPutDone] = useState(false);
@@ -67,6 +75,9 @@ export default function DocumentView({
   useEffect(() => {
     setConfirmingPut(false);
     setPutDone(false);
+    setHistoryOpen(false);
+    setViewing(null);
+    setRestoreNote(null);
     setIsEditing(false);
     setContent("");
     setDraft("");
@@ -80,6 +91,7 @@ export default function DocumentView({
 
     try {
       await writeFileContent(projectId, file.path, draft);
+      if (showHistory && draft !== content) { keepReplacedVersion(file.path, content, lastSavedAt); setLastSavedAt(new Date()); }
       setIsEditing(false);
       await loadContent();
     } catch (saveError) {
@@ -100,6 +112,26 @@ export default function DocumentView({
       setError(getErrorMessage(deleteError));
       setIsDeleting(false);
       setConfirmingDelete(false);
+    }
+  }
+
+  // Making an earlier version current is an ordinary save of its text. The text it replaces is kept as
+  // an earlier version, so nothing is lost.
+  async function handleRestore(version: FileVersion) {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await writeFileContent(projectId, file.path, version.text);
+      keepReplacedVersion(file.path, content, lastSavedAt);
+      setLastSavedAt(new Date());
+      setViewing(null);
+      setHistoryOpen(false);
+      setRestoreNote(`Restored the version saved ${formatSavedTime(version.savedAt)}. The text it replaced is now an earlier version.`);
+      await loadContent();
+    } catch (restoreError) {
+      setError(getErrorMessage(restoreError));
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -132,6 +164,7 @@ export default function DocumentView({
               {projectName}
             </div> : null}
             <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.name}</h1>
+            {showHistory ? <p className="text-xs text-bd-text-secondary">Last saved {formatSavedTime(lastSavedAt)}</p> : null}
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -181,13 +214,28 @@ export default function DocumentView({
                   setError(null);
                   setIsEditing(true);
                 }}
-                disabled={isLoading}
+                disabled={isLoading || viewing !== null}
                 className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
               >
                 <PencilLine size={16} />
                 Edit
               </Button>
             )}
+
+            {showHistory && !isEditing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-expanded={historyOpen}
+                onClick={() => { setHistoryOpen((open) => !open); setViewing(null); }}
+                disabled={isLoading || isSaving}
+                className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+              >
+                <History size={16} />
+                Earlier versions
+              </Button>
+            ) : null}
 
             {onPutInside && !isEditing && !putDone ? (
               <Button
@@ -225,6 +273,37 @@ export default function DocumentView({
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         <div className="mx-auto flex h-full w-full max-w-[780px] flex-col">
+          {restoreNote && <p role="status" className="mb-4 rounded-xl border border-bd-border px-4 py-3 text-sm text-bd-text-secondary">{restoreNote}</p>}
+
+          {historyOpen && !viewing && !isEditing && (
+            <section aria-label="Earlier versions" className="mb-4 rounded-xl border border-bd-border px-4 py-3 text-sm">
+              <p className="text-bd-text-primary">Earlier versions of this file. Open one to read it, and make it current if you want it back.</p>
+              {earlierVersions(file.path, content).length ? <ul className="mt-2 divide-y divide-bd-border">
+                {earlierVersions(file.path, content).map((version) => <li key={version.id}>
+                  <button type="button" onClick={() => setViewing(version)} className="flex w-full min-h-11 items-center justify-between gap-3 py-2 text-left hover:text-bd-text-heading">
+                    <span>Saved {formatSavedTime(version.savedAt)}</span>
+                    <span className="text-xs text-bd-text-secondary">Open</span>
+                  </button>
+                </li>)}
+              </ul> : <p className="mt-2 text-bd-text-secondary">No earlier versions yet.</p>}
+              <p className="mt-2 text-xs text-bd-text-muted">Prototype: these times and the first versions are samples.</p>
+            </section>
+          )}
+
+          {viewing && (
+            <div role="region" aria-label="Earlier version" className="mb-4 rounded-xl border border-bd-amber/60 bg-bd-bg-secondary px-4 py-3 text-sm">
+              <p className="text-bd-text-primary">You are reading the version saved {formatSavedTime(viewing.savedAt)}. It is read-only.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={() => void handleRestore(viewing)} disabled={isSaving} className="bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover">
+                  {isSaving ? "Saving..." : "Make this the current version"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setViewing(null)} disabled={isSaving} className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading">
+                  Back to the current version
+                </Button>
+              </div>
+            </div>
+          )}
+
           {confirmingPut && (
             <div role="alertdialog" aria-label="Put this file inside the Expert?" className="mb-4 rounded-xl border border-bd-amber/60 bg-bd-bg-secondary px-4 py-3 text-sm">
               <p className="text-bd-text-primary">Put "{file.name.split("/").pop()}" inside this Expert? A copy becomes one of the Expert's reference files, and it will travel with the Expert when you share it. Your own copy stays in Your Files.</p>
@@ -285,7 +364,7 @@ export default function DocumentView({
           ) : (
             <article className="py-2">
               <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
-                <MarkdownContent content={content} />
+                <MarkdownContent content={viewing ? viewing.text : content} />
               </div>
             </article>
           )}
