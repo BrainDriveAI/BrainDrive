@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
-import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
+import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
 import PageHostMessages from "./PageHostMessages";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
@@ -336,5 +336,60 @@ describe("Share this Expert", () => {
     const manifest = JSON.parse(files.find(([path]) => path === "plugin.json")![1]);
     expect(manifest.extensions).toEqual({ "ai.braindrive": { type: "expert", format_version: 1 } });
     expect(files.some(([path]) => path.startsWith("ai.braindrive/"))).toBe(false);
+  });
+});
+
+describe("changing the Expert's instructions (AC-2.5, AC-7.14)", () => {
+  let seen: ReturnType<typeof usePageSetup>;
+  async function expertPage() {
+    const user = userEvent.setup();
+    function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
+    render(<><Harness /><Probe /></>); await addPage();
+    await user.click(screen.getByRole("button", { name: "Create an Expert" }));
+    return user;
+  }
+  const say = async (text: string) => { await act(async () => { proposeInstructionChange("p1", text); }); };
+  const instructions = () => seen!.expert!.files["instructions.md"]!;
+
+  it("shows the exact wording on a BrainDrive card and saves nothing until Change it is pressed", async () => {
+    const user = await expertPage();
+    const before = instructions();
+    await say("Please stop calling me Mark");
+    const card = screen.getByLabelText("From BrainDrive: change this Expert's instructions");
+    expect(card).toHaveTextContent("Change this Expert's instructions?");
+    expect(card).toHaveTextContent('Adding: "Do not call the owner Mark."');
+    expect(instructions()).toBe(before);
+    await user.click(screen.getByRole("button", { name: "Change it" }));
+    expect(instructions()).toContain("Do not call the owner Mark.");
+    expect(screen.getByText("Updated: I won't call you Mark anymore.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Undo/ })).not.toBeInTheDocument();
+  });
+
+  it("Keep as is changes nothing", async () => {
+    const user = await expertPage();
+    const before = instructions();
+    await say("call me Dave");
+    await user.click(screen.getByRole("button", { name: "Keep as is" }));
+    expect(instructions()).toBe(before);
+    expect(screen.getByRole("status")).toHaveTextContent("Kept as is. Nothing was changed.");
+  });
+
+  it("'no, that's wrong' proposes removing the last change on the same kind of card", async () => {
+    const user = await expertPage();
+    const before = instructions();
+    await say("call me Dave");
+    await user.click(screen.getByRole("button", { name: "Change it" }));
+    await say("No, that's wrong");
+    expect(screen.getByText("Undo this change to the Expert's instructions?")).toBeVisible();
+    expect(screen.getByText(/Removing:/).parentElement).toHaveTextContent('Removing: "Call the owner Dave."');
+    await user.click(screen.getByRole("button", { name: "Undo it" }));
+    expect(instructions().trim()).toBe(before.trim());
+    expect(screen.getByText("Undone: I'll call you Dave.")).toBeVisible();
+  });
+
+  it("makes no card on a page without an Expert, or for an ordinary message", async () => {
+    render(<Harness />); await addPage();
+    await say("call me Dave");
+    expect(screen.queryByLabelText("From BrainDrive: change this Expert's instructions")).not.toBeInTheDocument();
   });
 });

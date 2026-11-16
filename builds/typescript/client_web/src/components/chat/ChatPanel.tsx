@@ -38,7 +38,7 @@ type ChatPanelProps = {
   onConversationComplete?: (conversationId: string) => void;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
-  onSendMessage?: () => void;
+  onSendMessage?: (message: string) => void;
   onOpenSettings?: () => void;
   // Experts prototype (dev only): BrainDrive-drawn messages shown in the conversation, and the
   // install-only file input (spec I9). Without `fileDrop`, dropped files are ignored as before.
@@ -252,7 +252,7 @@ export default function ChatPanel({
 
   const composerProps = {
     onSend: (message: string) => {
-      onSendMessage?.();
+      onSendMessage?.(message);
       append(message, { metadata: messageMetadata });
     },
     isStreaming: isWaitingForReply,

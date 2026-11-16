@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Info, ShieldCheck } from "lucide-react";
 
 import {
-  AI_NOTICE, MEMORY_NOTICE, applyInstall, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, fileFingerprint, pluginSlug, reviewInstructions, reviewSkills, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
+  AI_NOTICE, MEMORY_NOTICE, applyInstall, applyInstructionChange, keepInstructions, cancelExport, cancelInstall, cancelInstallStep, chooseInstallRoute, exportFileList, fileFingerprint, pluginSlug, reviewInstructions, reviewSkills, saveExport, startBuild, startInstallStep, submitPluginFile, uniquePageName,
   type ExportChoices, type ExportDraft, type HostEvent, type InstallRoute, type PageSetup, type PluginReview,
 } from "@/api/experts";
 import { downloadPluginZip } from "@/prototype/pluginZip";
@@ -64,6 +64,21 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
       <button type="button" disabled={busy} onClick={onInstall} className={expertPrimaryButton}>{busy ? "Installing…" : "Install"}</button>
       <button type="button" disabled={busy} onClick={onCancel} className={expertButton}>Cancel</button>
     </div> : <p role="status" className="mt-4 text-bd-text-secondary">{status === "installed" ? "Installed." : "Cancelled. Nothing was installed."}</p>}
+  </Card>;
+}
+
+// The confirm card for a change to the Expert's own instructions (AC-2.5, AC-7.14). BrainDrive draws it
+// from the proposed change, never from model text, and shows the exact wording in plain text. Only a
+// press of Change it saves anything. Changes to the owner's own work are saved without this card.
+export function ChangeCard({ event, onApply, onKeep }: { event: Extract<HostEvent, { type: "change" }>; onApply: () => void; onKeep: () => void }) {
+  return <Card label="From BrainDrive: change this Expert's instructions" tone="review">
+    <h2 className="font-heading text-base text-bd-text-heading">{event.reverses ? "Undo this change to the Expert's instructions?" : "Change this Expert's instructions?"}</h2>
+    {event.adding ? <p className="mt-2"><span className="text-bd-text-secondary">Adding: </span>"{event.adding}"</p> : null}
+    {event.removing ? <p className="mt-2"><span className="text-bd-text-secondary">Removing: </span>"{event.removing}"</p> : null}
+    {event.status === "pending" ? <div className="mt-4 flex flex-wrap gap-2">
+      <button type="button" onClick={onApply} className={expertPrimaryButton}>{event.reverses ? "Undo it" : "Change it"}</button>
+      <button type="button" onClick={onKeep} className={expertButton}>Keep as is</button>
+    </div> : <p role="status" className="mt-3 text-bd-text-secondary">{event.status === "applied" ? (event.reverses ? "Undone." : "Changed.") : "Kept as is. Nothing was changed."}</p>}
   </Card>;
 }
 
@@ -212,6 +227,7 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
       case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs}
         onSave={(fileName, files) => { downloadPluginZip(fileName, files); saveExport(project.id, event.id, fileName); }} onCancel={() => cancelExport(project.id, event.id)} />;
+      case "change": return <ChangeCard key={event.id} event={event} onApply={() => applyInstructionChange(project.id, event.id)} onKeep={() => keepInstructions(project.id, event.id)} />;
       case "result": return <Card key={event.id}><p>{event.text}</p></Card>;
       case "notice": return <Card key={event.id} label="From BrainDrive: about AI"><p>{AI_NOTICE}</p></Card>;
     }

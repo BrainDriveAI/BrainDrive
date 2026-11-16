@@ -49,6 +49,9 @@ export type HostEvent =
   | { id: string; type: "review"; review: PluginReview; status: "pending" | "installed" | "cancelled" }
   | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string }
   | { id: string; type: "result"; text: string }
+  // A change to the Expert's own instructions, proposed from the owner's message and drawn by BrainDrive.
+  // It shows the exact wording going in or coming out; nothing is saved until the owner presses Change it.
+  | { id: string; type: "change"; file: string; adding?: string; removing?: string; notice: string; status: "pending" | "applied" | "kept"; reverses?: string }
   | { id: string; type: "notice" };
 // What the export card starts from: the Expert's own files, and for an Expert installed from
 // someone else, the creator and license it came with (kept unchanged on export, AC-13.7).
@@ -347,4 +350,57 @@ export function isRetiredPage(project: { id: string; name: string }): boolean {
 }
 
 /** Test helper. */
+/** The Expert's main instructions file in the mock, if it has one. */
+function instructionsFileOf(files: Record<string, string>): string | undefined {
+  return Object.keys(files).find((file) => /(^|\/)(instructions|SKILL)\.md$/.test(file) && !file.startsWith("templates/"));
+}
+
+/**
+ * PROTOTYPE ONLY: stands in for the model proposing a change to the Expert's instructions. A few
+ * scripted phrases ("call me Dave", "stop calling me Mark", "no, that's wrong") produce the change
+ * card BrainDrive would draw. Returns true when the message produced a card.
+ */
+export function proposeInstructionChange(id: string, message: string): boolean {
+  const setup = current(id, nameOf(id));
+  const file = setup.expert ? instructionsFileOf(setup.expert.files) : undefined;
+  if (!setup.expert || !file) return false;
+  const text = message.trim();
+  const stop = text.match(/\b(?:stop calling me|don'?t call me|do not call me)\s+([A-Z][\w'-]*)/i);
+  const call = text.match(/\bcall me\s+([A-Z][\w'-]*)/i);
+  let event: HostEvent | null = null;
+  if (/^no,?\s+that'?s wrong\b|^undo that\b/i.test(text)) {
+    const reversed = new Set(setup.events.flatMap((item) => item.type === "change" && item.reverses ? [item.reverses] : []));
+    const last = [...setup.events].reverse().find((item): item is Extract<HostEvent, { type: "change" }> => item.type === "change" && item.status === "applied" && !item.reverses && !reversed.has(item.id));
+    if (!last?.adding) return false;
+    event = { id: nextId(), type: "change", file: last.file, removing: last.adding, notice: `Undone: ${last.notice.replace(/^Updated: /, "")}`, status: "pending", reverses: last.id };
+  } else if (stop) {
+    const name = stop[1]!;
+    event = { id: nextId(), type: "change", file, adding: `Do not call the owner ${name}.`, notice: `Updated: I won't call you ${name} anymore.`, status: "pending" };
+  } else if (call) {
+    const name = call[1]!;
+    event = { id: nextId(), type: "change", file, adding: `Call the owner ${name}.`, notice: `Updated: I'll call you ${name}.`, status: "pending" };
+  }
+  if (!event) return false;
+  update(id, nameOf(id), (base) => ({ events: [...base.events, event!] }));
+  return true;
+}
+
+/** The owner pressed Change it: BrainDrive saves exactly what the card showed, then says what changed. */
+export function applyInstructionChange(id: string, eventId: string) {
+  update(id, nameOf(id), (setup) => {
+    const event = setup.events.find((item) => item.id === eventId);
+    if (!setup.expert || !event || event.type !== "change" || event.status !== "pending") return {};
+    const before = setup.expert.files[event.file] ?? "";
+    const after = event.adding ? `${before.replace(/\s*$/, "")}\n${event.adding}\n` : before.split("\n").filter((line) => line.trim() !== event.removing).join("\n");
+    return {
+      expert: { ...setup.expert, files: { ...setup.expert.files, [event.file]: after } },
+      events: [...setup.events.map((item) => item.id === eventId ? { ...event, status: "applied" as const } : item), { id: nextId(), type: "result" as const, text: event.notice }],
+    };
+  });
+}
+
+export function keepInstructions(id: string, eventId: string) {
+  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "change" && item.status === "pending" ? { ...item, status: "kept" as const } : item) }));
+}
+
 export function resetExpertsMock() { setups.clear(); defaults.clear(); lastNameCache.clear(); emit(); }
