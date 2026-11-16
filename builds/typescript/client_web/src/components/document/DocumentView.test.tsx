@@ -59,3 +59,44 @@ it("offers no Delete file while editing", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.queryByRole("button", { name: "Delete file" })).not.toBeInTheDocument();
 });
+
+describe("Put inside the Expert (AC-3.7)", () => {
+  it("is not offered unless the page allows it for this file", async () => {
+    render(<DocumentView {...props} />);
+    await screen.findByText("Notes");
+    expect(screen.queryByRole("button", { name: "Put inside the Expert" })).not.toBeInTheDocument();
+  });
+
+  it("asks first, says the file will travel when shared, and Keep it in my files changes nothing", async () => {
+    const onPutInside = vi.fn(async () => undefined);
+    render(<DocumentView {...props} onPutInside={onPutInside} />);
+    await screen.findByText("Notes");
+    await userEvent.click(screen.getByRole("button", { name: "Put inside the Expert" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Put this file inside the Expert?" });
+    expect(dialog).toHaveTextContent("it will travel with the Expert when you share it");
+    expect(dialog).toHaveTextContent("Your own copy stays in Your Files");
+    await userEvent.click(screen.getByRole("button", { name: "Keep it in my files" }));
+    expect(onPutInside).not.toHaveBeenCalled();
+  });
+
+  it("on confirm passes the file's text and says it is now inside", async () => {
+    const onPutInside = vi.fn(async () => undefined);
+    render(<DocumentView {...props} onPutInside={onPutInside} />);
+    await screen.findByText("Notes");
+    await userEvent.click(screen.getByRole("button", { name: "Put inside the Expert" }));
+    await userEvent.click(screen.getByRole("button", { name: "Put it inside" }));
+    await waitFor(() => expect(onPutInside).toHaveBeenCalledWith("# Notes"));
+    expect(screen.getByRole("status")).toHaveTextContent("A copy is now inside this Expert");
+    expect(screen.queryByRole("button", { name: "Put inside the Expert" })).not.toBeInTheDocument();
+  });
+
+  it("shows the reason when it cannot be done", async () => {
+    const onPutInside = vi.fn(async () => { throw new Error("This file is over 256 KiB, the most a file inside an Expert can hold. Nothing was changed."); });
+    render(<DocumentView {...props} onPutInside={onPutInside} />);
+    await screen.findByText("Notes");
+    await userEvent.click(screen.getByRole("button", { name: "Put inside the Expert" }));
+    await userEvent.click(screen.getByRole("button", { name: "Put it inside" }));
+    expect(await screen.findByText(/over 256 KiB/)).toBeVisible();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});

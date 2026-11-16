@@ -13,7 +13,7 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, proposeInstructionChange, startBuild, startExport, startInstallStep, submitPluginFile, fileFingerprint, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteExpertChange, noteFirstMessage, offerStart, proposeInstructionChange, saveExpertFile, startBuild, startExport, startInstallStep, submitPluginFile, fileFingerprint, usePageSetup } from "@/api/experts";
 import { buildProjectSidebarModel } from "./sidebar-categorize";
 import { canonicalFileName, projectRelativePath } from "./sidebar-labels";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
@@ -287,6 +287,26 @@ export default function AppShell({
   // A page needs its instructions, goals, plan and journal, so those have no Delete file. The gateway refuses them too.
   const canDeleteDisplayedFile = expertPreviewEnabled && displayedFile != null && selectedProject != null && !isRootAgentProjectId(selectedProject.id)
     && !["agent.md", "spec.md", "plan.md", "journal.md"].includes(projectRelativePath(displayedFile.path, selectedProject.id).toLowerCase());
+  // A file in Your work can be put inside the page's Expert as a reference file (AC-3.7). Goals, Plan,
+  // Journal and the Expert's own files are not offered. The owner's copy stays where it is.
+  const canPutInside = expertPreviewEnabled && displayedFile != null && selectedProject != null && !isRootAgentProjectId(selectedProject.id) && pageSetup?.expert != null
+    && buildProjectSidebarModel(selectedProject.id, projectFiles).files.some((item) => item.file.path === displayedFile.path);
+  async function handlePutInside(content: string) {
+    if (!displayedFile || !selectedProject || !pageSetup?.expert) return;
+    if (new TextEncoder().encode(content).length > 256 * 1024) throw new Error("This file is over 256 KiB, the most a file inside an Expert can hold. Nothing was changed.");
+    const name = canonicalFileName(displayedFile);
+    const taken = () => new Error("This Expert already has a reference file with that name. Nothing was changed.");
+    if (pageSetup.expert.backend) {
+      const target = `documents/${selectedProject.id}/skills/references/${name}`;
+      if (projectFiles.some((file) => file.path === target)) throw taken();
+      await writeFileContent(selectedProject.id, target, content);
+      await refreshSelectedProjectFiles();
+    } else {
+      if (pageSetup.expert.files[`references/${name}`] !== undefined) throw taken();
+      saveExpertFile(selectedProject.id, `references/${name}`, content);
+    }
+    noteExpertChange(selectedProject.id, `Put inside ${pageSetup.expert.name}: "${name}". It will travel when you share this Expert.`);
+  }
   const documentContent = displayedFile && selectedProject ? (
     <DocumentView
       key={`${selectedProject.id}:${displayedFile.path}`}
@@ -297,6 +317,7 @@ export default function AppShell({
       onBack={isCollectionFile ? () => setActiveFile(null) : handleReturnToChat}
       backLabel={isCollectionFile ? `Back to ${PROJECT_VIEW_LABELS[activeView!]}` : undefined}
       onDeleted={canDeleteDisplayedFile ? () => { setActiveFile(null); void refreshSelectedProjectFiles(); } : undefined}
+      onPutInside={canPutInside ? handlePutInside : undefined}
     />
   ) : activeView && selectedProject ? (
     <ProjectContentView

@@ -403,4 +403,9 @@ export function keepInstructions(id: string, eventId: string) {
   update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "change" && item.status === "pending" ? { ...item, status: "kept" as const } : item) }));
 }
 
+/** A fixed BrainDrive line in the page's chat, such as what was just put inside the Expert. */
+export function noteExpertChange(id: string, text: string) {
+  update(id, nameOf(id), (setup) => ({ events: [...setup.events, { id: nextId(), type: "result" as const, text }] }));
+}
+
 export function resetExpertsMock() { setups.clear(); defaults.clear(); lastNameCache.clear(); emit(); }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, Trash2, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, LoaderCircle, PackagePlus, PencilLine, Save, Trash2, X } from "lucide-react";
 
 import { deleteFileContent, readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ type DocumentViewProps = {
   backLabel?: string;
   // When given, the owner can delete this file. Called after the file is gone.
   onDeleted?: () => void;
+  // When given, the owner can put a copy of this file inside the page's Expert (AC-3.7). Throws with a
+  // plain reason when it cannot be done.
+  onPutInside?: (content: string) => Promise<void>;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -31,8 +34,12 @@ export default function DocumentView({
   file,
   onBack,
   backLabel = "Back to chat",
-  onDeleted
+  onDeleted,
+  onPutInside
 }: DocumentViewProps) {
+  const [confirmingPut, setConfirmingPut] = useState(false);
+  const [isPutting, setIsPutting] = useState(false);
+  const [putDone, setPutDone] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [content, setContent] = useState("");
@@ -58,6 +65,8 @@ export default function DocumentView({
   }, [file.path, projectId]);
 
   useEffect(() => {
+    setConfirmingPut(false);
+    setPutDone(false);
     setIsEditing(false);
     setContent("");
     setDraft("");
@@ -91,6 +100,20 @@ export default function DocumentView({
       setError(getErrorMessage(deleteError));
       setIsDeleting(false);
       setConfirmingDelete(false);
+    }
+  }
+
+  async function handlePutInside() {
+    setIsPutting(true);
+    setError(null);
+    try {
+      await onPutInside?.(content);
+      setPutDone(true);
+    } catch (putError) {
+      setError(getErrorMessage(putError));
+    } finally {
+      setIsPutting(false);
+      setConfirmingPut(false);
     }
   }
 
@@ -166,6 +189,20 @@ export default function DocumentView({
               </Button>
             )}
 
+            {onPutInside && !isEditing && !putDone ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingPut(true)}
+                disabled={isLoading || isPutting || confirmingPut}
+                className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+              >
+                <PackagePlus size={16} />
+                Put inside the Expert
+              </Button>
+            ) : null}
+
             {onDeleted && !isEditing ? (
               <Button
                 type="button"
@@ -188,6 +225,25 @@ export default function DocumentView({
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         <div className="mx-auto flex h-full w-full max-w-[780px] flex-col">
+          {confirmingPut && (
+            <div role="alertdialog" aria-label="Put this file inside the Expert?" className="mb-4 rounded-xl border border-bd-amber/60 bg-bd-bg-secondary px-4 py-3 text-sm">
+              <p className="text-bd-text-primary">Put "{file.name.split("/").pop()}" inside this Expert? A copy becomes one of the Expert's reference files, and it will travel with the Expert when you share it. Your own copy stays in Your Files.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={handlePutInside} disabled={isPutting} className="bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover">
+                  {isPutting ? <LoaderCircle size={16} className="animate-spin" /> : <PackagePlus size={16} />}
+                  {isPutting ? "Putting it inside..." : "Put it inside"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingPut(false)} disabled={isPutting} className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading">
+                  Keep it in my files
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {putDone && (
+            <p role="status" className="mb-4 rounded-xl border border-bd-border px-4 py-3 text-sm text-bd-text-secondary">A copy is now inside this Expert, listed in Page Settings. It will travel when you share the Expert.</p>
+          )}
+
           {confirmingDelete && (
             <div role="alertdialog" aria-label="Delete this file?" className="mb-4 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm">
               <p className="text-bd-text-primary">Delete this file? It will be removed from this page. BrainDrive keeps earlier versions in Your Memory's history.</p>

@@ -44,7 +44,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   ];
   // Everything else the Expert comes with, so Page Settings lists the same files the export card does.
   const otherExpertFiles: DisplayFile[] = [...model.expert.instructions.filter((item) => item.canonicalPath !== "AGENT.md"), ...model.expert.skills.filter((item) => item !== interviewGuide)]
-    .map((item) => ({ ...item, description: "Method or reference file" }));
+    .map((item) => ({ ...item, description: /(^|\/)references\//i.test(item.canonicalPath) ? "Reference file" : "Method or reference file" }));
   const title = view === "plugins" ? "Page Settings" : PROJECT_VIEW_LABELS[view];
 
   return (
@@ -57,7 +57,7 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "plugins" ? <><PluginsList project={project} setup={setup} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} backendSkills={[...interview, ...otherExpertFiles].map((item) => item.label)} behaviorFiles={<>
+          {view === "plugins" ? <><PluginsList project={project} setup={setup} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} backendSkills={[...interview, ...otherExpertFiles].filter((item) => !/(^|\/)references\//i.test(item.canonicalPath)).map((item) => item.label)} behaviorFiles={<>
             <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
             {otherExpertFiles.length ? <div className="mt-3"><FileList items={otherExpertFiles} onOpenFile={onOpenFile} /></div> : null}

@@ -326,3 +326,11 @@ describe("About this Expert and Advanced (AC-4.1, AC-8.8)", () => {
     expect(screen.getByText("installed from a plugin file (garden-planner-expert.zip)")).toBeVisible();
   });
 });
+
+it("lists a reference file put inside a default Expert, but not as a skill", () => {
+  const files = ["AGENT.md", "run-planning.md", "skills/references/budget.md"].map(file);
+  render(<ProjectContentView {...props} view="plugins" files={files} setup={setup({ expert: { name: "Finance", files: {}, backend: true } })} />);
+  expect(screen.getByRole("button", { name: "Budget" })).toBeVisible();
+  expect(screen.getByText("Reference file")).toBeVisible();
+  expect(screen.getByLabelText("About this Expert")).not.toHaveTextContent("Budget");
+});
