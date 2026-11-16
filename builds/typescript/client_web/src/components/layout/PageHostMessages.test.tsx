@@ -13,7 +13,7 @@ function Harness({ name = "New page", taken = [] as string[] }: { name?: string;
   return <PageHostMessages project={project} setup={setup} takenNames={taken} renamePage={renamePage} />;
 }
 async function addPage() { await act(async () => { await mockAddPage(); }); }
-async function submit(name: string) { await act(async () => { await submitPluginFile("p1", name); }); }
+async function submit(name: string, route: "forum" | "elsewhere" = "forum") { await act(async () => { await submitPluginFile("p1", name, route); }); }
 
 beforeEach(() => {
   resetExpertsMock(); renamePage.mockClear(); vi.mocked(gateway.createProject).mockClear();
@@ -27,7 +27,7 @@ it("opens with fixed BrainDrive text and exactly two buttons, with no model need
   expect(screen.getByRole("button", { name: "Install an Expert" })).toBeVisible();
   expect(screen.getByText(/Create builds a new Expert by talking it through/)).toBeVisible();
   expect(screen.getByLabelText("From BrainDrive")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Choose (plugin file|file from the forum)$/ })).not.toBeInTheDocument();
 });
 
 it("Create an Expert attaches the BrainDrive plugin and a Behavior plugin, with no try-now or question count", async () => {
@@ -41,16 +41,63 @@ it("Create an Expert attaches the BrainDrive plugin and a Behavior plugin, with 
   expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["My Expert", "BrainDrive"]);
   expect(seen!.plugins[1]!.source).toBe("included with BrainDrive");
   expect(screen.queryByText(/try it now|questions/i)).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Choose (plugin file|file from the forum)$/ })).not.toBeInTheDocument();
 });
 
-it("Install an Expert lists the three ways and shows Choose plugin file only during the install step", async () => {
+it("Install an Expert leads with the forum and keeps other sources behind a smaller option", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
-  expect(screen.getByText(/community forum/)).toBeVisible();
-  expect(screen.getByText(/GitHub link: coming later/)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Choose plugin file" })).toBeVisible();
+  expect(screen.getByText("Install an Expert from the BrainDrive community forum.")).toBeVisible();
+  expect(screen.getByText(/have been reviewed by the BrainDrive team/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Choose file from the forum" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Install from somewhere else" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/coming later/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/drop/i)).not.toBeInTheDocument();
+});
+
+it("installing from somewhere else needs the warning read and the at-my-own-risk tick first", async () => {
+  const user = userEvent.setup();
+  render(<Harness />); await addPage();
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+  await user.click(screen.getByRole("button", { name: "Install from somewhere else" }));
+  const group = screen.getByRole("group", { name: "Install from somewhere else" });
+  expect(group).toHaveTextContent("BrainDrive has not reviewed files from anywhere else, including GitHub.");
+  expect(group).toHaveTextContent("It can read all of Your Memory.");
+  expect(group).toHaveTextContent("Only install it if you trust who made it.");
+  expect(screen.getByRole("button", { name: "Choose plugin file" })).toBeDisabled();
+  await user.click(screen.getByRole("checkbox", { name: "I understand. Install at my own risk." }));
+  expect(screen.getByRole("button", { name: "Choose plugin file" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Choose plugin file" }));
+  fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "garden-helper.zip")] } });
+  const card = await screen.findByLabelText("From BrainDrive: review before installing");
+  expect(card).toHaveTextContent("Somewhere else. Not reviewed by BrainDrive.");
+  expect(card).toHaveTextContent("Warning: BrainDrive has not reviewed this.");
+});
+
+it("says a forum file's source is the owner's word, and keeps the source on the installed Expert", async () => {
+  const user = userEvent.setup();
+  let seen: ReturnType<typeof usePageSetup>;
+  function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
+  render(<><Harness /><Probe /></>); await addPage();
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+  await user.click(screen.getByRole("button", { name: "Choose file from the forum" }));
+  fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "garden-helper.zip")] } });
+  const card = await screen.findByLabelText("From BrainDrive: review before installing");
+  expect(card).toHaveTextContent("The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from.");
+  expect(card).not.toHaveTextContent("Warning: BrainDrive has not reviewed this.");
+  await user.click(screen.getByRole("button", { name: "Install" }));
+  await waitFor(() => expect(seen!.plugins[0]!.route).toBe("forum"));
+});
+
+it("does not check a file that arrives before the owner has said where it came from", async () => {
+  const user = userEvent.setup();
+  render(<Harness />); await addPage();
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+  await act(async () => { await submitPluginFile("p1", "garden-helper.zip"); });
+  expect(await screen.findByRole("alert")).toHaveTextContent("First choose where this file came from");
+  expect(screen.queryByLabelText("From BrainDrive: review before installing")).not.toBeInTheDocument();
 });
 
 it("checks the file first and shows a one-line plain reason when it fails", async () => {
@@ -90,7 +137,7 @@ it("shows a BrainDrive review card with summary first and every file in full, th
   await waitFor(() => expect(renamePage).toHaveBeenCalledWith("p1", "Start a Business 2"));
   expect(gateway.createProject).toHaveBeenCalledTimes(1); // no new page
   expect(await screen.findByText(/Installed Start a Business 2/)).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Choose (plugin file|file from the forum)$/ })).not.toBeInTheDocument();
 });
 
 it("Cancel installs nothing and offers the two buttons again", async () => {
@@ -110,7 +157,8 @@ it("Add plugin adds a plugin to the current page only, and refuses an Expert fil
   function Probe() { seen = usePageSetup({ id: "p1", name: "Finance" }); return null; }
   render(<><Harness name="Finance" /><Probe /></>);
   await act(async () => { startInstallStep("p1", "plugin"); });
-  expect(screen.getByRole("button", { name: "Choose plugin file" })).toBeVisible();
+  expect(screen.getByText("Add a plugin from the BrainDrive community forum.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Choose file from the forum" })).toBeVisible();
   await submit("expert-pack.zip");
   expect(await screen.findByRole("alert")).toHaveTextContent("This is an Expert; install it on a new page.");
   await submit("research-helper.zip");

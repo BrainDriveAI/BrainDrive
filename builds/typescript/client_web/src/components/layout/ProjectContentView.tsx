@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowUpRight, FileText, Pin, PinOff, Trash2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowUpRight, FilePlus, FileText, Trash2 } from "lucide-react";
 
 import { saveExpertFile, type PageSetup } from "@/api/experts";
 import type { Project, ProjectFile } from "@/types/ui";
 import { buildProjectSidebarModel, type SidebarFileItem } from "./sidebar-categorize";
+import { projectRelativePath } from "./sidebar-labels";
 
 export type ProjectView = "files" | "plugins";
 export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
@@ -12,7 +13,7 @@ export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert, onDeletePage }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert, onDeletePage, onCreateFile }: {
   view: ProjectView;
   onDeletePage?: () => void;
   project: Project;
@@ -25,30 +26,17 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   onAddPlugin?: () => void;
   onStartExpert?: () => void;
   onInstallExpert?: () => void;
+  onCreateFile?: (path: string, content: string) => Promise<void>;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
-  const defaultPinned: DisplayFile[] = ([
+  // Goals, Plan and Journal are fixed shortcuts at the top, in that order, each shown when the file exists.
+  const shortcuts: DisplayFile[] = ([
     [model.goals, "Your Goals", "What you want to achieve"],
     [model.plan, "Your Plan", "Your approach and next steps"],
     [model.journal, "Your Journal", "Notes and progress over time"],
   ] as const).flatMap(([item, label, description]) => item ? [{ ...item, label, description }] : []);
-  const baseWork: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
-  const everyFile = [...defaultPinned, ...baseWork];
-  const [pins, setPins] = useState<PinState>(() => readPins(project.id));
-  useEffect(() => { setPins(readPins(project.id)); }, [project.id]);
-  const defaultPaths = defaultPinned.map((item) => item.file.path);
-  // Goals, Plan and Journal pin themselves when they first appear, unless the owner unpinned that one before.
-  const pinnedOrder = [...pins.pinned, ...defaultPaths.filter((path) => !pins.pinned.includes(path) && !pins.unpinned.includes(path))];
-  const pinned = pinnedOrder.flatMap((path) => everyFile.filter((item) => item.file.path === path));
-  const work = everyFile.filter((item) => !pinnedOrder.includes(item.file.path)).sort((a, b) => Number(defaultPinned.includes(a)) - Number(defaultPinned.includes(b)));
-  function togglePin(path: string) {
-    const isPinned = pinnedOrder.includes(path);
-    const next: PinState = isPinned
-      ? { pinned: pinnedOrder.filter((item) => item !== path), unpinned: [...pins.unpinned.filter((item) => item !== path), path] }
-      : { pinned: [...pinnedOrder, path], unpinned: pins.unpinned.filter((item) => item !== path) };
-    setPins(next);
-    writePins(project.id, next);
-  }
+  const work: DisplayFile[] = [...(model.todo ? [{ ...model.todo, label: "To-do", description: "Your saved task list" }] : []), ...model.files];
+  const [addingFile, setAddingFile] = useState(false);
   const instructions = model.expert.instructions.find((item) => item.canonicalPath === "AGENT.md");
   const interviewGuide = model.expert.skills.find((item) => item.canonicalPath === "business-idea-interview.md");
   const interview: DisplayFile[] = [
@@ -72,8 +60,10 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
           </>} />{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
-            {pinned.length ? <ContentSection title="Pinned"><FileList items={pinned} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} /></ContentSection> : null}
-            <ContentSection title="Your work"><FileList items={work} onOpenFile={onOpenFile} onTogglePin={togglePin} pinnedPaths={pinnedOrder} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
+            {shortcuts.length ? <section aria-label="Goals, Plan and Journal"><FileList items={shortcuts} onOpenFile={onOpenFile} /></section> : null}
+            <ContentSection title="Your work" action={onCreateFile && !addingFile ? <button type="button" onClick={() => setAddingFile(true)} className={`flex min-h-11 items-center gap-2 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}><FilePlus size={16} aria-hidden="true" />New file</button> : null}>
+              {onCreateFile && addingFile ? <NewFileForm projectId={project.id} files={files} onCreateFile={onCreateFile} onClose={() => setAddingFile(false)} /> : null}
+              <FileList items={work} onOpenFile={onOpenFile} empty="No outputs saved yet. Briefs, documents, and other work saved for this page will appear here." /></ContentSection>
           </>}
         </div>
       </div>
@@ -81,27 +71,66 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   );
 }
 
-function ContentSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section aria-label={title}><h2 className="mb-3 font-heading text-base text-bd-text-heading">{title}</h2>{children}</section>;
+function ContentSection({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return <section aria-label={title}><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="font-heading text-base text-bd-text-heading">{title}</h2>{action}</div>{children}</section>;
 }
 
-// Prototype stand-in for a plain file in the page's folder that would hold the pinned list.
-const pinsKey = (projectId: string) => `braindrive.pinned-files.${projectId}`;
-type PinState = { pinned: string[]; unpinned: string[] };
-const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
-function readPins(projectId: string): PinState {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(pinsKey(projectId)) ?? "null");
-    if (isStringArray(value)) return { pinned: value, unpinned: [] };
-    if (value && typeof value === "object" && isStringArray((value as PinState).pinned) && isStringArray((value as PinState).unpinned)) return value as PinState;
-  } catch { /* fall back to defaults */ }
-  return { pinned: [], unpinned: [] };
+// The owner adds a file by pasting or typing text. It is saved as plain text in the page's "added" folder,
+// exactly as written, with no model involved. There is no file upload in Phase 1.
+const NEW_FILE_MAX_CHARS = 200_000;
+// Cells copied from a spreadsheet, or a table copied from a web page or document, arrive as rows of
+// tab-separated text. Turn that into a Markdown table so the columns stay lined up. Anything else is left alone.
+export function pastedTableToMarkdown(pasted: string): string | null {
+  const rows = pasted.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n");
+  if (rows.length < 2 || !rows.every((row) => row.includes("\t"))) return null;
+  const cells = rows.map((row) => row.split("\t").map((cell) => cell.trim().replace(/\|/g, "\\|")));
+  const width = Math.max(...cells.map((row) => row.length));
+  const line = (row: string[]) => `| ${Array.from({ length: width }, (_, i) => row[i] ?? "").join(" | ")} |`;
+  return [line(cells[0]!), `|${" --- |".repeat(width)}`, ...cells.slice(1).map(line)].join("\n");
 }
-function writePins(projectId: string, state: PinState) {
-  try { localStorage.setItem(pinsKey(projectId), JSON.stringify(state)); } catch { /* keep in memory only */ }
+function NewFileForm({ projectId, files, onCreateFile, onClose }: { projectId: string; files: ProjectFile[]; onCreateFile: (path: string, content: string) => Promise<void>; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!slug) return setError("Give the file a name, using letters or numbers.");
+    if (!text.trim()) return setError("Paste or type some text first.");
+    if (text.length > NEW_FILE_MAX_CHARS) return setError(`This text is too long to save as one file. The limit is ${NEW_FILE_MAX_CHARS.toLocaleString("en-US")} characters, and this is ${text.length.toLocaleString("en-US")}.`);
+    const relativePath = `added/${slug}.md`;
+    if (files.some((file) => projectRelativePath(file.path, projectId).toLowerCase() === relativePath)) return setError("A file with that name already exists. Choose a different name.");
+    setError(null);
+    setSaving(true);
+    try {
+      await onCreateFile(`documents/${projectId}/${relativePath}`, text);
+      onClose();
+    } catch {
+      setError("The file could not be saved. Your text is still here, so you can try again.");
+      setSaving(false);
+    }
+  }
+  const field = `w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary ${focusStyle}`;
+  return <form aria-label="New file" onSubmit={(event) => { event.preventDefault(); void save(); }} className="mb-3 space-y-3 rounded-lg border border-bd-border p-4">
+    <label className="block text-sm text-bd-text-primary">File name<input type="text" value={name} onChange={(event) => setName(event.target.value)} className={`mt-1 ${field}`} /></label>
+    <label className="block text-sm text-bd-text-primary">Paste or type your text<textarea value={text} onChange={(event) => setText(event.target.value)} onPaste={(event) => {
+      const table = pastedTableToMarkdown(event.clipboardData.getData("text/plain"));
+      if (!table) return;
+      event.preventDefault();
+      const { selectionStart, selectionEnd } = event.currentTarget;
+      const before = text.slice(0, selectionStart);
+      setText(`${before}${before && !before.endsWith("\n") ? "\n\n" : ""}${table}\n${text.slice(selectionEnd)}`);
+    }} rows={12} className={`mt-1 font-mono ${field}`} /></label>
+    <p className="text-xs text-bd-text-secondary">Saved as plain text in this page's files, exactly as you wrote it. Cells pasted from a spreadsheet are kept as a table. It stays in Your Memory and does not travel if you share this Expert.</p>
+    {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
+    <div className="flex flex-wrap gap-2">
+      <button type="submit" disabled={saving} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover disabled:opacity-60 ${focusStyle}`}>{saving ? "Saving…" : "Save file"}</button>
+      <button type="button" onClick={onClose} disabled={saving} className={`min-h-11 rounded-lg px-4 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}>Cancel</button>
+    </div>
+  </form>;
 }
 
-function FileList({ items, onOpenFile, empty, showPaths = false, onTogglePin, pinnedPaths = [] }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean; onTogglePin?: (path: string) => void; pinnedPaths?: string[] }) {
+function FileList({ items, onOpenFile, empty, showPaths = false }: { items: DisplayFile[]; onOpenFile: (file: ProjectFile) => void; empty?: string; showPaths?: boolean }) {
   if (items.length === 0) return empty ? <p className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary">{empty}</p> : null;
   return <div className="divide-y divide-bd-border rounded-lg border border-bd-border">{items.map((item) => <div key={item.file.path} className="flex items-center gap-2 rounded-lg px-3 hover:bg-bd-bg-secondary">
     <button type="button" aria-label={item.label} title={item.canonicalPath} onClick={() => onOpenFile(item.file)} className={`flex min-w-0 flex-1 items-center gap-3 rounded-md py-4 text-left ${focusStyle}`}>
@@ -109,25 +138,19 @@ function FileList({ items, onOpenFile, empty, showPaths = false, onTogglePin, pi
       <span className="min-w-0 flex-1"><span className="block text-sm text-bd-text-primary">{item.label}</span>{item.description || showPaths ? <span className="mt-1 block break-words text-xs text-bd-text-secondary">{showPaths ? item.canonicalPath : item.description}</span> : null}</span>
       {item.badge ? <span className="text-xs text-bd-text-secondary">{item.badge}</span> : null}<ArrowUpRight size={16} className="shrink-0 text-bd-text-secondary" aria-hidden="true" />
     </button>
-    {onTogglePin ? (() => { const isPinned = pinnedPaths.includes(item.file.path); const Icon = isPinned ? PinOff : Pin; return <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${item.label}`} aria-pressed={isPinned} onClick={() => onTogglePin(item.file.path)} className={`flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-bd-text-secondary hover:bg-bd-bg-hover ${focusStyle}`}><Icon size={16} aria-hidden="true" /></button>; })() : null}
   </div>)}</div>;
 }
 
-const ACCESS_CHOICES = ["Yes", "Ask me each time", "Only this page"] as const;
-// Mock only: the choice is kept in local state and changes nothing.
-function AccessSection({ origin }: { origin: string }) {
-  const [choice, setChoice] = useState<(typeof ACCESS_CHOICES)[number]>("Yes");
-  const [changing, setChanging] = useState(false);
-  return <ContentSection title="Access">
-    <div className="space-y-2 rounded-lg border border-bd-border p-4 text-sm text-bd-text-secondary">
-      <p><span className="text-bd-text-primary">Access:</span> Anything relevant from the rest of your BrainDrive, through Your Agent{choice === "Yes" ? "" : ` (${choice})`}</p>
-      <p><span className="text-bd-text-primary">Origin:</span> {origin}</p>
-      <button type="button" aria-expanded={changing} onClick={() => setChanging(!changing)} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Change</button>
-      {changing ? <fieldset className="space-y-1"><legend className="mb-1 text-xs">Let this Expert use the rest of your BrainDrive?</legend>
-        {ACCESS_CHOICES.map((item) => <label key={item} className="flex min-h-9 items-center gap-2 text-bd-text-primary"><input type="radio" name="expert-access" checked={choice === item} onChange={() => setChoice(item)} />{item}</label>)}
-      </fieldset> : null}
-    </div>
-  </ContentSection>;
+// Where the Expert came from. Shown for information only; it has no effect on what the Expert can read.
+function OriginLine({ origin }: { origin: string }) {
+  return <p className="text-sm text-bd-text-secondary"><span className="text-bd-text-primary">Origin:</span> {origin}</p>;
+}
+
+function originOf(plugin: { source: string; route?: "forum" | "elsewhere" } | undefined): string {
+  if (plugin?.source !== "installed from a plugin file") return "Made by you";
+  if (plugin.route === "elsewhere") return "Installed from a plugin file. Not reviewed by BrainDrive.";
+  if (plugin.route === "forum") return "Installed from a plugin file from the BrainDrive forum";
+  return "Installed from a plugin file";
 }
 
 function PluginsList({ project, setup, onAddPlugin, onStartExpert, onInstallExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onAddPlugin?: () => void; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode }) {
@@ -135,13 +158,13 @@ function PluginsList({ project, setup, onAddPlugin, onStartExpert, onInstallExpe
   const others = (setup?.plugins ?? []).filter((plugin) => plugin.id !== "behavior");
   return <>
     <p className="text-sm text-bd-text-secondary">What shapes and adds to this page.</p>
-    {expert ? <AccessSection origin={expert.backend ? "Included with BrainDrive" : setup?.plugins.find((plugin) => plugin.id === "behavior")?.source === "installed from a plugin file" ? "Installed from a plugin file" : "Made by you"} /> : null}
+    {expert ? <OriginLine origin={expert.backend ? "Included with BrainDrive" : originOf(setup?.plugins.find((plugin) => plugin.id === "behavior"))} /> : null}
     {expert ? <ContentSection title={`What ${expert.name} comes with`}>
       {expert.backend ? behaviorFiles : <MockBehavior projectId={project.id} files={expert.files} />}
     </ContentSection> : <ContentSection title="What this Expert comes with"><div className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary"><p>This page has no Expert yet.</p>{onStartExpert ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onStartExpert} className={`min-h-11 rounded-lg border border-bd-amber bg-bd-amber px-4 py-2 text-bd-bg-primary hover:bg-bd-amber-hover ${focusStyle}`}>Create an Expert</button><button type="button" onClick={onInstallExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Install an Expert</button></div> : null}</div></ContentSection>}
     <ContentSection title="Plugins it uses">
       {others.length === 0 ? <p className="text-sm text-bd-text-secondary">No other plugins on this page yet.</p> : <ul className="divide-y divide-bd-border rounded-lg border border-bd-border">{others.map((plugin) => <li key={plugin.id} className="px-4 py-4">
-        <p className="text-sm text-bd-text-primary">{plugin.name} <span className="text-xs text-bd-text-secondary">· {plugin.source}</span></p>
+        <p className="text-sm text-bd-text-primary">{plugin.name} <span className="text-xs text-bd-text-secondary">· {plugin.source}{plugin.route === "elsewhere" ? ", not reviewed by BrainDrive" : plugin.route === "forum" ? ", from the BrainDrive forum" : ""}</span></p>
         <ul className="mt-2 space-y-1">{plugin.skills.map((skill) => <li key={skill.name} className="text-sm text-bd-text-secondary">{skill.name}{skill.needs ? <span className="block text-xs">{skill.needs}</span> : null}</li>)}</ul>
       </li>)}</ul>}
       {onAddPlugin ? <button type="button" onClick={onAddPlugin} className={`mt-4 min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Add plugin</button> : null}

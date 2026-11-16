@@ -7,8 +7,10 @@
 // What this stand-in does:
 // - New page makes a page and opens its chat with fixed BrainDrive text (not model output).
 // - Create an Expert attaches the BrainDrive plugin and a "made by you" Behavior plugin.
-// - Install an Expert / Add plugin open the install step. A chosen or dropped file goes to a mock
-//   BrainDrive check first (name-based rules, see checkPluginFile), then a review card.
+// - Install an Expert / Add plugin open the install step. The owner first says where the file is
+//   from: the BrainDrive forum (reviewed), or somewhere else (not reviewed, behind an "at my own
+//   risk" tick). The chosen file then goes to a mock BrainDrive check (name-based rules, see
+//   checkPluginFile), then a review card that states the source.
 // - Install applies to the current page: it is renamed to the Expert's name (auto-numbered).
 // - Finance, Fitness, Career and Relationships are Experts that come with BrainDrive.
 //
@@ -21,10 +23,14 @@ export const EXPERTS_MOCK_ENABLED = import.meta.env.DEV && import.meta.env.VITE_
 
 export type PluginSkill = { name: string; needs?: string };
 export type PluginSource = "made by you" | "included with BrainDrive" | "installed from a plugin file";
-export type PagePlugin = { id: string; name: string; source: PluginSource; skills: PluginSkill[] };
+// Where the owner said a plugin file came from. BrainDrive cannot check this: a file from the forum
+// and a file from anywhere else look the same. "forum" files have been reviewed by the BrainDrive team;
+// "elsewhere" files have not, and need the owner's "at my own risk" tick before a file can be chosen.
+export type InstallRoute = "forum" | "elsewhere";
+export type PagePlugin = { id: string; name: string; source: PluginSource; skills: PluginSkill[]; route?: InstallRoute };
 export type PluginReview = {
   kind: "expert" | "plugin"; name: string; creator: string; license: string; adds: string;
-  fileName: string; files: Record<string, string>; warnings: string[];
+  fileName: string; files: Record<string, string>; warnings: string[]; route?: InstallRoute;
 };
 export type HostEvent =
   | { id: string; type: "choose" }
@@ -37,6 +43,7 @@ export type HostEvent =
 export type PageSetup = {
   events: HostEvent[];
   installStep: "expert" | "plugin" | null;
+  installRoute?: InstallRoute | null;
   // `backend` means the Expert's instructions and templates are real files on the page.
   expert: { name: string; files: Record<string, string>; backend?: boolean } | null;
   plugins: PagePlugin[];
@@ -110,8 +117,15 @@ export function startInstallStep(id: string, mode: "expert" | "plugin") {
   update(id, nameOf(id), (setup) => ({
     events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "install-help", mode }],
     installStep: mode,
+    installRoute: null,
   }));
 }
+
+/** The owner says where the file is from: the forum, or (after the "at my own risk" tick) somewhere else. */
+export function chooseInstallRoute(id: string, route: InstallRoute | null) {
+  update(id, nameOf(id), (setup) => setup.installStep ? { installRoute: route } : {});
+}
+export const NO_ROUTE_NOTICE = "First choose where this file came from: the BrainDrive forum, or somewhere else.";
 
 /** Puts the two starting buttons back on a page that still has no Expert. */
 export function offerStart(id: string) {
@@ -153,13 +167,19 @@ export function checkPluginFile(fileName: string, mode: "expert" | "plugin"): { 
 }
 
 /** The chosen or dropped file goes to the BrainDrive check, never to the model. */
-export async function submitPluginFile(id: string, fileName: string) {
-  const mode = current(id, nameOf(id)).installStep;
+export async function submitPluginFile(id: string, fileName: string, chosenRoute?: InstallRoute) {
+  const { installStep: mode, installRoute } = current(id, nameOf(id));
   if (!mode) return;
+  // A file that arrives before the owner has said where it came from (a dropped file, say) is not checked.
+  const route = chosenRoute ?? installRoute;
+  if (!route) {
+    update(id, nameOf(id), (setup) => ({ events: [...setup.events, { id: nextId(), type: "refused", reason: NO_ROUTE_NOTICE }] }));
+    return;
+  }
   await pause();
   const result = checkPluginFile(fileName, mode);
   update(id, nameOf(id), (setup) => ({
-    events: [...setup.events, "reason" in result ? { id: nextId(), type: "refused", reason: result.reason } : { id: nextId(), type: "review", review: result.review, status: "pending" }],
+    events: [...setup.events, "reason" in result ? { id: nextId(), type: "refused", reason: result.reason } : { id: nextId(), type: "review", review: { ...result.review, route }, status: "pending" }],
   }));
 }
 
@@ -182,10 +202,10 @@ export function applyInstall(id: string, eventId: string, pageName: string) {
     const events: HostEvent[] = setup.events.map((item) => item.id === eventId && item.type === "review" ? { ...item, status: "installed" as const } : item);
     events.push({ id: nextId(), type: "result", text: review.kind === "expert" ? `Installed ${pageName}. This page is now set up as ${pageName}.` : `Added ${review.name} to this page.` });
     if (review.kind === "expert") {
-      return { events, installStep: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
-        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
+      return { events, installStep: null, installRoute: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
+        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
     }
-    return { events, installStep: null, plugins: [...setup.plugins, { id: `plugin-${eventId}`, name: review.name, source: "installed from a plugin file", skills: skills.map((skill) => ({ ...skill, needs: "Needs web search (not available yet)" })) }] };
+    return { events, installStep: null, installRoute: null, plugins: [...setup.plugins, { id: `plugin-${eventId}`, name: review.name, source: "installed from a plugin file", route: review.route, skills: skills.map((skill) => ({ ...skill, needs: "Needs web search (not available yet)" })) }] };
   });
 }
 
@@ -193,6 +213,7 @@ export function cancelInstall(id: string, eventId: string) {
   update(id, nameOf(id), (setup) => ({
     events: [...setup.events.map((item) => item.id === eventId && item.type === "review" ? { ...item, status: "cancelled" as const } : item), { id: nextId(), type: "result" as const, text: "Nothing was installed." }],
     installStep: null,
+    installRoute: null,
   }));
   offerStart(id);
 }

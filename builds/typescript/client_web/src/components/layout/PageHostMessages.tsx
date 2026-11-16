@@ -2,8 +2,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 
 import {
-  AI_NOTICE, applyInstall, cancelInstall, startBuild, startInstallStep, submitPluginFile, uniquePageName,
-  type HostEvent, type PageSetup, type PluginReview,
+  AI_NOTICE, applyInstall, cancelInstall, chooseInstallRoute, startBuild, startInstallStep, submitPluginFile, uniquePageName,
+  type HostEvent, type InstallRoute, type PageSetup, type PluginReview,
 } from "@/api/experts";
 import { expertButton, expertPrimaryButton } from "./expert-ui";
 
@@ -27,7 +27,9 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
       <dt className="text-bd-text-secondary">What it adds</dt><dd>{review.adds}</dd>
       <dt className="text-bd-text-secondary">Page</dt><dd>{isExpert ? `This page will be set up as ${review.name}.` : "This page only."}</dd>
+      {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>
+    {review.route === "elsewhere" ? <p className="mt-3 text-bd-amber">Warning: BrainDrive has not reviewed this. It can read all of Your Memory and shape what the AI tells you. Install it only if you trust who made it.</p> : null}
     {isExpert ? <p className="mt-3">These instructions will become this page's instructions.</p> : null}
     {review.warnings.map((warning) => <p key={warning} className="mt-2 text-bd-amber">Warning: {warning}</p>)}
     <p className="mt-3 text-bd-text-secondary">Reading does not run anything. The AI has not seen this package.</p>
@@ -40,10 +42,46 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
   </Card>;
 }
 
+// The install step. The forum is the main way: files there have been reviewed by the BrainDrive team.
+// A file from anywhere else (GitHub included) is a second, smaller option behind a plain warning and
+// an "at my own risk" tick. BrainDrive cannot check where a file came from, so the owner says which.
+function InstallHelp({ mode, projectId, active }: { mode: "expert" | "plugin"; projectId: string; active: boolean }) {
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const route = useRef<InstallRoute>("forum");
+  const [elsewhereOpen, setElsewhereOpen] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const thing = mode === "expert" ? "Expert" : "plugin";
+  function choose(from: InstallRoute) {
+    route.current = from;
+    chooseInstallRoute(projectId, from);
+    fileInput.current?.click();
+  }
+  return <Card>
+    <p>{mode === "expert" ? "Install an Expert from the BrainDrive community forum." : "Add a plugin from the BrainDrive community forum."}</p>
+    <p className="mt-2 text-bd-text-secondary">{thing}s posted on the forum (community.braindrive.ai) have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
+    {active ? <div className="mt-3">
+      <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) void submitPluginFile(projectId, file.name, route.current); }} />
+      <button type="button" className={expertPrimaryButton} onClick={() => choose("forum")}>Choose file from the forum</button>
+      <p className="mt-2 text-xs text-bd-text-secondary">BrainDrive checks the file first.</p>
+      <button type="button" aria-expanded={elsewhereOpen} onClick={() => setElsewhereOpen((open) => !open)} className="mt-4 text-xs text-bd-text-secondary underline underline-offset-2 hover:text-bd-text-primary">Install from somewhere else</button>
+      {elsewhereOpen ? <div role="group" aria-label="Install from somewhere else" className="mt-2 rounded-lg border border-bd-amber/60 p-3">
+        <p className="text-bd-amber">BrainDrive has not reviewed files from anywhere else, including GitHub.</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>It can read all of Your Memory.</li>
+          <li>It can shape what the AI tells you, and may try to get you to open a link or share a file.</li>
+          <li>Only install it if you trust who made it.</li>
+        </ul>
+        <label className="mt-3 flex min-h-11 items-center gap-2"><input type="checkbox" checked={accepted} onChange={(change) => { setAccepted(change.target.checked); if (!change.target.checked) chooseInstallRoute(projectId, null); }} />I understand. Install at my own risk.</label>
+        <button type="button" disabled={!accepted} className={`${expertButton} mt-2 disabled:opacity-50`} onClick={() => choose("elsewhere")}>Choose plugin file</button>
+        <p className="mt-2 text-xs text-bd-text-secondary">BrainDrive still checks the file and shows you everything in it before anything is installed.</p>
+      </div> : null}
+    </div> : null}
+  </Card>;
+}
+
 export default function PageHostMessages({ project, setup, takenNames, renamePage }: {
   project: { id: string; name: string }; setup: PageSetup | undefined; takenNames: string[]; renamePage: (id: string, name: string) => Promise<void>;
 }) {
-  const fileInput = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!setup || setup.events.length === 0) return null;
@@ -73,22 +111,7 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "build": return <Card key={event.id}>
         <p>{event.typed ? "Got it. Let me ask a couple of questions to shape this Expert." : "Let's create your Expert. Its starting instructions are in this page's Settings. Tell me about what you want it to help with."}</p>
       </Card>;
-      case "install-help": {
-        const active = setup.installStep !== null && event.id === lastHelpId;
-        return <Card key={event.id}>
-          <p>{event.mode === "expert" ? "There are three ways to install an Expert." : "There are three ways to add a plugin."}</p>
-          <ol className="mt-2 list-decimal space-y-1 pl-5">
-            <li>From the community forum (community.braindrive.ai): download the file from the post, then choose or drop it here.</li>
-            <li>From a plugin file: choose or drop it here.</li>
-            <li>From a GitHub link: coming later.</li>
-          </ol>
-          {active ? <div className="mt-3">
-            <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) void submitPluginFile(project.id, file.name); }} />
-            <button type="button" className={expertPrimaryButton} onClick={() => fileInput.current?.click()}>Choose plugin file</button>
-            <p className="mt-2 text-xs text-bd-text-secondary">Or drop the file anywhere in this conversation. BrainDrive checks it first.</p>
-          </div> : null}
-        </Card>;
-      }
+      case "install-help": return <InstallHelp key={event.id} mode={event.mode} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId} />;
       case "refused": return <Card key={event.id}><p role="alert">{event.reason}</p></Card>;
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
       case "result": return <Card key={event.id}><p>{event.text}</p></Card>;

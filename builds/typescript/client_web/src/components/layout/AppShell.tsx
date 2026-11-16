@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
-import { getOnboardingStatus } from "@/api/gateway-adapter";
+import { getOnboardingStatus, writeFileContent } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -293,6 +293,7 @@ export default function AppShell({
       onStartExpert={expertPreviewEnabled ? handleStartExpert : undefined}
       onInstallExpert={expertPreviewEnabled ? handleInstallExpert : undefined}
       onDeletePage={expertPreviewEnabled ? () => setDeletingPage(selectedProject) : undefined}
+      onCreateFile={expertPreviewEnabled ? async (path, content) => { await writeFileContent(selectedProject.id, path, content); await refreshSelectedProjectFiles(); } : undefined}
     />
   ) : undefined;
 

@@ -44,7 +44,8 @@ export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]
     }
 
     // Published outputs stay artifacts even when their names resemble setup files.
-    if (item.file.sourceType !== "app_published") {
+    // Files the owner added are their own material, never setup files, whatever they are named.
+    if (item.file.sourceType !== "app_published" && !isOwnerAddedFile(item.canonicalPath)) {
       if (/(^|\/)templates\//i.test(item.canonicalPath) || /-template\.md$/i.test(item.canonicalPath)) {
         templates.push(item);
         continue;
@@ -86,7 +87,15 @@ function toFileItem(file: ProjectFile, projectId: string): SidebarFileItem {
   };
 }
 
+function isOwnerAddedFile(relativePath: string): boolean {
+  return /^added\//i.test(relativePath);
+}
+
 function withFileBadge(item: SidebarFileItem): SidebarFileItem {
+  if (isOwnerAddedFile(item.canonicalPath)) {
+    return { ...item, badge: "You added" };
+  }
+
   if (/(^|\/)reports\//i.test(item.canonicalPath)) {
     return { ...item, badge: canonicalFileName(item.file) === "latest.md" ? "Generated" : "Report" };
   }

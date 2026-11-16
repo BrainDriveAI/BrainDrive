@@ -1,7 +1,7 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetExpertsMock, type PageSetup } from "@/api/experts";
-import ProjectContentView from "./ProjectContentView";
+import ProjectContentView, { pastedTableToMarkdown } from "./ProjectContentView";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
 const props = {
@@ -15,8 +15,8 @@ it.each([0, 1, 3])("organizes %i outputs separately from direction, progress, an
   const onOpenFile = vi.fn();
   render(<ProjectContentView {...props} view="files" files={[file("spec.md"), file("journal.md"), file("AGENT.md"), ...files]} onOpenFile={onOpenFile} />);
   const outputs = within(screen.getByRole("region", { name: "Your work" }));
-  const pinned = within(screen.getByRole("region", { name: "Pinned" }));
-  expect(pinned.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Your Goals", "Unpin Your Goals", "Your Journal", "Unpin Your Journal"]);
+  const shortcuts = within(screen.getByRole("region", { name: "Goals, Plan and Journal" }));
+  expect(shortcuts.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Journal"]);
   if (!count) expect(outputs.getByText(/No outputs saved yet/)).toBeVisible();
   else {
     expect(outputs.getAllByRole("button", { name: /^Brief/ })).toHaveLength(count);
@@ -29,7 +29,7 @@ it.each([0, 1, 3])("organizes %i outputs separately from direction, progress, an
 
 it("shows an honest empty workspace without creating files or fake To-do synchronization", () => {
   render(<ProjectContentView {...props} view="files" />);
-  expect(screen.queryByRole("region", { name: "Pinned" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Goals, Plan and Journal" })).not.toBeInTheDocument();
   expect(screen.getByText(/No outputs saved yet/)).toBeVisible();
   expect(screen.queryByRole("button", { name: /Goals|Plan|To-do|Journal/ })).not.toBeInTheDocument();
 });
@@ -49,47 +49,31 @@ it("opens an existing To-do file with its original metadata", async () => {
   expect(screen.queryByText(/isn’t set up/)).not.toBeInTheDocument();
 });
 
-describe("pinning files", () => {
-  const all = [file("spec.md"), file("plan.md"), file("journal.md"), file("brief-0.md")];
+describe("Goals, Plan and Journal shortcuts", () => {
+  const all = [file("brief-0.md"), file("journal.md"), file("plan.md"), file("spec.md")];
   const region = (name: string) => within(screen.getByRole("region", { name }));
-  beforeEach(() => localStorage.clear());
 
-  it("pins Goals, Plan and Journal by default, in order", () => {
+  it("shows Goals, Plan and Journal at the top, in that order, apart from Your work", () => {
     render(<ProjectContentView {...props} view="files" files={all} />);
-    expect(region("Pinned").getAllByRole("button", { name: /^Your / }).map((b) => b.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Plan", "Your Journal"]);
-    expect(region("Your work").getByRole("button", { name: "Pin Brief 0" })).toBeVisible();
+    expect(region("Goals, Plan and Journal").getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Plan", "Your Journal"]);
+    expect(region("Your work").getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Brief 0"]);
   });
 
-  it("moves an unpinned Your Plan into Your work and hides Pinned when empty", async () => {
-    render(<ProjectContentView {...props} view="files" files={all} />);
-    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
-    expect(region("Pinned").queryByRole("button", { name: "Your Plan" })).not.toBeInTheDocument();
-    expect(region("Your work").getByRole("button", { name: "Your Plan" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Goals" }));
-    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Journal" }));
-    expect(screen.queryByRole("region", { name: "Pinned" })).not.toBeInTheDocument();
+  it("shows only the shortcuts whose files exist", () => {
+    render(<ProjectContentView {...props} view="files" files={[file("journal.md")]} />);
+    expect(region("Goals, Plan and Journal").getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Your Journal"]);
   });
 
-  it("pins an output to the end of Pinned without opening it", async () => {
+  it("has no pin or unpin control", () => {
+    render(<ProjectContentView {...props} view="files" files={all} />);
+    expect(screen.queryByRole("button", { name: /^(Pin|Unpin) / })).not.toBeInTheDocument();
+  });
+
+  it("opens the file when a shortcut is chosen", async () => {
     const onOpenFile = vi.fn();
     render(<ProjectContentView {...props} view="files" files={all} onOpenFile={onOpenFile} />);
-    await userEvent.click(screen.getByRole("button", { name: "Pin Brief 0" }));
-    expect(region("Pinned").getAllByRole("button", { name: /^(Your |Brief)/ }).map((b) => b.getAttribute("aria-label"))).toEqual(["Your Goals", "Your Plan", "Your Journal", "Brief 0"]);
-    expect(onOpenFile).not.toHaveBeenCalled();
-  });
-
-  it("keeps pin state after remount for the same page only", async () => {
-    const { unmount } = render(<ProjectContentView {...props} view="files" files={all} />);
-    await userEvent.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
-    await userEvent.click(screen.getByRole("button", { name: "Pin Brief 0" }));
-    unmount();
-    render(<ProjectContentView {...props} view="files" files={all} />);
-    expect(region("Pinned").queryByRole("button", { name: "Your Plan" })).not.toBeInTheDocument();
-    expect(region("Pinned").getByRole("button", { name: "Brief 0" })).toBeVisible();
-    unmount();
-    cleanup();
-    render(<ProjectContentView {...props} project={{ ...props.project, id: "other" }} view="files" files={all.map((f) => ({ ...f, path: f.path.replace("start-a-business", "other") }))} />);
-    expect(region("Pinned").getByRole("button", { name: "Your Plan" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Your Plan" }));
+    expect(onOpenFile).toHaveBeenCalledWith(all[2]);
   });
 });
 
@@ -104,7 +88,7 @@ it("pins Behavior first in Plugins for an Expert page, then lists other plugins 
     ],
   })} />);
   const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-  expect(headings).toEqual(["Access", "What Start a Business comes with", "Plugins it uses"]);
+  expect(headings).toEqual(["What Start a Business comes with", "Plugins it uses"]);
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Page Settings");
   expect(screen.getAllByText("Installed from a plugin file", { exact: false }).length).toBeGreaterThan(0);
   expect(screen.getByText("Research")).toBeVisible();
@@ -131,7 +115,7 @@ it("edits and saves a built Expert's instructions from the Behavior entry", asyn
 it("shows no Behavior entry on a page without an Expert, and how to start one", async () => {
   const onStart = vi.fn(), onAdd = vi.fn();
   render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onInstallExpert={vi.fn()} onAddPlugin={onAdd} />);
-  expect(screen.queryByRole("heading", { name: "Access" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Origin:")).not.toBeInTheDocument();
   expect(screen.getByText("This page has no Expert yet.")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Create an Expert" }));
   expect(onStart).toHaveBeenCalled();
@@ -160,12 +144,13 @@ it("lists installed template files as a Templates card, matching the default-pag
   expect(screen.getByLabelText("Edit templates/spec.md")).toHaveValue("# Spec");
 });
 
-it("shows a mock Access section with a Change choice for an Expert that comes with BrainDrive", async () => {
+it("shows where an Expert came from and no access setting", () => {
   render(<ProjectContentView {...props} view="plugins" setup={setup({ expert: { name: "Finance", files: {}, backend: true } })} />);
-  expect(screen.getByText("Included with BrainDrive")).toBeVisible();
-  expect(screen.getByText(/Anything relevant from the rest of your BrainDrive, through Your Agent/)).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Change" }));
-  for (const name of ["Yes", "Ask me each time", "Only this page"]) expect(screen.getByRole("radio", { name })).toBeVisible();
+  expect(screen.getByText("Origin:")).toBeVisible();
+  expect(screen.getByText("Included with BrainDrive", { exact: false })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Access" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Change" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
 });
 
 it("puts Delete page at the bottom of Page Settings, after everything else", async () => {
@@ -186,20 +171,90 @@ it("shows no Delete page in Your Files", () => {
   expect(screen.queryByRole("button", { name: "Delete page" })).not.toBeInTheDocument();
 });
 
-it("pins a Journal that appears later, but not one the owner unpinned before", async () => {
-  localStorage.clear();
-  const user = userEvent.setup();
-  const plan = { name: "plan.md", path: "documents/start-a-business/plan.md" };
-  const journal = { name: "journal.md", path: "documents/start-a-business/journal.md" };
-  const { unmount } = render(<ProjectContentView {...props} view="files" files={[plan]} />);
-  await user.click(screen.getByRole("button", { name: "Unpin Your Plan" }));
-  await user.click(screen.getByRole("button", { name: "Pin Your Plan" }));
-  unmount();
-  const second = render(<ProjectContentView {...props} view="files" files={[plan, journal]} />);
-  const pinnedNames = () => screen.queryAllByRole("button", { name: /^Unpin / }).map((b) => b.getAttribute("aria-label"));
-  expect(pinnedNames()).toContain("Unpin Your Journal");
-  await user.click(screen.getByRole("button", { name: "Unpin Your Journal" }));
-  second.unmount();
-  render(<ProjectContentView {...props} view="files" files={[plan, journal]} />);
-  expect(pinnedNames()).not.toContain("Unpin Your Journal");
+describe("adding a file by pasting text", () => {
+  const user = () => userEvent.setup();
+  const open = async (onCreateFile = vi.fn().mockResolvedValue(undefined), files = [file("spec.md")]) => {
+    render(<ProjectContentView {...props} view="files" files={files} onCreateFile={onCreateFile} />);
+    await userEvent.click(screen.getByRole("button", { name: "New file" }));
+    return onCreateFile;
+  };
+
+  it("offers New file only when the page can save one", () => {
+    render(<ProjectContentView {...props} view="files" />);
+    expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
+  });
+
+  it("saves the pasted text, exactly, to the page's added folder and closes", async () => {
+    const onCreateFile = await open();
+    await userEvent.type(screen.getByLabelText("File name"), "Bank Notes: March!");
+    await userEvent.click(screen.getByLabelText("Paste or type your text"));
+    await userEvent.paste("  Rent 1200\nFood 400  ");
+    await userEvent.click(screen.getByRole("button", { name: "Save file" }));
+    expect(onCreateFile).toHaveBeenCalledWith("documents/start-a-business/added/bank-notes-march.md", "  Rent 1200\nFood 400  ");
+    expect(screen.queryByRole("form", { name: "New file" })).not.toBeInTheDocument();
+  });
+
+  it("asks for a name and some text before saving", async () => {
+    const onCreateFile = await open();
+    await userEvent.click(screen.getByRole("button", { name: "Save file" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Give the file a name");
+    await userEvent.type(screen.getByLabelText("File name"), "notes");
+    await userEvent.click(screen.getByRole("button", { name: "Save file" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Paste or type some text first");
+    expect(onCreateFile).not.toHaveBeenCalled();
+  });
+
+  it("never overwrites: a name already in use is refused", async () => {
+    const onCreateFile = await open(undefined, [{ name: "notes.md", path: "documents/start-a-business/added/notes.md" }]);
+    await userEvent.type(screen.getByLabelText("File name"), "Notes");
+    await userEvent.type(screen.getByLabelText("Paste or type your text"), "hello");
+    await userEvent.click(screen.getByRole("button", { name: "Save file" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("already exists");
+    expect(onCreateFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps the text and says so when the save fails", async () => {
+    await open(vi.fn().mockRejectedValue(new Error("offline")));
+    await userEvent.type(screen.getByLabelText("File name"), "notes");
+    await userEvent.type(screen.getByLabelText("Paste or type your text"), "hello");
+    await userEvent.click(screen.getByRole("button", { name: "Save file" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be saved");
+    expect(screen.getByLabelText("Paste or type your text")).toHaveValue("hello");
+  });
+
+  it("cancels without saving", async () => {
+    const onCreateFile = await open();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("form", { name: "New file" })).not.toBeInTheDocument();
+    expect(onCreateFile).not.toHaveBeenCalled();
+    void user;
+  });
+
+  it("turns pasted spreadsheet cells into a table and leaves other text alone", async () => {
+    await open();
+    await userEvent.click(screen.getByLabelText("Paste or type your text"));
+    await userEvent.paste("Item\tCost\nRent\t1200\nFood\t400\n");
+    expect(screen.getByLabelText("Paste or type your text")).toHaveValue("| Item | Cost |\n| --- | --- |\n| Rent | 1200 |\n| Food | 400 |\n");
+    expect(pastedTableToMarkdown("just a sentence\nand another")).toBeNull();
+    expect(pastedTableToMarkdown("one\tline only")).toBeNull();
+    expect(pastedTableToMarkdown("a|b\tc\nd\te\tf")).toBe("| a\\|b | c |  |\n| --- | --- | --- |\n| d | e | f |");
+  });
+
+  it("lists a file the owner added in Your work with a You added badge, never as a setup file", () => {
+    render(<ProjectContentView {...props} view="files" files={[{ name: "budget-template.md", path: "documents/start-a-business/added/budget-template.md" }]} />);
+    const work = within(screen.getByRole("region", { name: "Your work" }));
+    expect(work.getByRole("button", { name: "Budget Template" })).toHaveTextContent("You added");
+  });
+});
+
+it("shows in Page Settings when an installed Expert was not reviewed by BrainDrive", () => {
+  render(<ProjectContentView {...props} view="plugins" setup={setup({
+    expert: { name: "Garden", files: {} },
+    plugins: [
+      { id: "behavior", name: "Garden", source: "installed from a plugin file", skills: [], route: "elsewhere" },
+      { id: "p", name: "Research", source: "installed from a plugin file", skills: [], route: "forum" },
+    ],
+  })} />);
+  expect(screen.getByText("Installed from a plugin file. Not reviewed by BrainDrive.")).toBeVisible();
+  expect(screen.getByText(/installed from a plugin file, from the BrainDrive forum/)).toBeVisible();
 });
