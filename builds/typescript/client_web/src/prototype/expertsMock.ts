@@ -287,7 +287,7 @@ export function exportFileList(draft: ExportDraft, choices: ExportChoices): [pat
   const slug = pluginSlug(draft.name);
   const creator = draft.original ? draft.original.creator : choices.creator.trim();
   const license = draft.original ? draft.original.license : choices.license === "MIT" ? "MIT" : choices.license === "other" ? choices.otherLicense.trim() : "";
-  const manifest: Record<string, string> = { name: slug, version: "0.1.0", description: `${draft.name}, an Expert made with BrainDrive.` };
+  const manifest: Record<string, unknown> = { name: slug, version: "0.1.0", description: `${draft.name}, an Expert made with BrainDrive.` };
   if (creator) manifest.author = creator;
   if (license) manifest.license = license;
   const inside = Object.entries(draft.files).map(([file, text]): [string, string] => {
@@ -296,8 +296,9 @@ export function exportFileList(draft: ExportDraft, choices: ExportChoices): [pat
     return [`skills/${slug}/references/${file.replace(/^references\//, "")}`, text];
   });
   return [
-    ["plugin.json", `${JSON.stringify(manifest, null, 2)}\n`],
-    ["ai.braindrive/expert.json", `${JSON.stringify({ type: "expert" }, null, 2)}\n`],
+    // The Expert marker sits in the manifest under the standard's client extensions, keyed by
+    // BrainDrive's reverse-domain name; other hosts skip it (Dave J's proposal, forum t/379 post 13).
+    ["plugin.json", `${JSON.stringify({ ...manifest, extensions: { "ai.braindrive": { type: "expert", format_version: 1 } } }, null, 2)}\n`],
     ...inside,
     ...(license === "MIT" ? [["LICENSE", MIT_TEXT(creator || "the creator of this plugin")] as [string, string]] : []),
   ];

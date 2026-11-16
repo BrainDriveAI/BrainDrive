@@ -256,7 +256,7 @@ describe("Share this Expert", () => {
     expect(card()).toHaveTextContent("The BrainDrive forum accepts MIT only.");
     expect(card()).toHaveTextContent("You can edit any of these files in Page Settings before you share.");
     expect(card()).not.toHaveTextContent(/remove it|leave something out/i);
-    for (const path of ["plugin.json", "ai.braindrive/expert.json", "skills/my-expert/SKILL.md", "LICENSE"]) expect(screen.getByRole("button", { name: path })).toBeVisible();
+    for (const path of ["plugin.json", "skills/my-expert/SKILL.md", "LICENSE"]) expect(screen.getByRole("button", { name: path })).toBeVisible();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument(); // nothing to tick
     await user.click(screen.getByRole("button", { name: "skills/my-expert/SKILL.md" }));
     expect(card()).toHaveTextContent("This Expert helps you with the job you describe");
@@ -328,6 +328,13 @@ describe("Share this Expert", () => {
 
   it("puts instructions, templates and reference files where the package format says", () => {
     const paths = exportFileList({ name: "Start a Business", files: { "instructions.md": "a", "templates/spec.md": "b", "references/run-interview.md": "c" } }, { creator: "", license: "other", otherLicense: "CC-BY-4.0" }).map(([path]) => path);
-    expect(paths).toEqual(["plugin.json", "ai.braindrive/expert.json", "skills/start-a-business/SKILL.md", "skills/start-a-business/assets/spec.md", "skills/start-a-business/references/run-interview.md"]);
+    expect(paths).toEqual(["plugin.json", "skills/start-a-business/SKILL.md", "skills/start-a-business/assets/spec.md", "skills/start-a-business/references/run-interview.md"]);
+  });
+
+  it("marks the plugin as an Expert in plugin.json under extensions, with no separate marker file", () => {
+    const files = exportFileList({ name: "Garden", files: { "instructions.md": "a" } }, { creator: "", license: "MIT", otherLicense: "" });
+    const manifest = JSON.parse(files.find(([path]) => path === "plugin.json")![1]);
+    expect(manifest.extensions).toEqual({ "ai.braindrive": { type: "expert", format_version: 1 } });
+    expect(files.some(([path]) => path.startsWith("ai.braindrive/"))).toBe(false);
   });
 });
