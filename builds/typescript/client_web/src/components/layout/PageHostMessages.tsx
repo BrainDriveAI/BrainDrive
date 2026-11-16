@@ -18,9 +18,7 @@ function Card({ label = "From BrainDrive", children, tone = "plain" }: { label?:
   </section>;
 }
 
-const FINGERPRINT_CHECK = "If you got this file from the forum, check that these first 12 characters match the fingerprint in the post. If they don't, don't install it.";
-
-function Fingerprint({ value, checkHint }: { value?: string; checkHint?: string }) {
+function Fingerprint({ value }: { value?: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return <>Not available. BrainDrive could not read this file.</>;
   async function copy() {
@@ -32,7 +30,6 @@ function Fingerprint({ value, checkHint }: { value?: string; checkHint?: string 
       <button type="button" onClick={() => void copy()} className="rounded-md border border-bd-border px-2 py-0.5 text-xs hover:bg-bd-bg-hover">{copied ? "Copied" : "Copy"}</button>
     </div>
     <p className="mt-1 break-all font-mono text-xs text-bd-text-secondary">{value}</p>
-    {checkHint ? <p className="mt-1 text-xs text-bd-text-secondary">{checkHint}</p> : null}
   </div>;
 }
 
@@ -50,7 +47,7 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
     <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
       <dt className="text-bd-text-secondary">Creator</dt><dd>{review.creator && review.creator !== "unknown" ? `The file says it's by ${review.creator}. BrainDrive can't check this.` : "The file doesn't say who made it."}</dd>
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
-      <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} checkHint={FINGERPRINT_CHECK} /></dd>
+      <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} /></dd>
       <dt className="text-bd-text-secondary">Skills</dt><dd>{skills.length ? <ul className="space-y-1">{skills.map((skill) => <li key={skill.name}><span className="font-semibold">{skill.name}</span>{skill.description ? `: ${skill.description}` : ""}</li>)}</ul> : "None"}</dd>
       {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "You said you got this from the BrainDrive forum. BrainDrive can't check that." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>

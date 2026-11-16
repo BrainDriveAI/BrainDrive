@@ -145,7 +145,8 @@ it("takes a chosen file from the button into the check", async () => {
   expect(card).toHaveTextContent("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
   expect(screen.getByText("2d711642b726")).toBeVisible();
   expect(screen.getByRole("button", { name: "Copy" })).toBeVisible();
-  expect(card).toHaveTextContent("check that these first 12 characters match the fingerprint in the post");
+  // No "match it against the post" line: owners would not know what a fingerprint is (Dave W, 2026-11-16).
+  expect(card).not.toHaveTextContent("match the fingerprint");
 });
 
 it("warns when a file claims BrainDrive as its creator but is not one of BrainDrive's own Experts", async () => {
