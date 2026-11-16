@@ -192,7 +192,7 @@ function Advanced({ record }: { record: [string, string][] }) {
     <summary className={`cursor-pointer text-bd-text-secondary ${focusStyle}`}>Advanced</summary>
     <p className="mt-3 text-bd-text-primary">Install record</p>
     <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">{record.map(([label, value]) => <div key={label} className="contents"><dt className="text-bd-text-secondary">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
-    <p className="mt-2 text-xs text-bd-text-secondary">Kept in Your Memory with this Expert. It is not part of the Expert and has no effect on what it can read.</p>
+    <p className="mt-2 text-xs text-bd-text-secondary">BrainDrive keeps this note about where this Expert came from. It isn't shared when you share the Expert.</p>
   </details>;
 }
 
