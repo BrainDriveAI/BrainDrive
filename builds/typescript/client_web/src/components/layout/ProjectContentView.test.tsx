@@ -79,8 +79,8 @@ describe("Goals, Plan and Journal shortcuts", () => {
 
 const setup = (over: Partial<PageSetup> = {}): PageSetup => ({ events: [], installStep: null, noticeShown: false, expert: null, plugins: [], ...over });
 
-it("pins Behavior first in Plugins for an Expert page, then lists other plugins with their skills", () => {
-  render(<ProjectContentView {...props} view="plugins" onAddPlugin={vi.fn()} setup={setup({
+it("shows what an installed Expert comes with in Page Settings, with no plugin list and no Add plugin", () => {
+  render(<ProjectContentView {...props} view="plugins" setup={setup({
     expert: { name: "Start a Business", files: { "instructions.md": "Be helpful." } },
     plugins: [
       { id: "behavior", name: "Start a Business", source: "installed from a plugin file", skills: [] },
@@ -88,11 +88,11 @@ it("pins Behavior first in Plugins for an Expert page, then lists other plugins 
     ],
   })} />);
   const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-  expect(headings).toEqual(["What Start a Business comes with", "Plugins it uses"]);
+  expect(headings).toEqual(["What Start a Business comes with"]);
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Page Settings");
   expect(screen.getAllByText("Installed from a plugin file", { exact: false }).length).toBeGreaterThan(0);
-  expect(screen.getByText("Research")).toBeVisible();
-  expect(screen.getByText("Needs web search (not available yet)")).toBeVisible();
+  expect(screen.queryByText("Research")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add plugin" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Remove|Delete/ })).not.toBeInTheDocument();
   expect(screen.queryByText(/Connections|Agents|Coming later/)).not.toBeInTheDocument();
 });
@@ -113,14 +113,13 @@ it("edits and saves a built Expert's instructions from the Behavior entry", asyn
 });
 
 it("shows no Behavior entry on a page without an Expert, and how to start one", async () => {
-  const onStart = vi.fn(), onAdd = vi.fn();
-  render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onInstallExpert={vi.fn()} onAddPlugin={onAdd} />);
+  const onStart = vi.fn();
+  render(<ProjectContentView {...props} view="plugins" onStartExpert={onStart} onInstallExpert={vi.fn()} />);
   expect(screen.queryByText("Origin:")).not.toBeInTheDocument();
   expect(screen.getByText("This page has no Expert yet.")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Create an Expert" }));
   expect(onStart).toHaveBeenCalled();
-  await userEvent.click(screen.getByRole("button", { name: "Add plugin" }));
-  expect(onAdd).toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Add plugin" })).not.toBeInTheDocument();
 });
 
 it("opens the real instruction and template files of a page that comes with BrainDrive", async () => {
@@ -252,9 +251,37 @@ it("shows in Page Settings when an installed Expert was not reviewed by BrainDri
     expert: { name: "Garden", files: {} },
     plugins: [
       { id: "behavior", name: "Garden", source: "installed from a plugin file", skills: [], route: "elsewhere" },
-      { id: "p", name: "Research", source: "installed from a plugin file", skills: [], route: "forum" },
     ],
   })} />);
   expect(screen.getByText("Installed from a plugin file. Not reviewed by BrainDrive.")).toBeVisible();
-  expect(screen.getByText(/installed from a plugin file, from the BrainDrive forum/)).toBeVisible();
+});
+
+it("shows in Page Settings when an installed Expert came from the BrainDrive forum", () => {
+  render(<ProjectContentView {...props} view="plugins" setup={setup({
+    expert: { name: "Garden", files: {} },
+    plugins: [{ id: "behavior", name: "Garden", source: "installed from a plugin file", skills: [], route: "forum" }],
+  })} />);
+  expect(screen.getByText("Installed from a plugin file from the BrainDrive forum")).toBeVisible();
+});
+
+it("offers Share this Expert in Page Settings, above Delete page, only on a page with an Expert", async () => {
+  const onShareExpert = vi.fn();
+  const { unmount } = render(<ProjectContentView {...props} view="plugins" onShareExpert={onShareExpert} onDeletePage={vi.fn()} setup={setup({ expert: { name: "Finance", files: {}, backend: true } })} />);
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  expect(headings.slice(-2)).toEqual(["Share this Expert", "Delete page"]);
+  await userEvent.click(screen.getByRole("button", { name: "Share this Expert" }));
+  expect(onShareExpert).toHaveBeenCalled();
+  unmount();
+  render(<ProjectContentView {...props} view="plugins" onShareExpert={onShareExpert} onDeletePage={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Share this Expert" })).not.toBeInTheDocument();
+});
+
+it("lists every file a default Expert comes with in Page Settings, methods and reference files included", async () => {
+  const onOpenFile = vi.fn();
+  const files = [file("AGENT.md"), file("run-interview.md"), file("run-planning.md"), file("run-journal.md"), file("spec.md")];
+  render(<ProjectContentView {...props} view="plugins" files={files} onOpenFile={onOpenFile} setup={setup({ expert: { name: "Start a Business", files: {}, backend: true } })} />);
+  for (const name of ["Instructions", "Interview", "Planning", "Journal"]) expect(screen.getByRole("button", { name })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Your Goals" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Planning" }));
+  expect(onOpenFile).toHaveBeenCalledWith(files[2]);
 });

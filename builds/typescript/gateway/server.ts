@@ -88,7 +88,7 @@ import {
   decideExplicitProviderActivation,
   normalizeProviderActivationRevision,
 } from "./provider-activation.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
+import { GatewayProjectService, isProjectMetadata, ProtectedFileError, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
 
@@ -3229,6 +3229,42 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch (error) {
       if (error instanceof Error && error.message === "Invalid path") {
         reply.code(400).send({ error: "Invalid path" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.delete("/projects/:id/file-content", async (request, reply) => {
+    const params = request.params as { id: string };
+    const query = request.query as { path?: string };
+    if (!query.path) {
+      reply.code(400).send({ error: "Invalid path" });
+      return;
+    }
+
+    try {
+      const deleted = await projects.deleteProjectFile(params.id, query.path);
+      if (!deleted) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
+      }
+
+      reply.send({ ok: true });
+    } catch (error) {
+      if (error instanceof ProtectedFileError) {
+        reply.code(403).send({ error: error.message, code: error.code });
+        return;
+      }
+
+      if (error instanceof Error && error.message === "Invalid path") {
+        reply.code(400).send({ error: "Invalid path" });
+        return;
+      }
+
+      if (isNotFoundError(error)) {
+        reply.code(404).send({ error: "File not found" });
         return;
       }
 

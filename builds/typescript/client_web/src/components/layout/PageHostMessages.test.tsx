@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
-import { AI_NOTICE, isRetiredPage, mockAddPage, noteFirstMessage, resetExpertsMock, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
+import { AI_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
 import PageHostMessages from "./PageHostMessages";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
@@ -100,6 +100,33 @@ it("does not check a file that arrives before the owner has said where it came f
   expect(screen.queryByLabelText("From BrainDrive: review before installing")).not.toBeInTheDocument();
 });
 
+it("Cancel on the install step closes it, installs nothing and offers the two buttons again", async () => {
+  const user = userEvent.setup();
+  render(<Harness />); await addPage();
+  await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByText("Nothing was installed.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^Choose (plugin file|file from the forum)$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Install from somewhere else" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create an Expert" })).toBeVisible();
+  await act(async () => { await submitPluginFile("p1", "garden-helper.zip", "forum"); });
+  expect(screen.queryByLabelText("From BrainDrive: review before installing")).not.toBeInTheDocument();
+});
+
+it("Cancel on Add plugin leaves an Expert page as it was", async () => {
+  const user = userEvent.setup();
+  let seen: ReturnType<typeof usePageSetup>;
+  function Probe() { seen = usePageSetup({ id: "finance", name: "Finance" }); return null; }
+  function FinanceHarness() { const project = { id: "finance", name: "Finance" }; return <PageHostMessages project={project} setup={usePageSetup(project)} takenNames={[]} renamePage={renamePage} />; }
+  render(<><FinanceHarness /><Probe /></>);
+  await act(async () => { startInstallStep("finance", "plugin"); });
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByText("Nothing was installed.")).toBeVisible();
+  expect(seen!.installStep).toBeNull();
+  expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["BrainDrive"]);
+  expect(screen.queryByRole("button", { name: "Create an Expert" })).not.toBeInTheDocument();
+});
+
 it("checks the file first and shows a one-line plain reason when it fails", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
@@ -195,4 +222,98 @@ it("treats the default pages as Experts with the BrainDrive plugin, and other pa
   expect(finance!.expert?.name).toBe("Finance");
   expect(finance!.plugins.map((plugin) => plugin.name)).toEqual(["BrainDrive"]);
   expect(other).toBeUndefined();
+});
+
+describe("Share this Expert", () => {
+  const card = () => screen.getByLabelText("From BrainDrive: share this Expert");
+  async function built() {
+    const user = userEvent.setup();
+    render(<Harness />); await addPage();
+    await user.click(screen.getByRole("button", { name: "Create an Expert" }));
+    act(() => startExport("p1"));
+    return user;
+  }
+
+  it("shows the fixed warnings and every file that will be in the plugin file, generated ones included", async () => {
+    const user = await built();
+    expect(card()).toHaveTextContent("Everything inside this Expert goes with it. If you're not sure what it's sharing, don't share it.");
+    expect(card()).toHaveTextContent("will be readable by anyone who installs it");
+    expect(card()).toHaveTextContent("BrainDrive pages, Your Memory and BrainDrive's tools don't travel with this Expert.");
+    expect(card()).toHaveTextContent("The BrainDrive forum accepts MIT only.");
+    expect(card()).toHaveTextContent("You can edit any of these files in Page Settings before you share.");
+    expect(card()).not.toHaveTextContent(/remove it|leave something out/i);
+    for (const path of ["plugin.json", "ai.braindrive/expert.json", "skills/my-expert/SKILL.md", "LICENSE"]) expect(screen.getByRole("button", { name: path })).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument(); // nothing to tick
+    await user.click(screen.getByRole("button", { name: "skills/my-expert/SKILL.md" }));
+    expect(card()).toHaveTextContent("This Expert helps you with the job you describe");
+  });
+
+  it("leaves the creator blank and the license MIT by default, and writes the owner's choices into the files", async () => {
+    const user = await built();
+    expect(screen.getByLabelText("Creator name (optional)")).toHaveValue("");
+    expect(screen.getByLabelText("License")).toHaveValue("MIT");
+    await user.click(screen.getByRole("button", { name: "LICENSE" }));
+    expect(card()).toHaveTextContent("the creator of this plugin");
+    await user.type(screen.getByLabelText("Creator name (optional)"), "Dana");
+    expect(card()).toHaveTextContent(/Copyright \(c\) \d{4} Dana/);
+    await user.selectOptions(screen.getByLabelText("License"), "none");
+    expect(screen.queryByRole("button", { name: "LICENSE" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "plugin.json" }));
+    expect(card()).toHaveTextContent('"author": "Dana"');
+    expect(card()).not.toHaveTextContent('"license"');
+  });
+
+  it("explains what a license is from an info button beside License", async () => {
+    const user = await built();
+    const info = screen.getByRole("button", { name: "What is a license?" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/A license tells other people/)).not.toBeInTheDocument();
+    await user.click(info);
+    expect(screen.getByText(/A license tells other people what they are allowed to do with your Expert/)).toBeVisible();
+    expect(screen.getByLabelText("License")).toHaveValue("MIT");
+    await user.click(info);
+    expect(screen.queryByText(/A license tells other people/)).not.toBeInTheDocument();
+  });
+
+  it("Save as a plugin says where the file went and how to share it on the forum; BrainDrive posts nothing", async () => {
+    const user = await built();
+    await user.click(screen.getByRole("button", { name: "Save as a plugin" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Saved my-expert.zip to your computer. Nothing was sent anywhere.");
+    expect(card()).toHaveTextContent("You make the post yourself; BrainDrive posts nothing.");
+    expect(card()).toHaveTextContent("held until a moderator has checked it");
+    expect(screen.getByRole("link", { name: "Share on the forum" })).toHaveAttribute("href", "https://community.braindrive.ai");
+    expect(screen.queryByRole("button", { name: "Save as a plugin" })).not.toBeInTheDocument();
+  });
+
+  it("Cancel saves nothing", async () => {
+    const user = await built();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("Nothing was saved.")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Share on the forum" })).not.toBeInTheDocument();
+  });
+
+  it("shows the warning again every time, and keeps only one card waiting", async () => {
+    await built();
+    act(() => startExport("p1"));
+    act(() => startExport("p1"));
+    expect(screen.getAllByText(/Everything inside this Expert goes with it/)).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Save as a plugin" })).toHaveLength(1);
+  });
+
+  it("keeps the original creator and license of an Expert installed from someone else", async () => {
+    const user = userEvent.setup();
+    render(<Harness />); await addPage();
+    await user.click(screen.getByRole("button", { name: "Install an Expert" }));
+    await submit("garden-helper.zip");
+    await user.click(await screen.findByRole("button", { name: "Install" }));
+    await screen.findByText(/Installed Garden Helper/);
+    act(() => startExport("p1"));
+    expect(card()).toHaveTextContent("Creator: Sample Author. License: MIT. Both are kept from the original and cannot be changed here.");
+    expect(screen.queryByLabelText("Creator name (optional)")).not.toBeInTheDocument();
+  });
+
+  it("puts instructions, templates and reference files where the package format says", () => {
+    const paths = exportFileList({ name: "Start a Business", files: { "instructions.md": "a", "templates/spec.md": "b", "references/run-interview.md": "c" } }, { creator: "", license: "other", otherLicense: "CC-BY-4.0" }).map(([path]) => path);
+    expect(paths).toEqual(["plugin.json", "ai.braindrive/expert.json", "skills/start-a-business/SKILL.md", "skills/start-a-business/assets/spec.md", "skills/start-a-business/references/run-interview.md"]);
+  });
 });

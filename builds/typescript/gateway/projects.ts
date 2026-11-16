@@ -1,5 +1,5 @@
 import path from "node:path";
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 import { commitMemoryChange } from "../git.js";
@@ -45,6 +45,18 @@ const ROOT_AGENT_PROJECT: GatewayProject = {
   conversation_id: null,
   default_skill_ids: [],
 };
+
+// A page cannot work without these, so the owner edits them but cannot delete them one by one.
+// They go only when the whole page is deleted.
+const UNDELETABLE_PAGE_FILES = new Set(["agent.md", "spec.md", "plan.md", "journal.md"]);
+
+export class ProtectedFileError extends Error {
+  readonly code = "file_protected";
+
+  constructor() {
+    super("This file cannot be deleted");
+  }
+}
 
 export class ProtectedProjectError extends Error {
   readonly code = "project_protected";
@@ -191,6 +203,40 @@ export class GatewayProjectService {
     await writeFile(resolvedPath, content, "utf8");
     const relativePath = path.relative(this.memoryRoot, resolvedPath);
     await commitMemoryChange(this.memoryRoot, `Update ${relativePath} via UI`).catch(() => {});
+    return true;
+  }
+
+  /**
+   * Deletes one file from a page at the owner's request. The earlier version stays in Memory
+   * history. Returns false when the page does not exist. Throws "Invalid path" for a path outside
+   * the page or one that is not an ordinary file, ProtectedFileError for a file the page needs,
+   * and the file system's not-found error when there is nothing at that path.
+   */
+  async deleteProjectFile(projectId: string, requestedPath: string): Promise<boolean> {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    const project = await this.getProject(effectiveProjectId);
+    if (!project) {
+      return false;
+    }
+
+    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    if (!resolvedPath) {
+      throw new Error("Invalid path");
+    }
+
+    const pageRelativePath = path.relative(this.projectRootPath(effectiveProjectId), resolvedPath);
+    if (isRootAgentProjectId(projectId) || UNDELETABLE_PAGE_FILES.has(pageRelativePath.toLowerCase())) {
+      throw new ProtectedFileError();
+    }
+
+    // Only an ordinary file: never a folder, and never a link that points somewhere else.
+    if (!(await lstat(resolvedPath)).isFile()) {
+      throw new Error("Invalid path");
+    }
+
+    await unlink(resolvedPath);
+    const relativePath = path.relative(this.memoryRoot, resolvedPath);
+    await commitMemoryChange(this.memoryRoot, `Delete ${relativePath} via UI`).catch(() => {});
     return true;
   }
 

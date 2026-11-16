@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
-import { getOnboardingStatus, writeFileContent } from "@/api/gateway-adapter";
+import { getOnboardingStatus, readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -13,7 +13,9 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startBuild, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteFirstMessage, offerStart, startBuild, startExport, startInstallStep, submitPluginFile, usePageSetup } from "@/api/experts";
+import { buildProjectSidebarModel } from "./sidebar-categorize";
+import { canonicalFileName, projectRelativePath } from "./sidebar-labels";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
 
 type AppShellProps = {
@@ -74,12 +76,6 @@ export default function AppShell({
     }
   }
 
-  function handleAddPlugin() {
-    if (!selectedProject) return;
-    startInstallStep(selectedProject.id, "plugin");
-    handleReturnToChat();
-  }
-
   function handleStartExpert() {
     if (!selectedProject) return;
     offerStart(selectedProject.id);
@@ -89,6 +85,24 @@ export default function AppShell({
   function handleInstallExpert() {
     if (!selectedProject) return;
     startInstallStep(selectedProject.id, "expert");
+    handleReturnToChat();
+  }
+
+  // Share this Expert: gather what the Expert comes with, then BrainDrive opens the export card in the chat.
+  async function handleShareExpert() {
+    if (!selectedProject) return;
+    const project = selectedProject;
+    let files: Record<string, string> | undefined;
+    if (pageSetup?.expert?.backend) {
+      const { expert } = buildProjectSidebarModel(project.id, projectFiles);
+      const rows = [
+        ...expert.instructions.map((item) => [item.canonicalPath === "AGENT.md" ? "instructions.md" : `references/${canonicalFileName(item.file)}`, item] as const),
+        ...expert.skills.map((item) => [`references/${canonicalFileName(item.file)}`, item] as const),
+        ...expert.templates.map((item) => [`templates/${canonicalFileName(item.file)}`, item] as const),
+      ];
+      files = Object.fromEntries(await Promise.all(rows.map(async ([name, item]) => [name, await readFileContent(project.id, item.file.path).catch(() => "(This file could not be read.)")] as const)));
+    }
+    startExport(project.id, files);
     handleReturnToChat();
   }
 
@@ -268,6 +282,9 @@ export default function AppShell({
 
   const displayedFile = activeFile;
   const isCollectionFile = activeFile && (activeView === "files" || activeView === "plugins");
+  // A page needs its instructions, goals, plan and journal, so those have no Delete file. The gateway refuses them too.
+  const canDeleteDisplayedFile = expertPreviewEnabled && displayedFile != null && selectedProject != null && !isRootAgentProjectId(selectedProject.id)
+    && !["agent.md", "spec.md", "plan.md", "journal.md"].includes(projectRelativePath(displayedFile.path, selectedProject.id).toLowerCase());
   const documentContent = displayedFile && selectedProject ? (
     <DocumentView
       key={`${selectedProject.id}:${displayedFile.path}`}
@@ -277,6 +294,7 @@ export default function AppShell({
       file={displayedFile}
       onBack={isCollectionFile ? () => setActiveFile(null) : handleReturnToChat}
       backLabel={isCollectionFile ? `Back to ${PROJECT_VIEW_LABELS[activeView!]}` : undefined}
+      onDeleted={canDeleteDisplayedFile ? () => { setActiveFile(null); void refreshSelectedProjectFiles(); } : undefined}
     />
   ) : activeView && selectedProject ? (
     <ProjectContentView
@@ -289,9 +307,9 @@ export default function AppShell({
       onOpenFile={handleFileClick}
       onBack={handleReturnToChat}
       setup={pageSetup}
-      onAddPlugin={expertPreviewEnabled ? handleAddPlugin : undefined}
       onStartExpert={expertPreviewEnabled ? handleStartExpert : undefined}
       onInstallExpert={expertPreviewEnabled ? handleInstallExpert : undefined}
+      onShareExpert={expertPreviewEnabled ? () => { void handleShareExpert(); } : undefined}
       onDeletePage={expertPreviewEnabled ? () => setDeletingPage(selectedProject) : undefined}
       onCreateFile={expertPreviewEnabled ? async (path, content) => { await writeFileContent(selectedProject.id, path, content); await refreshSelectedProjectFiles(); } : undefined}
     />

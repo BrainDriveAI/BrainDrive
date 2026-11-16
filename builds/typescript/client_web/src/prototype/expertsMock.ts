@@ -1,5 +1,5 @@
-// PROTOTYPE ONLY: Experts and skills spec v0.8, Release 1 (no export, forum posting, link
-// install or updates). The gateway has no page-setup, plugin check or install endpoints yet, so
+// PROTOTYPE ONLY: started from Experts and skills spec v0.8, Release 1 (no link install or
+// updates). Share this Expert (the export card and the forum step) was added against v0.16. The gateway has no page-setup, plugin check or install endpoints yet, so
 // the "New page" conversation, the plugin file check, the review card and the Plugins list are
 // held here, in memory, in the browser. A reload forgets them. The only real back-end calls are
 // the existing project create, rename and delete, which give each page a real sidebar entry.
@@ -7,7 +7,8 @@
 // What this stand-in does:
 // - New page makes a page and opens its chat with fixed BrainDrive text (not model output).
 // - Create an Expert attaches the BrainDrive plugin and a "made by you" Behavior plugin.
-// - Install an Expert / Add plugin open the install step. The owner first says where the file is
+// - Install an Expert opens the install step, on a new blank page only. Page Settings has no Add
+//   plugin: in Phase 1 an owner holds Experts only. The owner first says where the file is
 //   from: the BrainDrive forum (reviewed), or somewhere else (not reviewed, behind an "at my own
 //   risk" tick). The chosen file then goes to a mock BrainDrive check (name-based rules, see
 //   checkPluginFile), then a review card that states the source.
@@ -27,7 +28,7 @@ export type PluginSource = "made by you" | "included with BrainDrive" | "install
 // and a file from anywhere else look the same. "forum" files have been reviewed by the BrainDrive team;
 // "elsewhere" files have not, and need the owner's "at my own risk" tick before a file can be chosen.
 export type InstallRoute = "forum" | "elsewhere";
-export type PagePlugin = { id: string; name: string; source: PluginSource; skills: PluginSkill[]; route?: InstallRoute };
+export type PagePlugin = { id: string; name: string; source: PluginSource; skills: PluginSkill[]; route?: InstallRoute; creator?: string; license?: string };
 export type PluginReview = {
   kind: "expert" | "plugin"; name: string; creator: string; license: string; adds: string;
   fileName: string; files: Record<string, string>; warnings: string[]; route?: InstallRoute;
@@ -38,8 +39,14 @@ export type HostEvent =
   | { id: string; type: "install-help"; mode: "expert" | "plugin" }
   | { id: string; type: "refused"; reason: string }
   | { id: string; type: "review"; review: PluginReview; status: "pending" | "installed" | "cancelled" }
+  | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string }
   | { id: string; type: "result"; text: string }
   | { id: string; type: "notice" };
+// What the export card starts from: the Expert's own files, and for an Expert installed from
+// someone else, the creator and license it came with (kept unchanged on export, AC-13.7).
+export type ExportDraft = { name: string; files: Record<string, string>; original?: { creator: string; license: string } };
+export type ExportLicense = "MIT" | "none" | "other";
+export type ExportChoices = { creator: string; license: ExportLicense; otherLicense: string };
 export type PageSetup = {
   events: HostEvent[];
   installStep: "expert" | "plugin" | null;
@@ -51,7 +58,7 @@ export type PageSetup = {
 };
 
 export const DEFAULT_EXPERT_IDS = ["finance", "fitness", "career", "relationships"];
-export const NO_FILE_NOTICE = "Files can't be added here yet. To install a plugin, choose Add plugin.";
+export const NO_FILE_NOTICE = "Files can't be added here. To install an Expert, make a new page and choose Install an Expert.";
 export const AI_NOTICE = "You are working with AI. Its answers can be wrong. It uses your own model setup, so any costs of that model are yours.";
 
 const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 350));
@@ -112,7 +119,7 @@ export function startBuild(id: string, typed = false) {
   }));
 }
 
-/** Opens the install step: from "Install an Expert" (Expert) or from Add plugin (plugin). */
+/** Opens the install step from "Install an Expert". The "plugin" mode has no entry point in Phase 1. */
 export function startInstallStep(id: string, mode: "expert" | "plugin") {
   update(id, nameOf(id), (setup) => ({
     events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "install-help", mode }],
@@ -203,7 +210,7 @@ export function applyInstall(id: string, eventId: string, pageName: string) {
     events.push({ id: nextId(), type: "result", text: review.kind === "expert" ? `Installed ${pageName}. This page is now set up as ${pageName}.` : `Added ${review.name} to this page.` });
     if (review.kind === "expert") {
       return { events, installStep: null, installRoute: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
-        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
+        plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator.replace(/^unverified \((.*)\)$/, "$1"), license: review.license }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
     }
     return { events, installStep: null, installRoute: null, plugins: [...setup.plugins, { id: `plugin-${eventId}`, name: review.name, source: "installed from a plugin file", route: review.route, skills: skills.map((skill) => ({ ...skill, needs: "Needs web search (not available yet)" })) }] };
   });
@@ -216,6 +223,76 @@ export function cancelInstall(id: string, eventId: string) {
     installRoute: null,
   }));
   offerStart(id);
+}
+
+/** The owner backs out of the install step before choosing a file. Nothing was installed. */
+export function cancelInstallStep(id: string) {
+  if (!current(id, nameOf(id)).installStep) return;
+  update(id, nameOf(id), (setup) => ({
+    events: [...setup.events, { id: nextId(), type: "result" as const, text: "Nothing was installed." }],
+    installStep: null,
+    installRoute: null,
+  }));
+  offerStart(id);
+}
+
+const MIT_TEXT = (holder: string) => `MIT License
+
+Copyright (c) ${new Date().getFullYear()} ${holder}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+`;
+export const pluginSlug = (name: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "expert";
+
+/** Every file the plugin file will hold, in order, generated ones included (AC-13.2, AC-13.9, AC-13.14). */
+export function exportFileList(draft: ExportDraft, choices: ExportChoices): [path: string, text: string][] {
+  const slug = pluginSlug(draft.name);
+  const creator = draft.original ? draft.original.creator : choices.creator.trim();
+  const license = draft.original ? draft.original.license : choices.license === "MIT" ? "MIT" : choices.license === "other" ? choices.otherLicense.trim() : "";
+  const manifest: Record<string, string> = { name: slug, version: "0.1.0", description: `${draft.name}, an Expert made with BrainDrive.` };
+  if (creator) manifest.author = creator;
+  if (license) manifest.license = license;
+  const inside = Object.entries(draft.files).map(([file, text]): [string, string] => {
+    if (/(^|\/)(instructions|SKILL)\.md$/.test(file) && !file.startsWith("templates/")) return [`skills/${slug}/SKILL.md`, text];
+    if (file.startsWith("templates/")) return [`skills/${slug}/assets/${file.slice("templates/".length)}`, text];
+    return [`skills/${slug}/references/${file.replace(/^references\//, "")}`, text];
+  });
+  return [
+    ["plugin.json", `${JSON.stringify(manifest, null, 2)}\n`],
+    ["ai.braindrive/expert.json", `${JSON.stringify({ type: "expert" }, null, 2)}\n`],
+    ...inside,
+    ...(license === "MIT" ? [["LICENSE", MIT_TEXT(creator || "the creator of this plugin")] as [string, string]] : []),
+  ];
+}
+
+/** Share this Expert: BrainDrive (not the model) opens the export card for the page's Expert (AC-13.1). */
+export function startExport(id: string, backendFiles?: Record<string, string>) {
+  update(id, nameOf(id), (setup) => {
+    if (!setup.expert) return {};
+    const behavior = setup.plugins.find((plugin) => plugin.id === "behavior");
+    const installed = behavior?.source === "installed from a plugin file";
+    const draft: ExportDraft = {
+      name: setup.expert.name, files: backendFiles ?? setup.expert.files,
+      original: installed ? { creator: behavior.creator || "unknown", license: behavior.license || "not stated" } : undefined,
+    };
+    // Only one export card waits at a time; an older one that was left open is closed.
+    const events: HostEvent[] = setup.events.map((item) => item.type === "export" && item.status === "pending" ? { ...item, status: "cancelled" as const } : item);
+    return { events: [...events, { id: nextId(), type: "export", draft, status: "pending" }] };
+  });
+}
+
+export function saveExport(id: string, eventId: string, savedAs: string) {
+  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "saved" as const, savedAs } : item) }));
+}
+
+export function cancelExport(id: string, eventId: string) {
+  update(id, nameOf(id), (setup) => ({
+    events: [...setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "cancelled" as const } : item), { id: nextId(), type: "result" as const, text: "Nothing was saved." }],
+  }));
 }
 
 export function saveExpertFile(id: string, file: string, text: string) {

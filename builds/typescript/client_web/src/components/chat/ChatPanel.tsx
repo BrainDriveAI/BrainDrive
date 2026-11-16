@@ -46,7 +46,7 @@ type ChatPanelProps = {
   fileDrop?: { installStep: boolean; onInstallFile: (file: File) => void };
 };
 
-export const NO_FILE_DROP_MESSAGE = "Files can't be added here yet. To install a plugin, choose Add plugin.";
+export const NO_FILE_DROP_MESSAGE = "Files can't be added here. To install an Expert, make a new page and choose Install an Expert.";
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
   return conversation.messages

@@ -485,6 +485,19 @@ export async function writeFileContent(
   }
 }
 
+/** Deletes one file from a page. The gateway refuses the files a page needs and anything outside the page. */
+export async function deleteFileContent(projectId: string, filePath: string): Promise<void> {
+  const params = new URLSearchParams({ path: filePath });
+  const response = await authenticatedFetch(
+    `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/file-content?${params.toString()}`,
+    { method: "DELETE", headers: withLocalOwnerHeaders() }
+  );
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
 export async function createProject(name: string, icon = "folder"): Promise<Project> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/projects`, {
     method: "POST",

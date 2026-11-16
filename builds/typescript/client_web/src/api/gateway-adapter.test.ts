@@ -4,6 +4,7 @@ vi.mock("./auth-adapter", () => ({
 
 import {
   claimEmailCredit,
+  deleteFileContent,
   getEmailCreditCapability,
   getOnboardingStatus,
   getProviderModels,
@@ -593,5 +594,18 @@ describe("gateway-adapter onboarding settings", () => {
         headers: expect.objectContaining({ "Content-Type": "application/json" }),
       })
     );
+  });
+
+  it("deletes one page file through the file-content endpoint and reports a refusal", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await deleteFileContent("finance", "documents/finance/added/notes.md");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/finance/file-content?path=documents%2Ffinance%2Fadded%2Fnotes.md",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "This file cannot be deleted", code: "file_protected" }), { status: 403, headers: { "content-type": "application/json" } })));
+    await expect(deleteFileContent("finance", "documents/finance/spec.md")).rejects.toThrow();
   });
 });

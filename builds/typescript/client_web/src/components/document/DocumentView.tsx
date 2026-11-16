@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, Trash2, X } from "lucide-react";
 
-import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
+import { deleteFileContent, readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import { Button } from "@/components/ui/button";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 
@@ -12,6 +12,8 @@ type DocumentViewProps = {
   file: { name: string; path: string };
   onBack: () => void;
   backLabel?: string;
+  // When given, the owner can delete this file. Called after the file is gone.
+  onDeleted?: () => void;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -28,8 +30,11 @@ export default function DocumentView({
   showProjectName = true,
   file,
   onBack,
-  backLabel = "Back to chat"
+  backLabel = "Back to chat",
+  onDeleted
 }: DocumentViewProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -72,6 +77,20 @@ export default function DocumentView({
       setError(getErrorMessage(saveError));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setIsDeleting(true);
+    setError(null);
+
+    try {
+      await deleteFileContent(projectId, file.path);
+      onDeleted?.();
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+      setIsDeleting(false);
+      setConfirmingDelete(false);
     }
   }
 
@@ -146,6 +165,20 @@ export default function DocumentView({
                 Edit
               </Button>
             )}
+
+            {onDeleted && !isEditing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={isLoading || isDeleting || confirmingDelete}
+                className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"
+              >
+                <Trash2 size={16} />
+                Delete file
+              </Button>
+            ) : null}
           </div>
         </div>
       </header>
@@ -155,6 +188,21 @@ export default function DocumentView({
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         <div className="mx-auto flex h-full w-full max-w-[780px] flex-col">
+          {confirmingDelete && (
+            <div role="alertdialog" aria-label="Delete this file?" className="mb-4 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm">
+              <p className="text-bd-text-primary">Delete this file? It will be removed from this page. BrainDrive keeps earlier versions in Your Memory's history.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={handleDelete} disabled={isDeleting} className="border border-bd-danger-border bg-transparent text-bd-danger hover:bg-bd-bg-secondary">
+                  {isDeleting ? <LoaderCircle size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                  {isDeleting ? "Deleting..." : "Delete file"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingDelete(false)} disabled={isDeleting} className="text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading">
+                  Keep it
+                </Button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 flex items-start gap-3 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-danger">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />

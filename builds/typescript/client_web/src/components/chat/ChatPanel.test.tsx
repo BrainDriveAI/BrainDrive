@@ -214,7 +214,7 @@ describe("ChatPanel typing indicator behavior", () => {
     const onInstallFile = vi.fn();
     const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="finance" isEmpty={false} fileDrop={{ installStep: false, onInstallFile }} />);
     fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [new File(["x"], "notes.csv")], types: ["Files"] } });
-    expect(screen.getByRole("status")).toHaveTextContent("Files can't be added here yet. To install a plugin, choose Add plugin.");
+    expect(screen.getByRole("status")).toHaveTextContent("Files can't be added here. To install an Expert, make a new page and choose Install an Expert.");
     expect(onInstallFile).not.toHaveBeenCalled();
     expect(hookState.append).not.toHaveBeenCalled();
   });

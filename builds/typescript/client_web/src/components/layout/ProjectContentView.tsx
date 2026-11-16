@@ -13,7 +13,7 @@ export const PROJECT_VIEW_LABELS: Record<ProjectView, string> = {
 type DisplayFile = SidebarFileItem & { description?: string };
 const focusStyle = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber";
 
-export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onAddPlugin, onStartExpert, onInstallExpert, onDeletePage, onCreateFile }: {
+export default function ProjectContentView({ view, project, files, isLoading, hasFilesError, onOpenFile, onBack, setup, onStartExpert, onInstallExpert, onShareExpert, onDeletePage, onCreateFile }: {
   view: ProjectView;
   onDeletePage?: () => void;
   project: Project;
@@ -23,10 +23,10 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   onOpenFile: (file: ProjectFile) => void;
   onBack: () => void;
   setup?: PageSetup;
-  onAddPlugin?: () => void;
   onStartExpert?: () => void;
   onInstallExpert?: () => void;
   onCreateFile?: (path: string, content: string) => Promise<void>;
+  onShareExpert?: () => void;
 }) {
   const model = buildProjectSidebarModel(project.id, files);
   // Goals, Plan and Journal are fixed shortcuts at the top, in that order, each shown when the file exists.
@@ -42,6 +42,9 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
   const interview: DisplayFile[] = [
     ...(interviewGuide ? [{ ...interviewGuide, label: "Interview guide", description: "The questions and process used for this Expert" }] : []),
   ];
+  // Everything else the Expert comes with, so Page Settings lists the same files the export card does.
+  const otherExpertFiles: DisplayFile[] = [...model.expert.instructions.filter((item) => item.canonicalPath !== "AGENT.md"), ...model.expert.skills.filter((item) => item !== interviewGuide)]
+    .map((item) => ({ ...item, description: "Method or reference file" }));
   const title = view === "plugins" ? "Page Settings" : PROJECT_VIEW_LABELS[view];
 
   return (
@@ -54,12 +57,13 @@ export default function ProjectContentView({ view, project, files, isLoading, ha
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
         <div className="mx-auto max-w-[780px] space-y-7">
-          {view === "plugins" ? <><PluginsList project={project} setup={setup} onAddPlugin={onAddPlugin} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
+          {view === "plugins" ? <><PluginsList project={project} setup={setup} onStartExpert={onStartExpert} onInstallExpert={onInstallExpert} behaviorFiles={<>
             <FileList items={instructions ? [{ ...instructions, label: "Instructions", description: "How this Expert works with you" }] : []} onOpenFile={onOpenFile} empty="No instruction file is available for this Expert yet." />
             {interview.length ? <div className="mt-3"><FileList items={interview} onOpenFile={onOpenFile} /></div> : null}
+            {otherExpertFiles.length ? <div className="mt-3"><FileList items={otherExpertFiles} onOpenFile={onOpenFile} /></div> : null}
             <div className="mt-3"><FileList items={model.expert.templates} onOpenFile={onOpenFile} empty="No templates saved yet." /></div>
             <p className="mt-2 text-xs text-bd-text-secondary">Templates stay separate from the work in Your Files.</p>
-          </>} />{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
+          </>} />{onShareExpert && setup?.expert ? <ContentSection title="Share this Expert"><div className="rounded-lg border border-bd-border p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Save this Expert as one plugin file you can give to someone else or post on the BrainDrive forum. You see every file in it before anything is saved. Your Memory and this page's files are never included.</p><button type="button" onClick={onShareExpert} className={`mt-3 min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Share this Expert</button></div></ContentSection> : null}{onDeletePage ? <ContentSection title="Delete page"><div className="rounded-lg border border-red-400/40 p-5"><p className="text-sm leading-relaxed text-bd-text-secondary">Deleting this page removes it from the sidebar and stops its Expert. Your files stay in your Memory folder.</p><button type="button" onClick={onDeletePage} className={`mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-red-400/60 px-4 py-2 text-sm text-red-400 hover:bg-bd-bg-hover ${focusStyle}`}><Trash2 size={16} aria-hidden="true" />Delete page</button></div></ContentSection> : null}</> : isLoading ? <p role="status" className="text-bd-text-secondary">Loading your files…</p> : hasFilesError ? <p role="alert" className="text-bd-text-primary">Your files could not be loaded. Reopen this page to try again.</p> : <>
             {shortcuts.length ? <section aria-label="Goals, Plan and Journal"><FileList items={shortcuts} onOpenFile={onOpenFile} /></section> : null}
             <ContentSection title="Your work" action={onCreateFile && !addingFile ? <button type="button" onClick={() => setAddingFile(true)} className={`flex min-h-11 items-center gap-2 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}><FilePlus size={16} aria-hidden="true" />New file</button> : null}>
               {onCreateFile && addingFile ? <NewFileForm projectId={project.id} files={files} onCreateFile={onCreateFile} onClose={() => setAddingFile(false)} /> : null}
@@ -153,22 +157,14 @@ function originOf(plugin: { source: string; route?: "forum" | "elsewhere" } | un
   return "Installed from a plugin file";
 }
 
-function PluginsList({ project, setup, onAddPlugin, onStartExpert, onInstallExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onAddPlugin?: () => void; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode }) {
+function PluginsList({ project, setup, onStartExpert, onInstallExpert, behaviorFiles }: { project: Project; setup?: PageSetup; onStartExpert?: () => void; onInstallExpert?: () => void; behaviorFiles: ReactNode }) {
   const expert = setup?.expert ?? null;
-  const others = (setup?.plugins ?? []).filter((plugin) => plugin.id !== "behavior");
   return <>
-    <p className="text-sm text-bd-text-secondary">What shapes and adds to this page.</p>
+    <p className="text-sm text-bd-text-secondary">What shapes this page.</p>
     {expert ? <OriginLine origin={expert.backend ? "Included with BrainDrive" : originOf(setup?.plugins.find((plugin) => plugin.id === "behavior"))} /> : null}
     {expert ? <ContentSection title={`What ${expert.name} comes with`}>
       {expert.backend ? behaviorFiles : <MockBehavior projectId={project.id} files={expert.files} />}
     </ContentSection> : <ContentSection title="What this Expert comes with"><div className="rounded-lg border border-dashed border-bd-border p-5 text-sm leading-relaxed text-bd-text-secondary"><p>This page has no Expert yet.</p>{onStartExpert ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={onStartExpert} className={`min-h-11 rounded-lg border border-bd-amber bg-bd-amber px-4 py-2 text-bd-bg-primary hover:bg-bd-amber-hover ${focusStyle}`}>Create an Expert</button><button type="button" onClick={onInstallExpert} className={`min-h-11 rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Install an Expert</button></div> : null}</div></ContentSection>}
-    <ContentSection title="Plugins it uses">
-      {others.length === 0 ? <p className="text-sm text-bd-text-secondary">No other plugins on this page yet.</p> : <ul className="divide-y divide-bd-border rounded-lg border border-bd-border">{others.map((plugin) => <li key={plugin.id} className="px-4 py-4">
-        <p className="text-sm text-bd-text-primary">{plugin.name} <span className="text-xs text-bd-text-secondary">· {plugin.source}{plugin.route === "elsewhere" ? ", not reviewed by BrainDrive" : plugin.route === "forum" ? ", from the BrainDrive forum" : ""}</span></p>
-        <ul className="mt-2 space-y-1">{plugin.skills.map((skill) => <li key={skill.name} className="text-sm text-bd-text-secondary">{skill.name}{skill.needs ? <span className="block text-xs">{skill.needs}</span> : null}</li>)}</ul>
-      </li>)}</ul>}
-      {onAddPlugin ? <button type="button" onClick={onAddPlugin} className={`mt-4 min-h-11 rounded-lg border border-bd-border px-4 py-2 text-sm text-bd-text-primary hover:bg-bd-bg-hover ${focusStyle}`}>Add plugin</button> : null}
-    </ContentSection>
   </>;
 }
 

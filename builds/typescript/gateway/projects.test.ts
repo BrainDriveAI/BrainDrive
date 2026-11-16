@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -132,6 +133,62 @@ describe("GatewayProjectService projects", () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  describe("deleting one file from a page", () => {
+    async function withPage(run: (projects: GatewayProjectService, pageRoot: string, tempRoot: string) => Promise<void>) {
+      const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-delete-file-"));
+      const memoryRoot = path.join(tempRoot, "memory");
+      const pageRoot = path.join(memoryRoot, "documents", "finance");
+      try {
+        await mkdir(path.join(pageRoot, "added"), { recursive: true });
+        await writeFile(path.join(memoryRoot, "documents", "projects.json"), JSON.stringify([{ id: "finance", name: "Finance", icon: "wallet", conversation_id: null }]), "utf8");
+        for (const name of ["AGENT.md", "spec.md", "plan.md", "journal.md", "run-interview.md", "added/notes.md"]) await writeFile(path.join(pageRoot, name), `# ${name}`, "utf8");
+        await run(new GatewayProjectService(memoryRoot, { rootDir: tempRoot }), pageRoot, tempRoot);
+      } finally {
+        await rm(tempRoot, { recursive: true, force: true });
+      }
+    }
+
+    it("deletes an owner-added file and a method file, and leaves everything else", async () => {
+      await withPage(async (projects, pageRoot) => {
+        await expect(projects.deleteProjectFile("finance", "documents/finance/added/notes.md")).resolves.toBe(true);
+        await expect(projects.deleteProjectFile("finance", "finance/run-interview.md")).resolves.toBe(true);
+        expect(existsSync(path.join(pageRoot, "added", "notes.md"))).toBe(false);
+        expect(existsSync(path.join(pageRoot, "run-interview.md"))).toBe(false);
+        for (const name of ["AGENT.md", "spec.md", "plan.md", "journal.md"]) expect(existsSync(path.join(pageRoot, name))).toBe(true);
+      });
+    });
+
+    it("refuses the files a page needs: instructions, goals, plan and journal", async () => {
+      await withPage(async (projects, pageRoot) => {
+        for (const name of ["AGENT.md", "agent.md", "spec.md", "plan.md", "journal.md"]) {
+          await expect(projects.deleteProjectFile("finance", `documents/finance/${name}`)).rejects.toMatchObject({ code: "file_protected" });
+        }
+        expect(existsSync(path.join(pageRoot, "AGENT.md"))).toBe(true);
+      });
+    });
+
+    it("refuses a path outside the page, a folder, and a link that points elsewhere", async () => {
+      await withPage(async (projects, pageRoot, tempRoot) => {
+        const outside = path.join(tempRoot, "outside.md");
+        await writeFile(outside, "keep me", "utf8");
+        await symlink(outside, path.join(pageRoot, "link.md"));
+        for (const bad of ["documents/finance/../projects.json", "documents/fitness/spec.md", "../outside.md", "documents/finance", "documents/finance/added", "documents/finance/link.md", ""]) {
+          await expect(projects.deleteProjectFile("finance", bad)).rejects.toThrow("Invalid path");
+        }
+        expect(await readFile(outside, "utf8")).toBe("keep me");
+        expect(existsSync(path.join(pageRoot, "added", "notes.md"))).toBe(true);
+        expect(existsSync(path.join(tempRoot, "memory", "documents", "projects.json"))).toBe(true);
+      });
+    });
+
+    it("reports a missing page and a missing file differently", async () => {
+      await withPage(async (projects) => {
+        await expect(projects.deleteProjectFile("nope", "documents/nope/x.md")).resolves.toBe(false);
+        await expect(projects.deleteProjectFile("finance", "documents/finance/added/gone.md")).rejects.toMatchObject({ code: "ENOENT" });
+      });
+    });
   });
 
 });
