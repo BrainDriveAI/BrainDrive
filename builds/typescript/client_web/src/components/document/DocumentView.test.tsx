@@ -27,7 +27,7 @@ it("asks before deleting, and Keep it deletes nothing", async () => {
   await screen.findByText("Notes");
   await userEvent.click(screen.getByRole("button", { name: "Delete file" }));
   const dialog = screen.getByRole("alertdialog", { name: "Delete this file?" });
-  expect(dialog).toHaveTextContent("Delete this file? It will be removed from this page. BrainDrive keeps earlier versions in Your Memory's history.");
+  expect(dialog).toHaveTextContent("Delete this file? It will be removed from this page. You can't bring it back from inside BrainDrive yet.");
   await userEvent.click(screen.getByRole("button", { name: "Keep it" }));
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   expect(gateway.deleteFileContent).not.toHaveBeenCalled();

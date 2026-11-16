@@ -52,7 +52,7 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
       <dt className="text-bd-text-secondary">Fingerprint</dt><dd><Fingerprint value={review.fingerprint} checkHint={FINGERPRINT_CHECK} /></dd>
       <dt className="text-bd-text-secondary">Skills</dt><dd>{skills.length ? <ul className="space-y-1">{skills.map((skill) => <li key={skill.name}><span className="font-semibold">{skill.name}</span>{skill.description ? `: ${skill.description}` : ""}</li>)}</ul> : "None"}</dd>
-      {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
+      {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "You said you got this from the BrainDrive forum. BrainDrive can't check that." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>
     <p className="mt-3">{MEMORY_NOTICE}</p>
     {claimsBrainDriveFalsely(review) ? <p role="alert" className="mt-3 font-semibold text-bd-amber">Warning: this file says it's by BrainDrive, but it isn't one of the Experts BrainDrive made. Someone may be using BrainDrive's name. Don't install it.</p> : null}
@@ -72,11 +72,16 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
 // The confirm card for a change to the Expert's own instructions (AC-2.5, AC-7.14). BrainDrive draws it
 // from the proposed change, never from model text, and shows the exact wording in plain text. Only a
 // press of Change it saves anything. Changes to the owner's own work are saved without this card.
-export function ChangeCard({ event, onApply, onKeep }: { event: Extract<HostEvent, { type: "change" }>; onApply: () => void; onKeep: () => void }) {
+export function ChangeCard({ event, current, onApply, onKeep }: { event: Extract<HostEvent, { type: "change" }>; current?: string; onApply: () => void; onKeep: () => void }) {
+  const [showAll, setShowAll] = useState(false);
   return <Card label="From BrainDrive: change this Expert's instructions" tone="review">
     <h2 className="font-heading text-base text-bd-text-heading">{event.reverses ? "Undo this change to the Expert's instructions?" : "Change this Expert's instructions?"}</h2>
     {event.adding ? <p className="mt-2"><span className="text-bd-text-secondary">Adding: </span>"{event.adding}"</p> : null}
     {event.removing ? <p className="mt-2"><span className="text-bd-text-secondary">Removing: </span>"{event.removing}"</p> : null}
+    {current !== undefined ? <>
+      <button type="button" aria-expanded={showAll} onClick={() => setShowAll((open) => !open)} className="mt-2 text-xs text-bd-text-secondary underline underline-offset-2 hover:text-bd-text-primary">{showAll ? "Hide full instructions" : "See full instructions"}</button>
+      {showAll ? <pre aria-label="Full instructions" className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{current}</pre> : null}
+    </> : null}
     {event.status === "pending" ? <div className="mt-4 flex flex-wrap gap-2">
       <button type="button" onClick={onApply} className={expertPrimaryButton}>{event.reverses ? "Undo it" : "Change it"}</button>
       <button type="button" onClick={onKeep} className={expertButton}>Keep as is</button>
@@ -168,7 +173,7 @@ function InstallHelp({ projectId, active }: { projectId: string; active: boolean
     {active ? <div className="mt-3">
       <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) { const from = route.current; void fileFingerprint(file).then((fingerprint) => submitPluginFile(projectId, file.name, from, fingerprint)); } }} />
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={expertPrimaryButton} onClick={() => choose("forum")}>Choose file from the forum</button>
+        <button type="button" className={expertPrimaryButton} onClick={() => choose("forum")}>Choose the file you downloaded</button>
         <button type="button" className={expertButton} onClick={() => cancelInstallStep(projectId)}>Cancel</button>
       </div>
       <p className="mt-2 text-xs text-bd-text-secondary">BrainDrive checks the file first.</p>
@@ -188,8 +193,9 @@ function InstallHelp({ projectId, active }: { projectId: string; active: boolean
   </Card>;
 }
 
-export default function PageHostMessages({ project, setup, takenNames, renamePage }: {
+export default function PageHostMessages({ project, setup, takenNames, renamePage, onOpenSettings }: {
   project: { id: string; name: string }; setup: PageSetup | undefined; takenNames: string[]; renamePage: (id: string, name: string) => Promise<void>;
+  onOpenSettings?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -236,8 +242,13 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
       case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs}
         onSave={(fileName, files) => { downloadPluginZip(fileName, files); saveExport(project.id, event.id, fileName); }} onCancel={() => cancelExport(project.id, event.id)} />;
-      case "change": return <ChangeCard key={event.id} event={event} onApply={() => applyInstructionChange(project.id, event.id)} onKeep={() => keepInstructions(project.id, event.id)} />;
+      case "change": return <ChangeCard key={event.id} event={event} current={setup.expert?.files[event.file]} onApply={() => applyInstructionChange(project.id, event.id)} onKeep={() => keepInstructions(project.id, event.id)} />;
       case "result": return <Card key={event.id}><p>{event.text}</p></Card>;
+      case "saved": return <Card key={event.id} label="From BrainDrive: Expert saved">
+        <p className="font-semibold text-bd-text-heading">Your Expert is saved.</p>
+        <p className="mt-1">Its instructions are in Settings, where you can read and change them. Give it a real task to try it out.</p>
+        {onOpenSettings ? <button type="button" onClick={onOpenSettings} className={`${expertButton} mt-3`}>Open instructions</button> : null}
+      </Card>;
       case "notice": return <Card key={event.id} label="From BrainDrive: about AI"><p>{AI_NOTICE}</p></Card>;
     }
   })}{error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}</>;

@@ -325,7 +325,7 @@ export default function DocumentView({
 
           {confirmingDelete && (
             <div role="alertdialog" aria-label="Delete this file?" className="mb-4 rounded-xl border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm">
-              <p className="text-bd-text-primary">Delete this file? It will be removed from this page. BrainDrive keeps earlier versions in Your Memory's history.</p>
+              <p className="text-bd-text-primary">Delete this file? It will be removed from this page. You can't bring it back from inside BrainDrive yet.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" size="sm" onClick={handleDelete} disabled={isDeleting} className="border border-bd-danger-border bg-transparent text-bd-danger hover:bg-bd-bg-secondary">
                   {isDeleting ? <LoaderCircle size={16} className="animate-spin" /> : <Trash2 size={16} />}

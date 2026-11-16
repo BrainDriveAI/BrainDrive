@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
-import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
+import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteExpertSaved, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
 import PageHostMessages from "./PageHostMessages";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
@@ -59,7 +59,7 @@ it("Install an Expert leads with the forum and keeps other sources behind a smal
   const forum = screen.getByRole("link", { name: "BrainDrive forum (community.braindrive.ai)" });
   expect(forum).toHaveAttribute("href", "https://community.braindrive.ai");
   expect(forum).toHaveAttribute("target", "_blank");
-  expect(screen.getByRole("button", { name: "Choose file from the forum" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Choose the file you downloaded" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Install from somewhere else" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
   expect(screen.queryByText(/coming later/)).not.toBeInTheDocument();
@@ -92,10 +92,10 @@ it("says a forum file's source is the owner's word, and keeps the source on the 
   function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
   render(<><Harness /><Probe /></>); await addPage();
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
-  await user.click(screen.getByRole("button", { name: "Choose file from the forum" }));
+  await user.click(screen.getByRole("button", { name: "Choose the file you downloaded" }));
   fireEvent.change(screen.getByLabelText("Plugin file"), { target: { files: [new File(["x"], "garden-helper.zip")] } });
   const card = await screen.findByLabelText("From BrainDrive: review before installing");
-  expect(card).toHaveTextContent("The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from.");
+  expect(card).toHaveTextContent("You said you got this from the BrainDrive forum. BrainDrive can't check that.");
   expect(card).not.toHaveTextContent("Warning: BrainDrive has not reviewed this.");
   await user.click(screen.getByRole("button", { name: "Install" }));
   await waitFor(() => expect(seen!.plugins[0]!.route).toBe("forum"));
@@ -356,6 +356,25 @@ describe("changing the Expert's instructions (AC-2.5, AC-7.14)", () => {
     expect(instructions()).toContain("Do not call the owner Mark.");
     expect(screen.getByText("Updated: I won't call you Mark anymore.")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Undo/ })).not.toBeInTheDocument();
+  });
+
+  it("lets the owner see the full instructions from the change card", async () => {
+    const user = await expertPage();
+    await say("call me Dave");
+    const card = screen.getByLabelText("From BrainDrive: change this Expert's instructions");
+    expect(within(card).queryByLabelText("Full instructions")).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "See full instructions" }));
+    expect(within(card).getByLabelText("Full instructions")).toHaveTextContent("This Expert helps you with the job you describe");
+  });
+
+  it("marks the moment a created Expert is saved, once", async () => {
+    await expertPage();
+    await act(async () => { noteExpertSaved("p1", "That looks good, save it"); });
+    const card = screen.getByLabelText("From BrainDrive: Expert saved");
+    expect(card).toHaveTextContent("Your Expert is saved.");
+    expect(card).toHaveTextContent("Its instructions are in Settings, where you can read and change them.");
+    await act(async () => { noteExpertSaved("p1", "looks good"); });
+    expect(screen.getAllByLabelText("From BrainDrive: Expert saved")).toHaveLength(1);
   });
 
   it("Keep as is changes nothing", async () => {

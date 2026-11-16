@@ -13,7 +13,7 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteExpertChange, noteFirstMessage, offerStart, proposeInstructionChange, saveExpertFile, startBuild, startExport, startInstallStep, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteExpertChange, noteExpertSaved, noteFirstMessage, offerStart, proposeInstructionChange, saveExpertFile, startBuild, startExport, startInstallStep, usePageSetup } from "@/api/experts";
 import { buildProjectSidebarModel } from "./sidebar-categorize";
 import { canonicalFileName, projectRelativePath } from "./sidebar-labels";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
@@ -113,7 +113,7 @@ export default function AppShell({
       if (pageSetup?.events.some((event) => event.type === "choose")) startBuild(selectedProject.id, true);
       noteFirstMessage(selectedProject.id, selectedProject.name);
       // Prototype stand-in for the model proposing a change to the Expert's instructions.
-      proposeInstructionChange(selectedProject.id, message);
+      if (!noteExpertSaved(selectedProject.id, message)) proposeInstructionChange(selectedProject.id, message);
     }
   }
 
@@ -483,6 +483,7 @@ export default function AppShell({
                   setup={pageSetup}
                   takenNames={projects.filter((project) => project.id !== selectedProject.id).map((project) => project.name)}
                   renamePage={renameProject}
+                  onOpenSettings={() => handleOpenProjectView("plugins")}
                 />
               ) : undefined}
               fileDrop={Boolean(expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id))}

@@ -52,7 +52,9 @@ export type HostEvent =
   // A change to the Expert's own instructions, proposed from the owner's message and drawn by BrainDrive.
   // It shows the exact wording going in or coming out; nothing is saved until the owner presses Change it.
   | { id: string; type: "change"; file: string; adding?: string; removing?: string; notice: string; status: "pending" | "applied" | "kept"; reverses?: string }
-  | { id: string; type: "notice" };
+  | { id: string; type: "notice" }
+  // BrainDrive marks the moment a created Expert's instructions are first saved (AC-2.4).
+  | { id: string; type: "saved" };
 // What the export card starts from: the Expert's own files, and for an Expert installed from
 // someone else, the creator and license it came with (kept unchanged on export, AC-13.7).
 export type ExportDraft = { name: string; files: Record<string, string>; original?: { creator: string; license: string } };
@@ -387,6 +389,19 @@ export function proposeInstructionChange(id: string, message: string): boolean {
   }
   if (!event) return false;
   update(id, nameOf(id), (base) => ({ events: [...base.events, event!] }));
+  return true;
+}
+
+/**
+ * PROTOTYPE stand-in for the Starter's first save during Create (AC-2.4): when the owner accepts the
+ * draft ("looks good", "save it", "write it"), BrainDrive shows that the Expert is saved, once.
+ */
+export function noteExpertSaved(id: string, message: string): boolean {
+  const setup = current(id, nameOf(id));
+  if (!setup.expert || setup.expert.backend || setup.events.some((event) => event.type === "saved")) return false;
+  if (!setup.events.some((event) => event.type === "build")) return false;
+  if (!/\b(looks good|save it|write it|that'?s it|sounds good)\b/i.test(message)) return false;
+  update(id, nameOf(id), (base) => ({ events: [...base.events, { id: nextId(), type: "saved" }] }));
   return true;
 }
 
