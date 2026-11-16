@@ -163,7 +163,7 @@ function InstallHelp({ mode, projectId, active }: { mode: "expert" | "plugin"; p
   }
   return <Card>
     <p>{mode === "expert" ? "Install an Expert from the BrainDrive community forum." : "Add a plugin from the BrainDrive community forum."}</p>
-    <p className="mt-2 text-bd-text-secondary">{thing}s posted on the forum (community.braindrive.ai) have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
+    <p className="mt-2 text-bd-text-secondary">{thing}s posted on the <a href={FORUM_URL} target="_blank" rel="noopener noreferrer" className="text-bd-amber underline underline-offset-2 hover:text-bd-amber-hover">BrainDrive forum (community.braindrive.ai)</a> have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
     {active ? <div className="mt-3">
       <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) { const from = route.current; void fileFingerprint(file).then((fingerprint) => submitPluginFile(projectId, file.name, from, fingerprint)); } }} />
       <div className="flex flex-wrap gap-2">

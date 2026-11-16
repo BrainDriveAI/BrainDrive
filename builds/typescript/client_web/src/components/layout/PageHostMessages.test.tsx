@@ -50,6 +50,9 @@ it("Install an Expert leads with the forum and keeps other sources behind a smal
   await user.click(screen.getByRole("button", { name: "Install an Expert" }));
   expect(screen.getByText("Install an Expert from the BrainDrive community forum.")).toBeVisible();
   expect(screen.getByText(/have been reviewed by the BrainDrive team/)).toBeVisible();
+  const forum = screen.getByRole("link", { name: "BrainDrive forum (community.braindrive.ai)" });
+  expect(forum).toHaveAttribute("href", "https://community.braindrive.ai");
+  expect(forum).toHaveAttribute("target", "_blank");
   expect(screen.getByRole("button", { name: "Choose file from the forum" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Install from somewhere else" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByRole("button", { name: "Choose plugin file" })).not.toBeInTheDocument();
