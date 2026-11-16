@@ -36,7 +36,13 @@ it("Create an Expert attaches the BrainDrive plugin and a Behavior plugin, with 
   function Probe() { seen = usePageSetup({ id: "p1", name: "New page" }); return null; }
   render(<><Harness /><Probe /></>); await addPage();
   await user.click(screen.getByRole("button", { name: "Create an Expert" }));
-  expect(screen.getByText(/Let's create your Expert\. Its starting instructions are in this page's Settings/)).toBeVisible();
+  expect(screen.getByText("Let's create your Expert. Here's what an Expert can do today:")).toBeVisible();
+  // What's possible today, and what comes later, in fixed BrainDrive text that works with no model set up.
+  const today = screen.getByRole("list", { name: "What an Expert can do today" });
+  expect(today.querySelectorAll("li")).toHaveLength(4);
+  expect(today).toHaveTextContent("Work from files you give it, like a price list, your notes or a checklist.");
+  expect(screen.getByText("Coming later: looking things up on the web, connecting to your other apps, and working on its own.")).toBeVisible();
+  expect(screen.getByText("What would you like it to help with?")).toBeVisible();
   expect(seen!.expert?.name).toBe("My Expert");
   expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["My Expert", "BrainDrive"]);
   expect(seen!.plugins[1]!.source).toBe("included with BrainDrive");

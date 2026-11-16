@@ -223,7 +223,15 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
         <p className="mt-2 text-xs text-bd-text-secondary">Create builds a new Expert by talking it through, and can use what's already in your BrainDrive.</p>
       </Card>;
       case "build": return <Card key={event.id}>
-        <p>{event.typed ? "Got it. Let me ask a couple of questions to shape this Expert." : "Let's create your Expert. Its starting instructions are in this page's Settings. Tell me about what you want it to help with."}</p>
+        <p>{event.typed ? "Got it. Here's what an Expert can do today:" : "Let's create your Expert. Here's what an Expert can do today:"}</p>
+        <ul aria-label="What an Expert can do today" className="mt-2 list-disc space-y-1 pl-5">
+          <li><span className="font-semibold">Follow your instructions:</span> what it's for, how it works with you, how it talks.</li>
+          <li><span className="font-semibold">Work from files you give it,</span> like a price list, your notes or a checklist.</li>
+          <li><span className="font-semibold">Learn how you like a task done</span> and do it that way every time.</li>
+          <li><span className="font-semibold">Use what's already in your BrainDrive,</span> and keep goals and a plan with you if that helps.</li>
+        </ul>
+        <p className="mt-2 text-bd-text-secondary">Coming later: looking things up on the web, connecting to your other apps, and working on its own.</p>
+        <p className="mt-2">{event.typed ? "Let me ask a couple of questions to shape it." : "What would you like it to help with?"}</p>
       </Card>;
       case "install-help": return <InstallHelp key={event.id} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId && !reviewPending} />;
       case "refused": return <Card key={event.id}><p role="alert">{event.reason}</p></Card>;
