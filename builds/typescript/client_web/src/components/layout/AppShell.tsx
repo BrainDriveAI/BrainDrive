@@ -13,7 +13,7 @@ import type { ProjectFile } from "@/types/ui";
 import Sidebar from "./Sidebar";
 import DeletePage from "./DeletePage";
 import PageHostMessages from "./PageHostMessages";
-import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteExpertChange, noteFirstMessage, offerStart, proposeInstructionChange, saveExpertFile, startBuild, startExport, startInstallStep, submitPluginFile, fileFingerprint, usePageSetup } from "@/api/experts";
+import { expertPreviewEnabled, isRetiredPage, mockAddPage, noteExpertChange, noteFirstMessage, offerStart, proposeInstructionChange, saveExpertFile, startBuild, startExport, startInstallStep, usePageSetup } from "@/api/experts";
 import { buildProjectSidebarModel } from "./sidebar-categorize";
 import { canonicalFileName, projectRelativePath } from "./sidebar-labels";
 import ProjectContentView, { PROJECT_VIEW_LABELS, type ProjectView } from "./ProjectContentView";
@@ -84,7 +84,7 @@ export default function AppShell({
 
   function handleInstallExpert() {
     if (!selectedProject) return;
-    startInstallStep(selectedProject.id, "expert");
+    startInstallStep(selectedProject.id);
     handleReturnToChat();
   }
 
@@ -485,10 +485,7 @@ export default function AppShell({
                   renamePage={renameProject}
                 />
               ) : undefined}
-              fileDrop={expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id) ? {
-                installStep: pageSetup?.installStep != null,
-                onInstallFile: (file) => { const id = selectedProject.id; void fileFingerprint(file).then((fingerprint) => submitPluginFile(id, file.name, undefined, fingerprint)); }
-              } : undefined}
+              fileDrop={Boolean(expertPreviewEnabled && selectedProject && !isRootAgentProjectId(selectedProject.id))}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}

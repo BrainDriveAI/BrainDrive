@@ -208,26 +208,12 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(hookState.append).toHaveBeenCalledWith("Use ordinary chat.", expect.any(Object));
   });
 
-  it("tells the owner files can't be added outside the install step, and never sends them to the model", () => {
+  it("tells the owner files can't be added, and never sends them to the model or the install check", () => {
     const hookState = makeHookState();
     useGatewayChatMock.mockReturnValue(hookState);
-    const onInstallFile = vi.fn();
-    const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="finance" isEmpty={false} fileDrop={{ installStep: false, onInstallFile }} />);
-    fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [new File(["x"], "notes.csv")], types: ["Files"] } });
+    const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="new" isEmpty={false} fileDrop />);
+    fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [new File(["x"], "garden-planner-expert.zip")], types: ["Files"] } });
     expect(screen.getByRole("status")).toHaveTextContent("Files can't be added here. To install an Expert, make a new page and choose Install an Expert.");
-    expect(onInstallFile).not.toHaveBeenCalled();
-    expect(hookState.append).not.toHaveBeenCalled();
-  });
-
-  it("sends a dropped file to the install check during the install step", () => {
-    const hookState = makeHookState();
-    useGatewayChatMock.mockReturnValue(hookState);
-    const onInstallFile = vi.fn();
-    const { container } = render(<ChatPanel activeConversationId={null} activeProjectId="new" isEmpty={false} fileDrop={{ installStep: true, onInstallFile }} />);
-    const file = new File(["x"], "plugin.zip");
-    fireEvent.drop(container.firstElementChild ?? document.body, { dataTransfer: { files: [file], types: ["Files"] } });
-    expect(onInstallFile).toHaveBeenCalledWith(file);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(hookState.append).not.toHaveBeenCalled();
   });
 

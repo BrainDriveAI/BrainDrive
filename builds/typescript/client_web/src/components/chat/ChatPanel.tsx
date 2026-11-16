@@ -41,9 +41,10 @@ type ChatPanelProps = {
   onSendMessage?: (message: string) => void;
   onOpenSettings?: () => void;
   // Experts prototype (dev only): BrainDrive-drawn messages shown in the conversation, and the
-  // install-only file input (spec I9). Without `fileDrop`, dropped files are ignored as before.
+  // no-drop message. With `fileDrop`, a dropped file never installs and never reaches the model: the owner
+  // sees one plain message pointing to Install an Expert (drag and drop is Later). Without it, drops are ignored.
   hostEvents?: ReactNode;
-  fileDrop?: { installStep: boolean; onInstallFile: (file: File) => void };
+  fileDrop?: boolean;
 };
 
 export const NO_FILE_DROP_MESSAGE = "Files can't be added here. To install an Expert, make a new page and choose Install an Expert.";
@@ -239,13 +240,7 @@ export default function ChatPanel({
   function handleDrop(event: DragEvent) {
     ignoreDroppedFiles(event);
     if (!fileDrop || event.dataTransfer.files.length === 0) return;
-    const file = event.dataTransfer.files[0]!;
-    if (fileDrop.installStep) {
-      setDropNotice("");
-      fileDrop.onInstallFile(file);
-    } else {
-      setDropNotice(NO_FILE_DROP_MESSAGE);
-    }
+    setDropNotice(NO_FILE_DROP_MESSAGE);
   }
 
   useEffect(() => { setDropNotice(""); }, [activeProjectId]);

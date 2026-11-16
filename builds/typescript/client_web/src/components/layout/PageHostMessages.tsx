@@ -36,16 +36,15 @@ function Fingerprint({ value }: { value?: string }) {
 
 export function ReviewCard({ review, status, busy, onInstall, onCancel }: { review: PluginReview; status: "pending" | "installed" | "cancelled"; busy: boolean; onInstall: () => void; onCancel: () => void }) {
   const [showFiles, setShowFiles] = useState(false);
-  const isExpert = review.kind === "expert";
-  const instructions = isExpert ? reviewInstructions(review.files) : undefined;
+  const instructions = reviewInstructions(review.files);
   const skills = reviewSkills(review.files);
   return <Card label="From BrainDrive: review before installing" tone="review">
     <h2 className="font-heading text-lg text-bd-text-heading">{review.name}</h2>
     <p className="mt-1">{review.adds}</p>
-    {isExpert ? <section aria-label="Instructions" className="mt-3">
+    <section aria-label="Instructions" className="mt-3">
       <p className="font-semibold text-bd-text-heading">These instructions will guide this page's Expert.</p>
       <pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{instructions || "(This package has no instructions file.)"}</pre>
-    </section> : null}
+    </section>
     <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
       <dt className="text-bd-text-secondary">Creator</dt><dd>by {review.creator || "unknown"} <span className="text-bd-text-secondary">(unverified)</span></dd>
       <dt className="text-bd-text-secondary">License</dt><dd>{review.license}</dd>
@@ -53,10 +52,10 @@ export function ReviewCard({ review, status, busy, onInstall, onCancel }: { revi
       <dt className="text-bd-text-secondary">Skills</dt><dd>{skills.length ? <ul className="space-y-1">{skills.map((skill) => <li key={skill.name}><span className="font-semibold">{skill.name}</span>{skill.description ? `: ${skill.description}` : ""}</li>)}</ul> : "None"}</dd>
       {review.route ? <><dt className="text-bd-text-secondary">Source</dt><dd>{review.route === "forum" ? "The BrainDrive forum, as you chose. BrainDrive cannot confirm where a file came from." : "Somewhere else. Not reviewed by BrainDrive."}</dd></> : null}
     </dl>
-    {isExpert ? <p className="mt-3">{MEMORY_NOTICE}</p> : null}
+    <p className="mt-3">{MEMORY_NOTICE}</p>
     {review.route === "elsewhere" ? <p className="mt-3 text-bd-amber">Warning: BrainDrive has not reviewed this. Install it only if you trust who made it.</p> : null}
     {review.warnings.map((warning) => <p key={warning} className="mt-2 text-bd-amber">Warning: {warning}</p>)}
-    <p className="mt-3">{isExpert ? `Installing sets this page up as ${review.name} and renames it to that name (numbered if the name is taken).` : "Installing adds this to this page only."}</p>
+    <p className="mt-3">{`Installing sets this page up as ${review.name} and renames it to that name (numbered if the name is taken).`}</p>
     <p className="mt-3 text-bd-text-secondary">Reading does not run anything. The AI has not seen this package.</p>
     <button type="button" aria-expanded={showFiles} onClick={() => setShowFiles((open) => !open)} className={`${expertButton} mt-3`}>{showFiles ? "Hide files" : "See every file"}</button>
     {showFiles ? <div className="mt-3 space-y-3">{Object.entries(review.files).map(([name, text]) => <div key={name}><p className="break-all text-xs font-semibold text-bd-text-heading">{name}</p><pre className="mt-1 whitespace-pre-wrap break-words rounded-md bg-bd-bg-primary p-3 text-xs leading-relaxed">{text}</pre></div>)}</div> : null}
@@ -150,20 +149,19 @@ export function ExportCard({ draft, status, savedAs, onSave, onCancel }: { draft
 // The install step. The forum is the main way: files there have been reviewed by the BrainDrive team.
 // A file from anywhere else (GitHub included) is a second, smaller option behind a plain warning and
 // an "at my own risk" tick. BrainDrive cannot check where a file came from, so the owner says which.
-function InstallHelp({ mode, projectId, active }: { mode: "expert" | "plugin"; projectId: string; active: boolean }) {
+function InstallHelp({ projectId, active }: { projectId: string; active: boolean }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const route = useRef<InstallRoute>("forum");
   const [elsewhereOpen, setElsewhereOpen] = useState(false);
   const [accepted, setAccepted] = useState(false);
-  const thing = mode === "expert" ? "Expert" : "plugin";
   function choose(from: InstallRoute) {
     route.current = from;
     chooseInstallRoute(projectId, from);
     fileInput.current?.click();
   }
   return <Card>
-    <p>{mode === "expert" ? "Install an Expert from the BrainDrive community forum." : "Add a plugin from the BrainDrive community forum."}</p>
-    <p className="mt-2 text-bd-text-secondary">{thing}s posted on the <a href={FORUM_URL} target="_blank" rel="noopener noreferrer" className="text-bd-amber underline underline-offset-2 hover:text-bd-amber-hover">BrainDrive forum (community.braindrive.ai)</a> have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
+    <p>Install an Expert from the BrainDrive community forum.</p>
+    <p className="mt-2 text-bd-text-secondary">Experts posted on the <a href={FORUM_URL} target="_blank" rel="noopener noreferrer" className="text-bd-amber underline underline-offset-2 hover:text-bd-amber-hover">BrainDrive forum (community.braindrive.ai)</a> have been reviewed by the BrainDrive team. Download the file from the post, then choose it here.</p>
     {active ? <div className="mt-3">
       <input ref={fileInput} type="file" aria-label="Plugin file" accept=".zip,application/zip" className="sr-only" tabIndex={-1} onChange={(change) => { const file = change.target.files?.[0]; change.target.value = ""; if (file) { const from = route.current; void fileFingerprint(file).then((fingerprint) => submitPluginFile(projectId, file.name, from, fingerprint)); } }} />
       <div className="flex flex-wrap gap-2">
@@ -201,8 +199,8 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
   async function install(event: Extract<HostEvent, { type: "review" }>) {
     setBusy(true); setError("");
     try {
-      const finalName = event.review.kind === "expert" ? uniquePageName(event.review.name, takenNames) : project.name;
-      if (event.review.kind === "expert") await renamePage(project.id, finalName);
+      const finalName = uniquePageName(event.review.name, takenNames);
+      await renamePage(project.id, finalName);
       applyInstall(project.id, event.id, finalName);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The install did not finish. Nothing was changed.");
@@ -215,14 +213,14 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
         <p>Do you want to create an Expert for this page, or install one?</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className={expertPrimaryButton} onClick={() => startBuild(project.id)}>Create an Expert</button>
-          <button type="button" className={expertButton} onClick={() => startInstallStep(project.id, "expert")}>Install an Expert</button>
+          <button type="button" className={expertButton} onClick={() => startInstallStep(project.id)}>Install an Expert</button>
         </div>
         <p className="mt-2 text-xs text-bd-text-secondary">Create builds a new Expert by talking it through, and can use what's already in your BrainDrive.</p>
       </Card>;
       case "build": return <Card key={event.id}>
         <p>{event.typed ? "Got it. Let me ask a couple of questions to shape this Expert." : "Let's create your Expert. Its starting instructions are in this page's Settings. Tell me about what you want it to help with."}</p>
       </Card>;
-      case "install-help": return <InstallHelp key={event.id} mode={event.mode} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId && !reviewPending} />;
+      case "install-help": return <InstallHelp key={event.id} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId && !reviewPending} />;
       case "refused": return <Card key={event.id}><p role="alert">{event.reason}</p></Card>;
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
       case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs}

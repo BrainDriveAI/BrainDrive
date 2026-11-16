@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as gateway from "@/api/gateway-adapter";
-import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, startInstallStep, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
+import { AI_NOTICE, MEMORY_NOTICE, exportFileList, isRetiredPage, mockAddPage, noteFirstMessage, proposeInstructionChange, resetExpertsMock, startExport, submitPluginFile, uniquePageName, usePageSetup } from "@/api/experts";
 import PageHostMessages from "./PageHostMessages";
 
 vi.mock("@/api/gateway-adapter", () => ({ createProject: vi.fn() }));
@@ -117,20 +117,6 @@ it("Cancel on the install step closes it, installs nothing and offers the two bu
   expect(screen.queryByLabelText("From BrainDrive: review before installing")).not.toBeInTheDocument();
 });
 
-it("Cancel on Add plugin leaves an Expert page as it was", async () => {
-  const user = userEvent.setup();
-  let seen: ReturnType<typeof usePageSetup>;
-  function Probe() { seen = usePageSetup({ id: "finance", name: "Finance" }); return null; }
-  function FinanceHarness() { const project = { id: "finance", name: "Finance" }; return <PageHostMessages project={project} setup={usePageSetup(project)} takenNames={[]} renamePage={renamePage} />; }
-  render(<><FinanceHarness /><Probe /></>);
-  await act(async () => { startInstallStep("finance", "plugin"); });
-  await user.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.getByText("Nothing was installed.")).toBeVisible();
-  expect(seen!.installStep).toBeNull();
-  expect(seen!.plugins.map((plugin) => plugin.name)).toEqual(["BrainDrive"]);
-  expect(screen.queryByRole("button", { name: "Create an Expert" })).not.toBeInTheDocument();
-});
-
 it("checks the file first and shows a one-line plain reason when it fails", async () => {
   const user = userEvent.setup();
   render(<Harness />); await addPage();
@@ -193,22 +179,6 @@ it("Cancel installs nothing and offers the two buttons again", async () => {
   expect(renamePage).not.toHaveBeenCalled();
   expect(screen.getByText("Nothing was installed.")).toBeVisible();
   expect(screen.getByRole("button", { name: "Create an Expert" })).toBeVisible();
-});
-
-it("Add plugin adds a plugin to the current page only, and refuses an Expert file", async () => {
-  const user = userEvent.setup();
-  let seen: ReturnType<typeof usePageSetup>;
-  function Probe() { seen = usePageSetup({ id: "p1", name: "Finance" }); return null; }
-  render(<><Harness name="Finance" /><Probe /></>);
-  await act(async () => { startInstallStep("p1", "plugin"); });
-  expect(screen.getByText("Add a plugin from the BrainDrive community forum.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Choose file from the forum" })).toBeVisible();
-  await submit("expert-pack.zip");
-  expect(await screen.findByRole("alert")).toHaveTextContent("This is an Expert; install it on a new page.");
-  await submit("research-helper.zip");
-  await user.click(await screen.findByRole("button", { name: "Install" }));
-  expect(renamePage).not.toHaveBeenCalled();
-  expect(seen!.plugins.map((plugin) => plugin.name)).toContain("Research Helper");
 });
 
 it("shows the AI notice once, on the first message of a page with an Expert", async () => {
