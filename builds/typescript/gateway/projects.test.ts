@@ -8,6 +8,29 @@ import { describe, expect, it } from "vitest";
 import { GatewayProjectService } from "./projects.js";
 
 describe("GatewayProjectService projects", () => {
+  it("starts a new page with only its instructions, and never reuses a deleted page's folder", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-new-expert-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "new-page"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "projects.json"), "[]", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "new-page", "spec.md"), "Old page's goals", "utf8");
+      const projects = new GatewayProjectService(memoryRoot, { rootDir: process.cwd() });
+
+      const created = await projects.createProject("New page");
+
+      expect(created.id).toBe("new-page-2");
+      const folder = path.join(memoryRoot, "documents", "new-page-2");
+      expect(await readFile(path.join(folder, "AGENT.md"), "utf8")).toContain("BrainDrive Starter");
+      for (const file of ["spec.md", "plan.md", "journal.md", "run-interview.md"]) {
+        expect(existsSync(path.join(folder, file))).toBe(false);
+      }
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("detaches a project from its stored conversation", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-detach-conversation-"));
     const memoryRoot = path.join(tempRoot, "memory");

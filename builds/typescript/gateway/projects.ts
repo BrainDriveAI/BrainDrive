@@ -3,7 +3,7 @@ import { cp, lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/
 import { existsSync } from "node:fs";
 
 import { commitMemoryChange } from "../git.js";
-import { isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
+import { NEW_EXPERT_TEMPLATE_ID, isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "../memory/paths.js";
 import {
   ROOT_AGENT_CANONICAL_ID,
@@ -96,6 +96,10 @@ export class GatewayProjectService {
     const projects = await this.readProjects();
     const desiredId = slugifyProjectName(projectName);
     const existingIds = new Set(projects.map((project) => project.id.toLowerCase()));
+    // A deleted page's folder stays in Your Memory (Page changes PC-3.1), so a new page must not reuse
+    // its id, or it would pick up the old page's files.
+    const folders = await readdir(this.documentsRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of folders) if (entry.isDirectory()) existingIds.add(entry.name.toLowerCase());
     const projectId = nextAvailableProjectId(desiredId, existingIds);
 
     const nextProject: GatewayProject = {
@@ -108,8 +112,9 @@ export class GatewayProjectService {
 
     projects.push(nextProject);
     await this.writeProjects(projects);
+    // PROTOTYPE (ux/experts-skills): every new page is an Expert page and starts from the Starter stand-in.
     await scaffoldProjectFiles(this.rootDir, this.memoryRoot, projectId, projectName, {
-      templateId: projectId,
+      templateId: NEW_EXPERT_TEMPLATE_ID,
       force: false,
       dryRun: false,
     });

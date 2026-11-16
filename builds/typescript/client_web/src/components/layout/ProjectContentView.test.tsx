@@ -291,7 +291,7 @@ it("lists every file a default Expert comes with in Page Settings, methods and r
 
 describe("About this Expert and Advanced (AC-4.1, AC-8.8)", () => {
   const installed = (over: Partial<PageSetup["plugins"][number]> = {}) => setup({
-    expert: { name: "Garden Planner", files: { "SKILL.md": "---\nname: garden-plan\ndescription: Plans a garden.\n---\nHelp.", "templates/spec.md": "# Spec" } },
+    expert: { name: "Garden Planner", instanceId: "3f2a9c1e-7b4d-4e8a-9f10-2c6d8e5b7a41", files: { "SKILL.md": "---\nname: garden-plan\ndescription: Plans a garden.\n---\nHelp.", "templates/spec.md": "# Spec" } },
     plugins: [{ id: "behavior", name: "Garden Planner", source: "installed from a plugin file", skills: [], route: "forum", creator: "Sample Author", license: "MIT", fileName: "garden-planner-expert.zip", version: "1.0.0", installedAt: "2026-11-16T12:00:00Z", ...over }],
   });
 
@@ -324,6 +324,9 @@ describe("About this Expert and Advanced (AC-4.1, AC-8.8)", () => {
     await userEvent.click(screen.getByText("Advanced"));
     expect(record).toBeVisible();
     expect(screen.getByText("installed from a plugin file (garden-planner-expert.zip)")).toBeVisible();
+    // The Expert's stable local ID can be inspected here (v4 AC-8.8).
+    expect(screen.getByText("Expert ID")).toBeVisible();
+    expect(screen.getByText("3f2a9c1e-7b4d-4e8a-9f10-2c6d8e5b7a41")).toBeVisible();
   });
 });
 

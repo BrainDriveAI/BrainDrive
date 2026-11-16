@@ -89,7 +89,7 @@ export const FORUM_URL = "https://community.braindrive.ai";
 // The export card (ES-5). BrainDrive draws it, not the model. It lists every file that will be in the
 // plugin file, each opening in full. There is nothing to tick: the file is everything in the plugin.
 // Save as a plugin saves the file to the owner's computer and sends nothing anywhere.
-export function ExportCard({ draft, status, savedAs, fingerprint, onSave, onCancel }: { draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; fingerprint?: string; onSave: (fileName: string, files: [string, string][]) => void; onCancel: () => void }) {
+export function ExportCard({ draft, status, savedAs, onSave, onCancel }: { draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; onSave: (fileName: string, files: [string, string][]) => void; onCancel: () => void }) {
   const [choices, setChoices] = useState<ExportChoices>({ creator: "", license: "MIT", otherLicense: "" });
   const [open, setOpen] = useState<string | null>(null);
   const [licenseHelp, setLicenseHelp] = useState(false);
@@ -140,10 +140,8 @@ export function ExportCard({ draft, status, savedAs, fingerprint, onSave, onCanc
         <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>Open the forum's sharing category.</li>
           <li>Start a new post and attach {savedAs}.</li>
-          <li>Paste this file's fingerprint into the post, so people who install it can check they have your file.</li>
           <li>Your post is held until a moderator has checked it. Only you and the moderators can see it until then.</li>
         </ol>
-        <div className="mt-3"><p className="text-xs font-semibold uppercase tracking-wide text-bd-text-secondary">Fingerprint</p><Fingerprint value={fingerprint} /></div>
         <a href={FORUM_URL} target="_blank" rel="noopener noreferrer" className={`${expertButton} mt-3 inline-flex items-center`}>Share on the forum</a>
         <p className="mt-2 text-xs text-bd-text-secondary">If the forum does not open, go to community.braindrive.ai.</p>
       </div>
@@ -236,8 +234,8 @@ export default function PageHostMessages({ project, setup, takenNames, renamePag
       case "install-help": return <InstallHelp key={event.id} projectId={project.id} active={setup.installStep !== null && event.id === lastHelpId && !reviewPending} />;
       case "refused": return <Card key={event.id}><p role="alert">{event.reason}</p></Card>;
       case "review": return <ReviewCard key={event.id} review={event.review} status={event.status} busy={busy} onInstall={() => void install(event)} onCancel={() => cancelInstall(project.id, event.id)} />;
-      case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs} fingerprint={event.fingerprint}
-        onSave={(fileName, files) => { const saved = downloadPluginZip(fileName, files); void fileFingerprint(saved).then((value) => saveExport(project.id, event.id, fileName, value)); }} onCancel={() => cancelExport(project.id, event.id)} />;
+      case "export": return <ExportCard key={event.id} draft={event.draft} status={event.status} savedAs={event.savedAs}
+        onSave={(fileName, files) => { downloadPluginZip(fileName, files); saveExport(project.id, event.id, fileName); }} onCancel={() => cancelExport(project.id, event.id)} />;
       case "change": return <ChangeCard key={event.id} event={event} onApply={() => applyInstructionChange(project.id, event.id)} onKeep={() => keepInstructions(project.id, event.id)} />;
       case "result": return <Card key={event.id}><p>{event.text}</p></Card>;
       case "notice": return <Card key={event.id} label="From BrainDrive: about AI"><p>{AI_NOTICE}</p></Card>;

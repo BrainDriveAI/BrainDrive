@@ -288,9 +288,8 @@ describe("Share this Expert", () => {
     expect(card()).toHaveTextContent("held until a moderator has checked it");
     expect(screen.getByRole("link", { name: "Share on the forum" })).toHaveAttribute("href", "https://community.braindrive.ai");
     expect(screen.queryByRole("button", { name: "Save as a plugin" })).not.toBeInTheDocument();
-    // The saved file's fingerprint is shown so the creator can paste it into the forum post.
-    expect(card()).toHaveTextContent("Paste this file's fingerprint into the post");
-    await waitFor(() => expect(within(card()).getByRole("button", { name: "Copy" })).toBeVisible());
+    // The moderator's release post carries the fingerprint, so the creator is not asked to paste one.
+    expect(card()).not.toHaveTextContent("fingerprint");
   });
 
   it("Cancel saves nothing", async () => {

@@ -58,6 +58,7 @@ const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
 const ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH = "system/migrations/your-agent-identity-cleanup";
 
+export const NEW_EXPERT_TEMPLATE_ID = "new-expert";
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
 const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal.md"] as const;
 const PAGE_JOURNAL_PROJECT_IDS = new Set(["finance", "fitness", "career", "relationships", "new-project"]);
@@ -310,6 +311,11 @@ export async function scaffoldProjectFiles(
 
 function projectTemplateFilesFor(projectId: string, templateId: string): readonly string[] {
   if (isRootAgentProjectId(projectId) || isRootAgentProjectId(templateId)) {
+    return ["AGENT.md"];
+  }
+  // PROTOTYPE (ux/experts-skills): a new page starts with only its instructions, the Starter stand-in.
+  // Goals, Plan and Journal are created during Create only for an Expert that works toward a goal.
+  if (templateId === NEW_EXPERT_TEMPLATE_ID) {
     return ["AGENT.md"];
   }
 

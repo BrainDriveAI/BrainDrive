@@ -162,15 +162,15 @@ type ExpertFacts = { origin: string; creator: string; license?: string; version?
 // kept for Advanced. Defaults that came with BrainDrive are shown as BrainDrive's, under MIT.
 function expertFacts(expert: NonNullable<PageSetup["expert"]>, plugin: PagePlugin | undefined, backendSkills: string[]): ExpertFacts {
   if (expert.backend) return { origin: "Included with BrainDrive", creator: "by BrainDrive", license: "MIT", skills: backendSkills,
-    record: [["Type", "Expert"], ["Name", expert.name], ["Source", "came with BrainDrive"]] };
+    record: [["Expert ID", expert.instanceId ?? "not set"], ["Type", "Expert"], ["Name", expert.name], ["Source", "came with BrainDrive"]] };
   const installed = plugin?.source === "installed from a plugin file";
   const skills = reviewSkills(expert.files).map((skill) => skill.name);
   if (!installed) return { origin: "Made by you", creator: "made by you", skills,
-    record: [["Type", "Expert"], ["Name", expert.name], ["Source", "made by you"]] };
+    record: [["Expert ID", expert.instanceId ?? "not set"], ["Type", "Expert"], ["Name", expert.name], ["Source", "made by you"]] };
   return {
     origin: originOf(plugin), creator: `by ${plugin.creator || "unknown"}`, license: plugin.license || "not stated", version: plugin.version || "none given",
     installed: plugin.installedAt ? new Date(plugin.installedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : undefined,
-    skills, record: [["Type", "Expert"], ["Name", expert.name], ["Source", `installed from a plugin file (${plugin.fileName ?? "file name not kept"})`]],
+    skills, record: [["Expert ID", expert.instanceId ?? "not set"], ["Type", "Expert"], ["Name", expert.name], ["Source", `installed from a plugin file (${plugin.fileName ?? "file name not kept"})`]],
   };
 }
 

@@ -47,7 +47,7 @@ export type HostEvent =
   | { id: string; type: "install-help" }
   | { id: string; type: "refused"; reason: string }
   | { id: string; type: "review"; review: PluginReview; status: "pending" | "installed" | "cancelled" }
-  | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string; fingerprint?: string }
+  | { id: string; type: "export"; draft: ExportDraft; status: "pending" | "saved" | "cancelled"; savedAs?: string }
   | { id: string; type: "result"; text: string }
   // A change to the Expert's own instructions, proposed from the owner's message and drawn by BrainDrive.
   // It shows the exact wording going in or coming out; nothing is saved until the owner presses Change it.
@@ -63,7 +63,8 @@ export type PageSetup = {
   installStep: "expert" | null;
   installRoute?: InstallRoute | null;
   // `backend` means the Expert's instructions and templates are real files on the page.
-  expert: { name: string; files: Record<string, string>; backend?: boolean } | null;
+  // `instanceId` is the Expert's stable local ID (v4 AC-8.8), separate from its name and page.
+  expert: { name: string; files: Record<string, string>; backend?: boolean; instanceId?: string } | null;
   plugins: PagePlugin[];
   noticeShown: boolean;
 };
@@ -86,11 +87,16 @@ const nextId = () => `event-${++counter}`;
 const emit = () => listeners.forEach((listener) => listener());
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 
+/** A new stable local Expert ID. In the real build it is created once and kept in the install record. */
+export function newInstanceId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `expert-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function defaultSetup(id: string, name: string): PageSetup | undefined {
   if (!DEFAULT_EXPERT_IDS.includes(id)) return undefined;
   let found = defaults.get(id);
   if (!found || found.expert?.name !== name) {
-    found = { events: [], installStep: null, noticeShown: false, expert: { name, files: {}, backend: true }, plugins: [BRAINDRIVE_PLUGIN] };
+    found = { events: [], installStep: null, noticeShown: false, expert: { name, files: {}, backend: true, instanceId: found?.expert?.instanceId ?? newInstanceId() }, plugins: [BRAINDRIVE_PLUGIN] };
     defaults.set(id, found);
   }
   return found;
@@ -125,7 +131,7 @@ export function startBuild(id: string, typed = false) {
   update(id, nameOf(id), (setup) => ({
     events: [...setup.events.filter((event) => event.type !== "choose"), { id: nextId(), type: "build", typed }],
     installStep: null,
-    expert: { name: "My Expert", files: { "instructions.md": "# My Expert\n\nThis Expert helps you with the job you describe in the conversation. Tell it what you want done, and change these instructions any time.\n" } },
+    expert: { name: "My Expert", instanceId: newInstanceId(), files: { "instructions.md": "# My Expert\n\nThis Expert helps you with the job you describe in the conversation. Tell it what you want done, and change these instructions any time.\n" } },
     plugins: [{ id: "behavior", name: "My Expert", source: "made by you", skills: [{ name: "Instructions" }] }, BRAINDRIVE_PLUGIN],
   }));
 }
@@ -246,7 +252,7 @@ export function applyInstall(id: string, eventId: string, pageName: string) {
     const skills = Object.keys(review.files).filter((file) => file.endsWith("SKILL.md")).map(() => ({ name: "Instructions" }));
     const events: HostEvent[] = setup.events.map((item) => item.id === eventId && item.type === "review" ? { ...item, status: "installed" as const } : item);
     events.push({ id: nextId(), type: "result", text: `Installed ${pageName}. This page is now set up as ${pageName}.` });
-    return { events, installStep: null, installRoute: null, expert: { name: pageName, files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
+    return { events, installStep: null, installRoute: null, expert: { name: pageName, instanceId: newInstanceId(), files: Object.fromEntries(Object.entries(review.files).filter(([file]) => file !== "LICENSE.txt")) },
       plugins: [{ id: "behavior", name: pageName, source: "installed from a plugin file", skills, route: review.route, creator: review.creator, license: review.license, fileName: review.fileName, version: review.version, installedAt: new Date().toISOString() }, ...setup.plugins.filter((plugin) => plugin.id !== "behavior")] };
   });
 }
@@ -321,9 +327,9 @@ export function startExport(id: string, backendFiles?: Record<string, string>) {
   });
 }
 
-/** Marks the export saved. The fingerprint of the saved file goes in the forum post so owners can check it (AC-8.3). */
-export function saveExport(id: string, eventId: string, savedAs: string, fingerprint?: string) {
-  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "saved" as const, savedAs, fingerprint } : item) }));
+/** Marks the export saved. The moderator's release post carries the approved file's fingerprint (v4 AC-15.5), not the creator. */
+export function saveExport(id: string, eventId: string, savedAs: string) {
+  update(id, nameOf(id), (setup) => ({ events: setup.events.map((item) => item.id === eventId && item.type === "export" ? { ...item, status: "saved" as const, savedAs } : item) }));
 }
 
 export function cancelExport(id: string, eventId: string) {
