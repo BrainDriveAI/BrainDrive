@@ -477,7 +477,7 @@ async function writeVaultSecret(secretRef: string, value: string): Promise<void>
   await upsertVaultSecret(secretRef, value, masterKey, paths);
 }
 
-describe.sequential("gateway auth route integration", () => {
+describe("gateway auth route integration", { concurrent: false }, () => {
   let context: TestServerContext | null = null;
 
   afterEach(async () => {

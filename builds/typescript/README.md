@@ -31,6 +31,12 @@ This is the current source-adjacent entry for the main BrainDrive runtime. Use t
 
 The shipped provider choices include BrainDrive Models, BYOK OpenRouter, and Ollama. Do not place BrainDrive-owned provider keys in client config, require BrainDrive Models credits for Ollama or owner-supplied OpenRouter credentials, or remove those independent choices while changing provider behavior.
 
+## Compiler and lint tooling
+
+The runtime builds with TypeScript 7, while `typescript-eslint` uses the classic TypeScript 6 compiler API. The development dependencies use two npm aliases: `@typescript/native` points to `typescript` 7 and provides `tsc`; `typescript` points to `@typescript/typescript6` and provides the API expected by ESLint plus the separate `tsc6` command. Both are development dependencies and are removed from the production image.
+
+Use `npm ci` without peer-dependency bypass flags. Verify the split with `npx tsc --version`, `npx tsc6 --version`, and `node -p "require('typescript').version"`. Keep these aliases when reviewing Dependabot updates: replacing the `typescript` API alias with a direct TypeScript 7 dependency breaks the linter’s peer/API contract. The compiler package’s major version and the lint API package’s major version are intentionally different. Web and MCP packages retain their independently declared toolchains; run their own checks when integrating dependency updates.
+
 ## Common commands
 
 Run these from this directory after installing dependencies:
